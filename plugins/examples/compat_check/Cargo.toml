@@ -1,0 +1,13 @@
+[package]
+name = "compat-check-example"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/plugin.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+gini-core = { path = "../../../crates/gini-core" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt", "macros"] }

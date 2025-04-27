@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/gini-core",
     "crates/gini",
+    "plugins/examples/compat_check", # Add the new example plugin
     # Add future plugin crates here, e.g., "plugins/gini-plugin-example"
 ]
 
