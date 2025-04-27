@@ -8,7 +8,7 @@ pub const APP_VERSION: &str = "0.0.1";
 pub const APP_AUTHOR: &str = "kunihir0";
 
 /// Current API version
-pub const API_VERSION: &str = "0.0.1";
+pub const API_VERSION: &str = "0.1.0"; // Updated to match test expectations
 
 /// Configuration directory name
 pub const CONFIG_DIR_NAME: &str = ".osxforge";

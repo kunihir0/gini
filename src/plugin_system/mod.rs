@@ -14,3 +14,6 @@ pub use version::{ApiVersion, VersionRange};
 pub use dependency::PluginDependency;
 pub use manifest::PluginManifest;
 pub use manager::{PluginManager, DefaultPluginManager};
+// Test module declaration
+#[cfg(test)]
+mod tests;

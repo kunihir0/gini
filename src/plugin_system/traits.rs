@@ -2,6 +2,8 @@ use std::fmt;
 use crate::kernel::error::Result;
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::dependency::PluginDependency;
+use crate::stage_manager::context::StageContext; // Added for preflight context if needed later
+use async_trait::async_trait;
 use crate::stage_manager::requirement::StageRequirement;
 
 /// Priority levels for plugins
@@ -153,6 +155,7 @@ pub enum PluginError {
     ExecutionError(String),
     DependencyError(String),
     VersionError(String),
+    PreflightCheckError(String), // Added for preflight check failures
 }
 
 impl fmt::Display for PluginError {
@@ -163,11 +166,13 @@ impl fmt::Display for PluginError {
             PluginError::ExecutionError(msg) => write!(f, "Plugin execution error: {}", msg),
             PluginError::DependencyError(msg) => write!(f, "Plugin dependency error: {}", msg),
             PluginError::VersionError(msg) => write!(f, "Plugin version error: {}", msg),
+            PluginError::PreflightCheckError(msg) => write!(f, "Plugin pre-flight check error: {}", msg),
         }
     }
 }
 
 /// Core trait that all plugins must implement
+#[async_trait]
 pub trait Plugin: Send + Sync {
     /// The name of the plugin
     fn name(&self) -> &'static str;
@@ -192,7 +197,17 @@ pub trait Plugin: Send + Sync {
     
     /// Initialize the plugin
     fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> Result<()>;
-    
+
+    /// Perform pre-flight checks.
+    /// This method is called during the `PluginPreflightCheck` stage.
+    /// Plugins can override this to perform checks before their main initialization.
+    /// The default implementation does nothing and succeeds.
+    /// The `context` provides access to shared resources if needed for checks.
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), crate::plugin_system::traits::PluginError> {
+        // Default: No pre-flight check needed
+        Ok(())
+    }
+
     /// Get the stages provided by this plugin
     fn stages(&self) -> Vec<Box<dyn crate::stage_manager::Stage>>;
     
