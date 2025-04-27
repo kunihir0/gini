@@ -1,0 +1,30 @@
+[package]
+name = "gini-core"
+version.workspace = true # Inherit from workspace
+edition.workspace = true # Inherit from workspace
+authors.workspace = true # Inherit from workspace
+# description = "Core library for the Gini plugin engine"
+# license.workspace = true
+# repository.workspace = true
+
+[lib]
+name = "gini_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Dependencies moved from the original gini crate
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "sync"] }
+# Or use workspace dependency: tokio = { workspace = true }
+async-trait = "0.1"
+# Or use workspace dependency: async-trait = { workspace = true }
+tokio-stream = "0.1"
+# Or use workspace dependency: tokio-stream = { workspace = true }
+semver = "1.0.26"
+# Or use workspace dependency: semver = { workspace = true }
+thiserror = "2.0.12" # Assuming this is used by core error types
+# Or use workspace dependency: thiserror = { workspace = true }
+
+[dev-dependencies]
+# Tests moved here require tempfile
+tempfile = "3.10"
+# Or use workspace dependency: tempfile = { workspace = true }

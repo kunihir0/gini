@@ -1,14 +1,21 @@
-[package]
-name = "gini"
-version = "0.0.1"
+[workspace]
+resolver = "2"
+members = [
+    "crates/gini-core",
+    "crates/gini",
+    # Add future plugin crates here, e.g., "plugins/gini-plugin-example"
+]
+
+# Optional: Define workspace-level dependencies if shared across many crates
+# [workspace.dependencies]
+# tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "sync"] }
+# async-trait = "0.1"
+# ...
+
+# Define workspace-level metadata
+[workspace.package]
+version = "0.1.0" # Manage version centrally
+authors = ["Gini Developers <gini-devs@example.com>"] # Placeholder - Update with actual authors
 edition = "2024"
-
-[dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "sync"] }
-async-trait = "0.1"
-tokio-stream = "0.1"
-semver = "1.0.26"
-thiserror = "2.0.12"
-
-[dev-dependencies]
-tempfile = "3.10"
+# license = "..."
+# repository = "..."

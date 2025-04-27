@@ -1,12 +1,6 @@
-mod kernel;
-mod plugin_system;
-mod stage_manager;
-mod storage;
-mod event;
-mod ui_bridge;
-mod utils;
+// Modules are now in the gini_core crate
 
-use crate::kernel::bootstrap::Application;
+use gini_core::kernel::bootstrap::Application;
 
 #[tokio::main]
 async fn main() {
