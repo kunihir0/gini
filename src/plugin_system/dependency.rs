@@ -45,11 +45,12 @@ impl fmt::Display for DependencyError {
                 required_range, 
                 actual_version 
             } => {
+                // Use the constraint string from VersionRange for display
                 write!(
-                    f, 
-                    "Plugin version mismatch: {} required version {} but found {}", 
-                    plugin_name, 
-                    required_range.min.to_string(), 
+                    f,
+                    "Plugin version mismatch: '{}' requires version '{}' but found '{}'",
+                    plugin_name,
+                    required_range.constraint_string(), // Use constraint_string()
                     actual_version
                 )
             }
@@ -100,13 +101,17 @@ impl PluginDependency {
         }
     }
     
-    /// Check if this dependency is compatible with the given plugin version
-    pub fn is_compatible_with(&self, version: &str) -> bool {
+    /// Check if this dependency is compatible with the given plugin version string
+    pub fn is_compatible_with(&self, version_str: &str) -> bool {
         if let Some(ref range) = self.version_range {
-            // Parse the version
-            match crate::plugin_system::version::ApiVersion::from_str(version) {
-                Ok(v) => range.includes(&v),
-                Err(_) => false,
+            // Parse the provided version string into semver::Version
+            match semver::Version::parse(version_str) {
+                Ok(v) => range.includes(&v), // Use includes with semver::Version
+                Err(_) => {
+                    // If the provided version string is invalid, it's not compatible
+                    eprintln!("Warning: Could not parse version string '{}' for compatibility check with plugin '{}'", version_str, self.plugin_name);
+                    false
+                }
             }
         } else {
             // No version range means any version is acceptable
@@ -119,13 +124,13 @@ impl fmt::Display for PluginDependency {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let requirement_type = if self.required { "Requires" } else { "Optional" };
         match &self.version_range {
+            // Use the constraint string from VersionRange for display
             Some(range) => write!(
-                f, 
-                "{} plugin: {} (version range: {} to {})", 
-                requirement_type, 
-                self.plugin_name, 
-                range.min.to_string(), 
-                range.max.to_string()
+                f,
+                "{} plugin: {} (version: {})",
+                requirement_type,
+                self.plugin_name,
+                range.constraint_string() // Use constraint_string()
             ),
             None => write!(f, "{} plugin: {} (any version)", requirement_type, self.plugin_name),
         }

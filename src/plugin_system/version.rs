@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use std::fmt;
+use semver::{Version, VersionReq}; // Import semver types
 
 /// Error type for version parsing
 #[derive(Debug)]
@@ -75,60 +76,56 @@ impl fmt::Display for ApiVersion {
     }
 }
 
-/// Represents a range of compatible API versions
+/// Represents a version requirement range using semver constraints.
 #[derive(Debug, Clone)]
 pub struct VersionRange {
-    pub min: ApiVersion,
-    pub max: ApiVersion,
+    /// The original constraint string (e.g., "^1.2.3", ">=2.0")
+    constraint: String,
+    /// The parsed semver requirement
+    req: VersionReq,
 }
 
 impl VersionRange {
-    /// Creates a new version range
-    pub fn new(min: ApiVersion, max: ApiVersion) -> Self {
-        Self { min, max }
-    }
-    
-    /// Checks if a version is within this range
-    pub fn includes(&self, version: &ApiVersion) -> bool {
-        &self.min <= version && version <= &self.max
-    }
-    
-    /// Creates a version range from a semver-style constraint like "^1.2.3"
+    /// Creates a new version range from a constraint string.
     pub fn from_constraint(constraint: &str) -> Result<Self, VersionError> {
-        if constraint.starts_with('^') {
-            // Caret range: compatible with everything that has the same major version
-            // ^1.2.3 becomes 1.2.3 <= version < 2.0.0
-            let version_str = &constraint[1..];
-            let version = ApiVersion::from_str(version_str)?;
-            
-            let min = version.clone();
-            let max = ApiVersion::new(version.major + 1, 0, 0);
-            
-            Ok(Self { min, max })
-        } else if constraint.starts_with('~') {
-            // Tilde range: compatible with everything that has the same minor version
-            // ~1.2.3 becomes 1.2.3 <= version < 1.3.0
-            let version_str = &constraint[1..];
-            let version = ApiVersion::from_str(version_str)?;
-            
-            let min = version.clone();
-            let max = ApiVersion::new(version.major, version.minor + 1, 0);
-            
-            Ok(Self { min, max })
-        } else if constraint.starts_with(">=") {
-            // Greater than or equal: compatible with everything >= version
-            let version_str = &constraint[2..];
-            let version = ApiVersion::from_str(version_str)?;
-            
-            let min = version;
-            // Set a very high max version
-            let max = ApiVersion::new(999, 999, 999);
-            
-            Ok(Self { min, max })
-        } else {
-            // Default to exact match
-            let version = ApiVersion::from_str(constraint)?;
-            Ok(Self { min: version.clone(), max: version })
-        }
+        let req = VersionReq::parse(constraint)
+            .map_err(|e| VersionError::ParseError(format!("Invalid version constraint '{}': {}", constraint, e)))?;
+        Ok(Self {
+            constraint: constraint.to_string(),
+            req,
+        })
+    }
+
+    /// Checks if a specific `semver::Version` satisfies this range.
+    /// Note: This now takes a `semver::Version`, not `ApiVersion`.
+    /// The calling code in loader.rs needs to parse the dependency's version string into a `semver::Version`.
+    pub fn includes(&self, version: &Version) -> bool {
+        self.req.matches(version)
+    }
+
+    /// Returns a reference to the underlying `semver::VersionReq`.
+    pub fn semver_req(&self) -> &VersionReq {
+        &self.req
+    }
+
+    /// Returns the original constraint string.
+    pub fn constraint_string(&self) -> &str {
+        &self.constraint
+    }
+}
+
+/// Implement Display to show the original constraint string.
+impl fmt::Display for VersionRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.constraint)
+    }
+}
+
+/// Allow parsing directly from a string slice.
+impl FromStr for VersionRange {
+    type Err = VersionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        VersionRange::from_constraint(s)
     }
 }

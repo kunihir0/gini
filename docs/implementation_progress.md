@@ -37,8 +37,18 @@
   - [x] Filesystem utilities
  - [x] Refactor kernel for component architecture and async (Tokio)
  
- ## Phase 2: Core Plugins
-
+ ## Phase 2: Kernel Enhancements & Core Plugins
+ 
++### Kernel Enhancements (Plugin System & Stage Manager)
++
++- [x] Design plugin dependency resolution and pre-flight check mechanisms (Completed: 2025-04-27)
++  - [x] Create `docs/plugin_system/dependencies.md`
++  - [x] Create `docs/stage_manager/plugin_lifecycle_stages.md`
++- [ ] Implement dependency resolution logic in `PluginLoader`/`Manager`
++- [ ] Define and register new core lifecycle stages in `StageManager`
++
++### Core Plugins
++
 - [ ] OpenCore builder plugin
 - [ ] VM setup plugin
 - [ ] Deployment plugin
@@ -101,23 +111,27 @@ Phase 1 of the project is complete! We have successfully implemented and subsequ
 
 ## Next Steps
 
-With Phase 1 completed, we can now proceed to Phase 2:
+With Phase 1 completed, we are now proceeding to Phase 2:
 
-1. Core Plugins:
+1. Kernel Enhancements:
++   - Implement plugin dependency resolution
++   - Implement pre-flight check stages
++
++2. Core Plugins:
    - OpenCore builder plugin
    - VM configuration plugin
    - Deployment plugin
 
-2. User Interface:
+3. User Interface:
    - CLI UI plugin
    - TUI UI plugin
 
-3. Support Tools:
+4. Support Tools:
    - Logging plugin
    - Configuration management plugin
    - Testing framework plugin
 
-4. Documentation:
+5. Documentation:
    - Add API documentation
    - Write user guides
    - Create examples

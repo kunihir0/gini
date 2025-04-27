@@ -36,8 +36,17 @@ impl PluginRegistry {
         
         // Check API compatibility
         let mut compatible = false;
+        // Convert ApiVersion to semver::Version for comparison
+        let api_semver = match semver::Version::parse(&self.api_version.to_string()) {
+            Ok(v) => v,
+            Err(e) => {
+                // Log error and consider it incompatible if internal API version fails parsing
+                eprintln!("Failed to parse internal API version {}: {}", self.api_version, e);
+                return Err(Error::Plugin(format!("Internal API version parse error: {}", e)));
+            }
+        };
         for version_range in plugin.compatible_api_versions() {
-            if version_range.includes(&self.api_version) {
+            if version_range.includes(&api_semver) { // Use includes with semver::Version
                 compatible = true;
                 break;
             }
@@ -195,23 +204,26 @@ impl PluginRegistry {
                 
                 // Check version compatibility if required
                 if let Some(plugin) = self.get_plugin(&dep.plugin_name) {
-                    if let Some(ref version_range) = dep.version_range {
-                        match crate::plugin_system::version::ApiVersion::from_str(plugin.version()) {
-                            Ok(version) => {
-                                if !version_range.includes(&version) {
+                    if let Some(ref required_range) = dep.version_range {
+                        // Parse the dependency's actual version string into semver::Version
+                        match semver::Version::parse(plugin.version()) {
+                            Ok(dep_version) => {
+                                // Use the updated includes method which takes semver::Version
+                                if !required_range.includes(&dep_version) {
                                     return Err(Error::Plugin(format!(
-                                        "Plugin {} requires {} version {}, but found {}",
+                                        "Plugin '{}' requires dependency '{}' version '{}', but found version '{}'",
                                         name,
                                         dep.plugin_name,
-                                        version_range.min,
+                                        required_range.constraint_string(), // Use constraint_string() for display
                                         plugin.version()
                                     )));
                                 }
                             },
                             Err(e) => {
+                                // Error parsing the dependency's version string
                                 return Err(Error::Plugin(format!(
-                                    "Invalid version format in plugin {}: {}",
-                                    dep.plugin_name, e
+                                    "Failed to parse version string '{}' for dependency plugin '{}': {}",
+                                    plugin.version(), dep.plugin_name, e
                                 )));
                             }
                         }

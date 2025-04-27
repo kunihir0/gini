@@ -5,6 +5,7 @@ pub mod dry_run;
 pub mod dependency;
 pub mod manager;
 pub mod requirement;
+pub mod core_stages; // Make the new module public
 
 use crate::kernel::error::Result;
 use std::fmt;

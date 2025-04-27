@@ -8,7 +8,12 @@ use crate::kernel::component::KernelComponent;
 use crate::kernel::error::Result;
 use crate::stage_manager::{Stage, StageContext, StageRegistry, StageResult};
 use crate::stage_manager::pipeline::{StagePipeline, PipelineBuilder};
-use crate::stage_manager::registry::SharedStageRegistry; // Import SharedStageRegistry
+use crate::stage_manager::registry::SharedStageRegistry;
+use crate::stage_manager::core_stages::{ // Import core stages
+    PluginPreflightCheckStage,
+    PluginInitializationStage,
+    PluginPostInitializationStage,
+};
 
 /// Interface for the stage management component
 #[async_trait]
@@ -66,10 +71,20 @@ impl KernelComponent for DefaultStageManager {
         self.name
     }
 
-    async fn initialize(&self) -> Result<()> { Ok(()) }
+    async fn initialize(&self) -> Result<()> {
+        println!("Initializing DefaultStageManager and registering core stages...");
+        // Register core lifecycle stages
+        self.register_stage(Box::new(PluginPreflightCheckStage)).await?;
+        println!("Registered stage: {}", PluginPreflightCheckStage.id());
+        self.register_stage(Box::new(PluginInitializationStage)).await?;
+        println!("Registered stage: {}", PluginInitializationStage.id());
+        self.register_stage(Box::new(PluginPostInitializationStage)).await?;
+        println!("Registered stage: {}", PluginPostInitializationStage.id());
+        println!("Core stages registered.");
+        Ok(())
+    }
     async fn start(&self) -> Result<()> { Ok(()) }
     async fn stop(&self) -> Result<()> { Ok(()) }
-    // Removed as_any and as_any_mut
 }
 
 #[async_trait]

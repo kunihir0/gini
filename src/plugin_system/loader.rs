@@ -1,16 +1,46 @@
 use tokio::fs; // Use tokio::fs
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet}; // Added HashSet for cycle detection later
 use std::future::Future;
 use std::pin::Pin;
+use semver::{Version, VersionReq}; // Added semver imports
+use thiserror::Error; // Added for custom error
 // Remove the problematic import: use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt; // For stream methods like next()
 
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Error as KernelError, Result}; // Renamed Error to KernelError
 use crate::plugin_system::traits::Plugin;
 use crate::plugin_system::manifest::PluginManifest;
 use crate::plugin_system::registry::PluginRegistry;
-use crate::plugin_system::version::ApiVersion;
+use crate::plugin_system::version::{ApiVersion, VersionRange}; // Added VersionRange
+
+/// Error type specific to dependency resolution
+#[derive(Error, Debug, Clone, PartialEq, Eq)] // Added derive(Error)
+pub enum ResolutionError {
+    #[error("Missing required dependency '{dependency_id}' for plugin '{plugin_id}'")]
+    MissingDependency {
+        plugin_id: String,
+        dependency_id: String,
+    },
+    #[error("Version mismatch for dependency '{dependency_id}' required by plugin '{plugin_id}'. Required: '{required_version}', Found: '{found_version}'")]
+    VersionMismatch {
+        plugin_id: String,
+        dependency_id: String,
+        required_version: String, // Store as string for simplicity in error
+        found_version: String,
+    },
+    #[error("Failed to parse version '{version}' for plugin '{plugin_id}': {error}")]
+    VersionParseError {
+        plugin_id: String,
+        version: String,
+        error: String,
+    },
+    #[error("Circular dependency detected involving plugin '{plugin_id}'. Cycle path: {cycle_path:?}")]
+    CycleDetected {
+        plugin_id: String,
+        cycle_path: Vec<String>, // Store the path that formed the cycle
+    },
+}
 
 /// Loads plugins from the filesystem or other sources
 pub struct PluginLoader {
@@ -91,8 +121,8 @@ impl PluginLoader {
     async fn scan_directory_inner(&self, dir: PathBuf, manifests: &mut Vec<PluginManifest>) -> Result<()> {
         // Read directory entries asynchronously
         let mut read_dir_result = fs::read_dir(&dir).await
-            .map_err(|e| Error::Storage(format!(
-                "Failed to read directory {}: {}", 
+            .map_err(|e| KernelError::Storage(format!( // Use KernelError
+                "Failed to read directory {}: {}",
                 dir.display(), e
             )))?;
         
@@ -166,9 +196,9 @@ impl PluginLoader {
         // Read the file content asynchronously
         let content = match fs::read_to_string(path_ref).await {
             Ok(content) => content,
-            Err(e) => return Err(Error::Storage(format!("Failed to read manifest file {}: {}", path_ref.display(), e))),
+            Err(e) => return Err(KernelError::Storage(format!("Failed to read manifest file {}: {}", path_ref.display(), e))), // Use KernelError
         };
-        
+
         // In a real implementation, we would parse JSON here
         // For now, just create a basic manifest from the file name
         let path_display = path_ref.display().to_string();
@@ -196,29 +226,162 @@ impl PluginLoader {
         // 1. Load the dynamic library asynchronously
         // 2. Look up the plugin creation function
         // 3. Call it to get the plugin instance
-        
-        Err(Error::Plugin(format!(
-            "Dynamic plugin loading not implemented for plugin: {}", 
+
+        Err(KernelError::Plugin(format!( // Use KernelError
+            "Dynamic plugin loading not implemented for plugin: {}",
             manifest.id
         )))
     }
+
+    /// Resolves dependencies between loaded manifests, including cycle detection.
+    /// Returns Ok(()) if all dependencies are met, otherwise returns a ResolutionError.
+    fn resolve_dependencies(&self) -> std::result::Result<(), ResolutionError> {
+        let manifests = &self.manifests;
+        let mut visiting = HashSet::new(); // Nodes currently in the recursion stack for DFS
+        let mut visited = HashSet::new(); // Nodes that have been fully processed
+
+        // Helper function for DFS-based cycle detection
+        fn detect_cycle_dfs<'a>(
+            plugin_id: &'a str,
+            manifests: &'a HashMap<String, PluginManifest>,
+            visiting: &mut HashSet<&'a str>,
+            visited: &mut HashSet<&'a str>,
+            path: &mut Vec<&'a str>, // Keep track of the current path
+        ) -> std::result::Result<(), ResolutionError> {
+            visiting.insert(plugin_id);
+            path.push(plugin_id);
+
+            if let Some(manifest) = manifests.get(plugin_id) {
+                for dep_info in &manifest.dependencies {
+                    // Only consider required dependencies for cycle detection that blocks loading
+                    if !dep_info.required {
+                        continue;
+                    }
+                    let dep_id = &dep_info.id;
+
+                    // Check if the dependency exists (basic check, full check happens later)
+                    if !manifests.contains_key(dep_id) {
+                        // This error will be caught by the main loop, but good to be defensive
+                        continue;
+                    }
+
+                    if visiting.contains(dep_id.as_str()) {
+                        // Cycle detected! Find the start of the cycle in the path
+                        let cycle_start_index = path.iter().position(|&p| p == dep_id).unwrap_or(0);
+                        let cycle_path_slice = &path[cycle_start_index..];
+                        return Err(ResolutionError::CycleDetected {
+                            plugin_id: plugin_id.to_string(), // The node where the cycle was detected
+                            cycle_path: cycle_path_slice.iter().map(|s| s.to_string()).collect(),
+                        });
+                    }
+
+                    if !visited.contains(dep_id.as_str()) {
+                        detect_cycle_dfs(dep_id, manifests, visiting, visited, path)?;
+                    }
+                }
+            }
+
+            path.pop(); // Backtrack: remove current node from path
+            visiting.remove(plugin_id);
+            visited.insert(plugin_id);
+            Ok(())
+        }
+
+        // --- Start Cycle Detection ---
+        for plugin_id in manifests.keys() {
+            if !visited.contains(plugin_id.as_str()) {
+                let mut path = Vec::new(); // Path tracker for this DFS run
+                detect_cycle_dfs(plugin_id, manifests, &mut visiting, &mut visited, &mut path)?;
+            }
+        }
+        // --- End Cycle Detection ---
+
+        // --- Existing Dependency Checks (Missing/Version) ---
+        for (plugin_id, manifest) in manifests {
+            // Parse the plugin's own version once
+            let plugin_version_str = &manifest.version;
+            let _plugin_version = Version::parse(plugin_version_str).map_err(|e| {
+                ResolutionError::VersionParseError {
+                    plugin_id: plugin_id.clone(),
+                    version: plugin_version_str.clone(),
+                    error: e.to_string(),
+                }
+            })?;
+
+            for dep_info in &manifest.dependencies {
+                if !dep_info.required {
+                    continue; // Skip optional dependencies for now
+                }
+
+                let dep_id = &dep_info.id;
+
+                // 1. Check if dependency exists
+                let dep_manifest = manifests.get(dep_id).ok_or_else(|| {
+                    ResolutionError::MissingDependency {
+                        plugin_id: plugin_id.clone(),
+                        dependency_id: dep_id.clone(),
+                    }
+                })?;
+
+                // 2. Check version constraint (if specified)
+                if let Some(version_range) = &dep_info.version_range {
+                    let dep_version_str = &dep_manifest.version;
+                    let dep_version = Version::parse(dep_version_str).map_err(|e| {
+                        ResolutionError::VersionParseError {
+                            plugin_id: dep_id.clone(), // Error is in the dependency's version
+                            version: dep_version_str.clone(),
+                            error: e.to_string(),
+                        }
+                    })?;
+
+                    // Use the VersionRange's internal semver::VersionReq
+                    if !version_range.semver_req().matches(&dep_version) {
+                        return Err(ResolutionError::VersionMismatch {
+                            plugin_id: plugin_id.clone(),
+                            dependency_id: dep_id.clone(),
+                            required_version: version_range.to_string(),
+                            found_version: dep_version_str.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
     
     /// Register all compatible plugins with the registry asynchronously
+    /// This now includes dependency resolution before loading.
     pub async fn register_all_plugins(&self, registry: &mut PluginRegistry, api_version: &ApiVersion) -> Result<usize> {
+        // --- Dependency Resolution Step ---
+        if let Err(e) = self.resolve_dependencies() {
+            // Convert ResolutionError to the main kernel Error type
+            return Err(KernelError::Plugin(format!("Dependency resolution failed: {}", e)));
+        }
+        // --- End Dependency Resolution ---
+
         let mut count = 0;
-        
         // Get all manifests
         let manifests: Vec<_> = self.manifests.values().collect();
         
         // Sort by priority
         // TODO: Implement proper sorting by priority
         
+        // Convert the kernel's ApiVersion to semver::Version once for comparisons
+        let api_semver = match semver::Version::parse(&api_version.to_string()) {
+            Ok(v) => v,
+            Err(e) => {
+                // If the internal API version fails to parse, something is very wrong.
+                return Err(KernelError::Plugin(format!("Internal API version parse error: {}", e)));
+            }
+        };
+
         // Load and register each plugin
         for manifest in manifests {
-            // Check API compatibility
+            // Check API compatibility using semver::Version
             let mut compatible = false;
             for version_range in &manifest.api_versions {
-                if version_range.includes(api_version) {
+                if version_range.includes(&api_semver) { // Compare against api_semver
                     compatible = true;
                     break;
                 }
@@ -239,7 +402,8 @@ impl PluginLoader {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to load plugin {}: {}", manifest.id, e);
+                    // Use KernelError::Plugin for consistency
+                    eprintln!("Failed to load plugin {}: {}", manifest.id, KernelError::Plugin(e.to_string()));
                 }
             }
         }
