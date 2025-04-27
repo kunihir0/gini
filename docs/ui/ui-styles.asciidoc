@@ -1,4 +1,4 @@
-= OSX-Forge Terminal UI Style Guide
+= Gini Terminal UI Style Guide
 :author: kunihir0
 :email: kunihir0@example.com
 :revdate: 2025-04-26
@@ -22,7 +22,7 @@
 
 == Introduction
 
-This document defines the visual design language and interaction patterns for OSX-Forge's terminal-based interfaces. It provides guidelines for implementing both the Command Line Interface (CLI) and Text-based User Interface (TUI), ensuring a cohesive, aesthetically pleasing experience while maintaining consistency with the plugin architecture.
+This document defines the visual design language and interaction patterns for Gini's terminal-based interfaces. It provides guidelines for implementing both the Command Line Interface (CLI) and Text-based User Interface (TUI), ensuring a cohesive, aesthetically pleasing experience while maintaining consistency with the plugin architecture.
 
 The design principles prioritize:
 
@@ -580,7 +580,7 @@ fn sparkle_effect(text: &str, duration_secs: f32) {
 
 [source]
 ----
-osxforge <command> [subcommand] [options]
+gini <command> [subcommand] [options]
 ----
 
 Standard command categories:
@@ -716,7 +716,7 @@ fn progress_operation(operation_name: &str, total_steps: usize) {
 
 [source]
 ----
-$ osxforge create-vm --name "Monterey Dev" --os-version monterey --ram 8G
+$ gini create-vm --name "Monterey Dev" --os-version monterey --ram 8G
 
 ✨ Creating macOS VM: Monterey Dev ✨
 
@@ -731,14 +731,14 @@ $ osxforge create-vm --name "Monterey Dev" --os-version monterey --ram 8G
 ✨ VM Creation Complete! ✨
 
 Your VM is ready to use. Start it with:
-  osxforge start-vm "Monterey Dev"
+  gini start-vm "Monterey Dev"
 ----
 
 ==== Dry Run Example
 
 [source]
 ----
-$ osxforge create-vm --name "Monterey Dev" --os-version monterey --dry-run
+$ gini create-vm --name "Monterey Dev" --os-version monterey --dry-run
 
 ╭───────────────────────────────────────╮
 │ [DRY RUN] Creating VM: Monterey Dev   │
@@ -760,7 +760,7 @@ $ osxforge create-vm --name "Monterey Dev" --os-version monterey --dry-run
 
 [source]
 ----
-$ osxforge create-vm --name "Monterey Dev" --ram 128G
+$ gini create-vm --name "Monterey Dev" --ram 128G
 
 ✨ Creating macOS VM: Monterey Dev ✨
 
@@ -1086,9 +1086,9 @@ fn render_bar(width: usize, fill: f32, color: &str, alert_condition: &str) {
 
 [source]
 ----
-┌─ OSX-Forge ─────────────────────────────────────┐
+┌─ Gini ─────────────────────────────────────┐
 │                                                 │
-│ ✨ Welcome to OSX-Forge VM Manager ✨           │
+│ ✨ Welcome to Gini VM Manager ✨           │
 │                                                 │
 ├─ Virtual Machines ───────────────────────────────┤
 │ • Monterey Dev                      [Running ✓]  │

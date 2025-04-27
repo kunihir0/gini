@@ -1,4 +1,4 @@
-= OSX-Forge: QEMU/KVM Deployment System Architecture
+= Gini: QEMU/KVM Deployment System Architecture
 :toc: left
 :toclevels: 3
 :sectlinks:
@@ -11,7 +11,7 @@
 
 == Introduction
 
-OSX-Forge is a modular system for rapidly deploying macOS virtual machines using QEMU/KVM. This document outlines the architecture and implementation guidelines for the project.
+Gini is a modular system for rapidly deploying macOS virtual machines using QEMU/KVM. This document outlines the architecture and implementation guidelines for the project.
 
 The system assumes the user already has:
 
@@ -25,7 +25,7 @@ The system assumes the user already has:
 [mermaid]
 ....
 graph TD
-    A[OSX-Forge Kernel] --> B[Plugin Manager]
+    A[Gini Kernel] --> B[Plugin Manager]
     A --> C[Stage Manager]
     A --> D[Minimum UI Bridge]
     A --> E[Storage Manager]
@@ -228,7 +228,7 @@ osxforge/
 == Everything is a Plugin Architecture
 
 === Core Kernel
-The OSX-Forge kernel provides the core application lifecycle and component management. It has been refactored to use:
+The Gini kernel provides the core application lifecycle and component management. It has been refactored to use:
 
 * *Component-Based Architecture*: Key subsystems (Events, Plugins, Stages, Storage) are implemented as independent `KernelComponent` traits.
 * *Dependency Injection*: Components are managed via a central `DependencyRegistry`, promoting loose coupling and testability.
@@ -350,7 +350,7 @@ All plugins define their metadata in a manifest file:
 [plugin]
 name = "opencore-builder"
 version = "1.2.0"
-author = "OSX-Forge Team"
+author = "Gini Team"
 description = "Core plugin for building OpenCore images"
 core = true
 priority = "core:80"  # Core plugin with priority 80
@@ -1238,7 +1238,7 @@ impl ContentGenerator for DiagramGenerator {
     }
     
     fn generate(&self, collections: &[Collection]) -> Document {
-        let mut document = Document::new("OSX-Forge Architecture Diagrams");
+        let mut document = Document::new("Gini Architecture Diagrams");
         
         // Generate plugin dependency diagram
         let mut mermaid = String::from("graph TD\n");
@@ -1380,7 +1380,7 @@ Stage: opencore.assemble
 - Would copy kexts to EFI/OC/Kexts directory
 
 Stage: opencore.branding
-- Would customize boot screen with OSX-Forge logo
+- Would customize boot screen with Gini logo
 - Would set boot entry name to "My macOS VM"
 
 Stage: opencore.compile

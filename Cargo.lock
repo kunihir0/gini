@@ -96,6 +96,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
+name = "gini"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "semver",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -136,18 +148,6 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
-
-[[package]]
-name = "osx-amd-kvm"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "semver",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
-]
 
 [[package]]
 name = "pin-project-lite"

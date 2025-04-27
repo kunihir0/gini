@@ -1,4 +1,4 @@
-# OSX-Forge Implementation Progress
+# Gini Implementation Progress
 
 ## Phase 1: Kernel Infrastructure
 

@@ -12,7 +12,7 @@
 
 ## Current Architecture Overview
 
-The kernel module currently serves as the core orchestration layer for the OSX-Forge application. It provides application lifecycle management and serves as the foundation upon which other modules are built.
+The kernel module currently serves as the core orchestration layer for the Gini application. It provides application lifecycle management and serves as the foundation upon which other modules are built.
 
 ### Main Components
 

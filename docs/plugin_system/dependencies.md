@@ -1,6 +1,6 @@
 # Plugin Dependencies Design
 
-This document outlines the design for handling inter-plugin dependencies within the OSX-Forge kernel.
+This document outlines the design for handling inter-plugin dependencies within the Gini kernel.
 
 ## 1. Declaration
 
