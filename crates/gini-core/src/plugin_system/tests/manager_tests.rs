@@ -162,27 +162,152 @@ async fn test_get_dependent_plugins() {
 }
 
 #[tokio::test]
-async fn test_is_plugin_enabled() {
-     let manager = DefaultPluginManager::new().unwrap();
-     let plugin = Box::new(MockManagerPlugin::new("test_plugin", vec![]));
-     let plugin_name = plugin.name().to_string();
+async fn test_enable_disable_plugin() {
+    let manager = DefaultPluginManager::new().unwrap();
+    let plugin_id = "test_enable_disable";
+    let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
 
-     // Register plugin
-     {
-         let mut registry = manager.registry().lock().await;
-         registry.register_plugin(plugin).unwrap();
-     }
+    // Register plugin
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin).unwrap();
+    }
 
-     // Check enabled status (currently mirrors loaded status)
-     let is_enabled = manager.is_plugin_enabled(&plugin_name).await;
-     assert!(is_enabled.is_ok());
-     assert!(is_enabled.unwrap(), "Loaded plugin should be considered enabled (currently)");
+    // Should be enabled by default after registration
+    let is_enabled_initial = manager.is_plugin_enabled(plugin_id).await.unwrap();
+    assert!(is_enabled_initial, "Plugin should be enabled by default");
 
-     // Check non-existent plugin
-     let not_enabled = manager.is_plugin_enabled("non_existent").await;
-     assert!(not_enabled.is_ok());
-     assert!(!not_enabled.unwrap(), "Non-existent plugin should not be enabled");
+    // Disable the plugin
+    let disable_result = manager.disable_plugin(plugin_id).await;
+    assert!(disable_result.is_ok(), "Disabling should succeed");
+
+    // Check if disabled
+    let is_enabled_after_disable = manager.is_plugin_enabled(plugin_id).await.unwrap();
+    assert!(!is_enabled_after_disable, "Plugin should be disabled");
+
+    // Enable the plugin again
+    let enable_result = manager.enable_plugin(plugin_id).await;
+    assert!(enable_result.is_ok(), "Enabling should succeed");
+
+    // Check if enabled
+    let is_enabled_after_enable = manager.is_plugin_enabled(plugin_id).await.unwrap();
+    assert!(is_enabled_after_enable, "Plugin should be enabled again");
+
+    // Try disabling non-existent plugin (should be ok, no-op)
+    let disable_non_existent = manager.disable_plugin("non_existent").await;
+    assert!(disable_non_existent.is_ok(), "Disabling non-existent plugin should be a no-op");
+
+    // Try enabling non-existent plugin (should fail)
+    let enable_non_existent = manager.enable_plugin("non_existent").await;
+    assert!(enable_non_existent.is_err(), "Enabling non-existent plugin should fail");
 }
 
-// Tests for enable/disable/manifest/get_plugin/get_plugins are omitted
-// as the current implementation is placeholder/incomplete.
+#[tokio::test]
+async fn test_get_plugin_arc() {
+    let manager = DefaultPluginManager::new().unwrap();
+    let plugin_id = "test_get_arc";
+    let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+
+    // Register plugin
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin).unwrap();
+    }
+
+    // Get the plugin Arc
+    let plugin_arc_opt = manager.get_plugin(plugin_id).await.unwrap();
+    assert!(plugin_arc_opt.is_some(), "Should find the registered plugin");
+    let plugin_arc = plugin_arc_opt.unwrap();
+    assert_eq!(plugin_arc.name(), plugin_id, "Plugin Arc should have the correct name");
+
+    // Try getting non-existent plugin
+    let non_existent_arc = manager.get_plugin("non_existent").await.unwrap();
+    assert!(non_existent_arc.is_none(), "Should not find non-existent plugin");
+}
+
+#[tokio::test]
+async fn test_get_plugins_arc() {
+    let manager = DefaultPluginManager::new().unwrap();
+    let plugin_id1 = "test_get_all_1";
+    let plugin_id2 = "test_get_all_2";
+    let plugin1 = Box::new(MockManagerPlugin::new(plugin_id1, vec![]));
+    let plugin2 = Box::new(MockManagerPlugin::new(plugin_id2, vec![]));
+
+    // Register plugins
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin1).unwrap();
+        registry.register_plugin(plugin2).unwrap();
+    }
+
+    // Get all plugin Arcs
+    let all_plugins = manager.get_plugins().await.unwrap();
+    assert_eq!(all_plugins.len(), 2, "Should retrieve two plugins");
+
+    let names: Vec<String> = all_plugins.iter().map(|p| p.name().to_string()).collect();
+    assert!(names.contains(&plugin_id1.to_string()));
+    assert!(names.contains(&plugin_id2.to_string()));
+}
+
+
+#[tokio::test]
+async fn test_get_enabled_plugins_arc() {
+    let manager = DefaultPluginManager::new().unwrap();
+    let plugin_id1 = "enabled_1";
+    let plugin_id2 = "enabled_2";
+    let plugin_id3 = "disabled_1";
+    let plugin1 = Box::new(MockManagerPlugin::new(plugin_id1, vec![]));
+    let plugin2 = Box::new(MockManagerPlugin::new(plugin_id2, vec![]));
+    let plugin3 = Box::new(MockManagerPlugin::new(plugin_id3, vec![]));
+
+    // Register plugins
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin1).unwrap();
+        registry.register_plugin(plugin2).unwrap();
+        registry.register_plugin(plugin3).unwrap();
+    }
+
+    // Disable one plugin
+    manager.disable_plugin(plugin_id3).await.unwrap();
+
+    // Get enabled plugin Arcs
+    let enabled_plugins = manager.get_enabled_plugins().await.unwrap();
+    assert_eq!(enabled_plugins.len(), 2, "Should retrieve two enabled plugins");
+
+    let names: Vec<String> = enabled_plugins.iter().map(|p| p.name().to_string()).collect();
+    assert!(names.contains(&plugin_id1.to_string()));
+    assert!(names.contains(&plugin_id2.to_string()));
+    assert!(!names.contains(&plugin_id3.to_string()));
+}
+
+
+#[tokio::test]
+async fn test_get_plugin_manifest() {
+    let manager = DefaultPluginManager::new().unwrap();
+    let plugin_id = "test_manifest";
+    let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+
+    // Register plugin
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin).unwrap();
+    }
+
+    // Get the manifest
+    let manifest_opt = manager.get_plugin_manifest(plugin_id).await.unwrap();
+    assert!(manifest_opt.is_some(), "Should find the manifest for registered plugin");
+    let manifest = manifest_opt.unwrap();
+
+    // Check some manifest details (based on MockManagerPlugin)
+    assert_eq!(manifest.name, plugin_id); // Manifest name should match plugin ID in this mock
+    assert_eq!(manifest.version, "1.0.0");
+    assert!(!manifest.is_core);
+    // Compare the Option<String> from the manifest with the expected string representation
+    assert_eq!(manifest.priority, Some(PluginPriority::ThirdParty(100).to_string()));
+    assert!(manifest.dependencies.is_empty());
+
+    // Try getting manifest for non-existent plugin
+    let non_existent_manifest = manager.get_plugin_manifest("non_existent").await.unwrap();
+    assert!(non_existent_manifest.is_none(), "Should not find manifest for non-existent plugin");
+}

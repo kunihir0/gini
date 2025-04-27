@@ -22,11 +22,14 @@ pub trait PluginManager: KernelComponent {
     /// Load all plugins from a directory
     async fn load_plugins_from_directory(&self, dir: &Path) -> Result<usize>;
 
-    /// Get a plugin by ID
-    async fn get_plugin(&self, id: &str) -> Result<Option<Arc<dyn Plugin>>>; // Return Result<Option<Arc>>
+    /// Get a plugin Arc by ID
+    async fn get_plugin(&self, id: &str) -> Result<Option<Arc<dyn Plugin>>>;
 
-    /// Get all loaded plugins
-    async fn get_plugins(&self) -> Result<Vec<Arc<dyn Plugin>>>; // Return Result<Vec<Arc>>
+    /// Get all loaded plugin Arcs
+    async fn get_plugins(&self) -> Result<Vec<Arc<dyn Plugin>>>;
+
+    /// Get all enabled plugin Arcs
+    async fn get_enabled_plugins(&self) -> Result<Vec<Arc<dyn Plugin>>>;
 
     /// Check if a plugin is loaded
     async fn is_plugin_loaded(&self, id: &str) -> Result<bool>; // Return Result<bool>
@@ -163,16 +166,23 @@ impl KernelComponent for DefaultPluginManager {
         // This needs access to the Application/Kernel, which isn't directly available here.
         // Dependency injection or passing the kernel reference during init/start is needed.
         // For now, we skip the actual initialization call.
+        // Initialize all *enabled* plugins (handled by registry.initialize_all)
+        println!("Starting Plugin Manager - Initializing enabled plugins...");
+        // This still needs the Application/Kernel reference passed in somehow.
+        // For now, we assume it would be passed to initialize_all if available.
         // let mut registry = self.registry.lock().await;
-        // registry.initialize_all(&mut app)?; // Needs app reference
+        // registry.initialize_all(&mut app)?;
+        println!("Plugin initialization skipped (needs Application reference).");
         Ok(())
     }
 
     async fn stop(&self) -> Result<()> {
         // Shutdown all plugins
         println!("Stopping Plugin Manager - Shutting down plugins...");
+        // Shutdown all *initialized* plugins (handled by registry.shutdown_all)
+        println!("Stopping Plugin Manager - Shutting down initialized plugins...");
         let mut registry = self.registry.lock().await;
-        registry.shutdown_all()
+        registry.shutdown_all() // Returns Result
     }
     // Removed as_any and as_any_mut
 }
@@ -269,16 +279,17 @@ impl PluginManager for DefaultPluginManager {
 
     async fn get_plugin(&self, id: &str) -> Result<Option<Arc<dyn Plugin>>> {
         let registry = self.registry.lock().await;
-        // PluginRegistry::get_plugin returns &dyn Plugin, need to wrap in Arc if possible
-        // This requires plugins to be stored as Arc<dyn Plugin> in the registry
-        // For now, return None as the structure doesn't support Arc directly
-        Ok(None) // Placeholder
+        Ok(registry.get_plugin(id)) // Directly use the registry method
     }
 
     async fn get_plugins(&self) -> Result<Vec<Arc<dyn Plugin>>> {
         let registry = self.registry.lock().await;
-        // Similar to get_plugin, requires registry to store Arc<dyn Plugin>
-        Ok(Vec::new()) // Placeholder
+        Ok(registry.get_plugins_arc()) // Use the new registry method
+    }
+
+    async fn get_enabled_plugins(&self) -> Result<Vec<Arc<dyn Plugin>>> {
+        let registry = self.registry.lock().await;
+        Ok(registry.get_enabled_plugins_arc()) // Use the new registry method
     }
 
     async fn is_plugin_loaded(&self, id: &str) -> Result<bool> {
@@ -288,48 +299,81 @@ impl PluginManager for DefaultPluginManager {
 
     async fn get_plugin_dependencies(&self, id: &str) -> Result<Vec<String>> {
         let registry = self.registry.lock().await;
-        if let Some(plugin) = registry.get_plugin(id) {
-            Ok(plugin.dependencies().iter().map(|dep| dep.plugin_name.clone()).collect())
-        } else {
-            Err(Error::Plugin(format!("Plugin not found: {}", id)))
+        // Use the get_plugin method which returns Option<Arc<dyn Plugin>>
+        match registry.get_plugin(id) {
+            Some(plugin_arc) => {
+                // Access dependencies via the Arc
+                Ok(plugin_arc.dependencies().iter().map(|dep| dep.plugin_name.clone()).collect())
+            }
+            None => Err(Error::Plugin(format!("Plugin not found: {}", id))),
         }
     }
 
     async fn get_dependent_plugins(&self, id: &str) -> Result<Vec<String>> {
         let registry = self.registry.lock().await;
         let mut dependents = Vec::new();
-        // Use the public iterator method
-        for (name, plugin) in registry.iter_plugins() {
-            if plugin.dependencies().iter().any(|dep| dep.plugin_name == id) {
-                dependents.push(name.clone());
+        // Use the updated iterator method which yields (&String, &Arc<dyn Plugin>)
+        for (plugin_id, plugin_arc) in registry.iter_plugins() {
+            // Access dependencies via the Arc
+            if plugin_arc.dependencies().iter().any(|dep| dep.plugin_name == id) {
+                dependents.push(plugin_id.clone());
             }
         }
         Ok(dependents)
     }
 
     async fn enable_plugin(&self, id: &str) -> Result<()> {
-        // Placeholder - Requires state management for enabled/disabled plugins
-        println!("Placeholder: Enable plugin {}", id);
-        Err(Error::Plugin("enable_plugin not implemented".into()))
+        let mut registry = self.registry.lock().await;
+        registry.enable_plugin(id) // Delegate to registry
     }
 
     async fn disable_plugin(&self, id: &str) -> Result<()> {
-        // Placeholder - Requires state management and potentially unloading/shutdown
-        println!("Placeholder: Disable plugin {}", id);
-        Err(Error::Plugin("disable_plugin not implemented".into()))
+        let mut registry = self.registry.lock().await;
+        registry.disable_plugin(id) // Delegate to registry
     }
 
     async fn is_plugin_enabled(&self, id: &str) -> Result<bool> {
-        // Placeholder - Requires state management
-        println!("Placeholder: Check if plugin {} is enabled", id);
-        // Assume loaded means enabled for now, if found
-        self.is_plugin_loaded(id).await
+        let registry = self.registry.lock().await;
+        Ok(registry.is_enabled(id)) // Delegate to registry
     }
 
     async fn get_plugin_manifest(&self, id: &str) -> Result<Option<PluginManifest>> {
-        // Placeholder - Manifests are usually loaded separately or part of the plugin trait
-        println!("Placeholder: Get manifest for plugin {}", id);
-        Ok(None) // Placeholder
+        let registry = self.registry.lock().await;
+        match registry.get_plugin(id) {
+            Some(plugin_arc) => {
+                // Construct the manifest from the plugin trait methods
+                let plugin_ref = &*plugin_arc; // Dereference Arc to get &dyn Plugin
+                let manifest = PluginManifest {
+                    // Fields directly from Plugin trait
+                    id: plugin_ref.name().to_string(), // Use name as ID for now
+                    name: plugin_ref.name().to_string(),
+                    version: plugin_ref.version().to_string(),
+                    api_versions: plugin_ref.compatible_api_versions(),
+                    dependencies: plugin_ref.dependencies().iter().map(|dep| {
+                        // Convert PluginDependency to manifest's DependencyInfo
+                        crate::plugin_system::manifest::DependencyInfo {
+                            id: dep.plugin_name.clone(),
+                            version_range: dep.version_range.clone(),
+                            required: dep.required,
+                        }
+                    }).collect(),
+                    is_core: plugin_ref.is_core(),
+                    priority: Some(plugin_ref.priority().to_string()), // Convert enum to string
+
+                    // Fields *not* directly available from Plugin trait - use defaults/placeholders
+                    description: format!("Manifest generated from plugin '{}'", plugin_ref.name()), // Placeholder
+                    author: "Unknown".to_string(), // Placeholder
+                    website: None, // Placeholder
+                    license: None, // Placeholder
+                    entry_point: format!("lib{}.so", plugin_ref.name()), // Default assumption
+                    files: vec![], // Placeholder
+                    config_schema: None, // Placeholder
+                    tags: vec![], // Placeholder
+                };
+                Ok(Some(manifest))
+            }
+            None => Ok(None), // Plugin not found
+        }
     }
 }
 
