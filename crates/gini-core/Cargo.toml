@@ -17,11 +17,13 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "s
 # Or use workspace dependency: tokio = { workspace = true }
 async-trait = "0.1"
 # Or use workspace dependency: async-trait = { workspace = true }
+libloading = "0.8"
 tokio-stream = "0.1"
 # Or use workspace dependency: tokio-stream = { workspace = true }
 semver = "1.0.26"
 # Or use workspace dependency: semver = { workspace = true }
 thiserror = "2.0.12" # Assuming this is used by core error types
+tempfile = "3.10"
 # Or use workspace dependency: thiserror = { workspace = true }
 
 [dev-dependencies]

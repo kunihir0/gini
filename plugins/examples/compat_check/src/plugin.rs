@@ -75,8 +75,12 @@ impl Plugin for CompatCheckPlugin {
 
 /// The entry point function for the plugin loader.
 #[no_mangle]
-pub extern "C" fn _plugin_init() -> Box<dyn Plugin> {
-    Box::new(CompatCheckPlugin)
+pub extern "C" fn _plugin_init() -> *mut dyn Plugin {
+    // Create the plugin instance boxed.
+    let plugin = Box::new(CompatCheckPlugin);
+    // Convert the Box into a raw pointer, leaking the memory.
+    // The PluginManager is now responsible for this memory.
+    Box::into_raw(plugin)
 }
 
 // Module for tests
