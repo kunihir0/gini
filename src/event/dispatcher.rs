@@ -1,24 +1,73 @@
 use std::any::TypeId;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex; // Use tokio's Mutex
+use std::fmt; // Import fmt
 
-use crate::event::{Event, EventHandler, EventId, EventResult};
+use async_trait::async_trait;
+use crate::event::{Event, AsyncEventHandler, EventHandler, EventId, EventResult};
 use crate::kernel::error::{Error, Result};
 
-/// Event dispatcher for managing and dispatching events
+// This type represents an owned future that returns EventResult
+pub type BoxFuture<'a> = Pin<Box<dyn Future<Output = EventResult> + Send + 'a>>;
+
+//--------------------------------------------------
+// EventDispatcher (Internal, wrapped by SharedEventDispatcher)
+//--------------------------------------------------
+
+/// Event dispatcher for managing and dispatching events (Internal Implementation)
 pub struct EventDispatcher {
-    /// Handlers registered for events
-    handlers: HashMap<&'static str, Vec<(EventId, EventHandler)>>,
-    /// TypeId-based handlers for specific event types
-    type_handlers: HashMap<TypeId, Vec<(EventId, EventHandler)>>,
-    /// Next available handler ID
+    handlers: HashMap<&'static str, Vec<(EventId, Box<dyn AsyncEventHandler>)>>,
+    type_handlers: HashMap<TypeId, Vec<(EventId, Box<dyn AsyncEventHandler>)>>,
     next_handler_id: EventId,
-    /// Event queue for asynchronous processing
     event_queue: VecDeque<Box<dyn Event>>,
 }
 
+// Manual Debug implementation for EventDispatcher
+impl fmt::Debug for EventDispatcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name_handler_count: usize = self.handlers.values().map(|v| v.len()).sum();
+        let type_handler_count: usize = self.type_handlers.values().map(|v| v.len()).sum();
+        f.debug_struct("EventDispatcher")
+         .field("name_handlers_count", &name_handler_count)
+         .field("type_handlers_count", &type_handler_count)
+         .field("next_handler_id", &self.next_handler_id)
+         .field("event_queue_size", &self.event_queue.len())
+         .finish()
+    }
+}
+
+/// Simple handler for events with a specific name (Internal Helper)
+struct SimpleHandler {
+    handler: Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync>,
+}
+impl fmt::Debug for SimpleHandler {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.debug_struct("SimpleHandler").finish_non_exhaustive() }
+}
+#[async_trait]
+impl AsyncEventHandler for SimpleHandler {
+    async fn handle(&self, event: &dyn Event) -> EventResult { (self.handler)(event).await }
+}
+
+/// Handler for typed events that will check the type (Internal Helper)
+struct TypedEventHandler<E: Event + 'static> {
+    handler: Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync>,
+}
+impl<E: Event + 'static> fmt::Debug for TypedEventHandler<E> {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.debug_struct("TypedEventHandler").finish_non_exhaustive() }
+}
+#[async_trait]
+impl<E: Event + 'static> AsyncEventHandler for TypedEventHandler<E> {
+    async fn handle(&self, event: &dyn Event) -> EventResult {
+        if let Some(e) = event.as_any().downcast_ref::<E>() { (self.handler)(e).await }
+        else { EventResult::Continue }
+    }
+}
+
+// Single implementation block for EventDispatcher
 impl EventDispatcher {
-    /// Create a new event dispatcher
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
@@ -27,241 +76,148 @@ impl EventDispatcher {
             event_queue: VecDeque::new(),
         }
     }
-    
-    /// Register a handler for a specific event name
-    pub fn register_handler<F>(&mut self, event_name: &'static str, handler: F) -> EventId
-    where
-        F: Fn(&dyn Event) -> EventResult + Send + Sync + 'static,
-    {
-        let id = self.next_handler_id;
-        self.next_handler_id += 1;
-        
-        let handler_box = Box::new(handler) as EventHandler;
-        
-        self.handlers
-            .entry(event_name)
-            .or_default()
-            .push((id, handler_box));
-        
+
+    pub fn register_handler( &mut self, event_name: &'static str, handler: Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync> ) -> EventId {
+        let id = self.next_handler_id; self.next_handler_id += 1;
+        let handler = SimpleHandler { handler };
+        self.handlers.entry(event_name).or_default().push((id, Box::new(handler)));
         id
     }
-    
-    /// Register a handler for a specific event type
-    pub fn register_type_handler<E, F>(&mut self, handler: F) -> EventId
-    where
-        E: Event + 'static,
-        F: Fn(&E) -> EventResult + Send + Sync + 'static,
-    {
-        let id = self.next_handler_id;
-        self.next_handler_id += 1;
-        
+
+    pub fn register_type_handler<E: Event + 'static>( &mut self, handler: Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync> ) -> EventId {
+        let id = self.next_handler_id; self.next_handler_id += 1;
         let type_id = TypeId::of::<E>();
-        let wrapped_handler: EventHandler = Box::new(move |event| {
-            if let Some(specific_event) = event.as_any().downcast_ref::<E>() {
-                handler(specific_event)
-            } else {
-                EventResult::Continue
-            }
-        });
-        
-        self.type_handlers
-            .entry(type_id)
-            .or_default()
-            .push((id, wrapped_handler));
-        
+        let handler = TypedEventHandler { handler };
+        self.type_handlers.entry(type_id).or_default().push((id, Box::new(handler)));
         id
     }
-    
-    /// Unregister a handler by its ID
-    pub fn unregister_handler(&mut self, id: EventId) -> bool {
+
+     pub fn unregister_handler(&mut self, id: EventId) -> bool {
         let mut found = false;
-        
-        // Remove from name-based handlers
-        for (_, handlers) in self.handlers.iter_mut() {
-            let len_before = handlers.len();
-            handlers.retain(|(handler_id, _)| *handler_id != id);
-            if handlers.len() < len_before {
-                found = true;
-            }
-        }
-        
-        // Remove from type-based handlers
-        for (_, handlers) in self.type_handlers.iter_mut() {
-            let len_before = handlers.len();
-            handlers.retain(|(handler_id, _)| *handler_id != id);
-            if handlers.len() < len_before {
-                found = true;
-            }
-        }
-        
+        self.handlers.values_mut().for_each(|handlers| {
+            let len_before = handlers.len(); handlers.retain(|(h_id, _)| *h_id != id);
+            if handlers.len() < len_before { found = true; }
+        });
+        self.type_handlers.values_mut().for_each(|handlers| {
+             let len_before = handlers.len(); handlers.retain(|(h_id, _)| *h_id != id);
+             if handlers.len() < len_before { found = true; }
+        });
         found
     }
-    
-    /// Dispatch an event synchronously
-    pub fn dispatch(&self, event: &dyn Event) -> EventResult {
+
+    pub async fn dispatch_internal(&self, event: &dyn Event) -> EventResult {
         let mut result = EventResult::Continue;
-        
-        // Handlers for this specific event name
         if let Some(handlers) = self.handlers.get(event.name()) {
             for (_, handler) in handlers {
-                match handler(event) {
+                match handler.handle(event).await {
                     EventResult::Continue => {},
-                    EventResult::Stop => {
-                        result = EventResult::Stop;
-                        break;
-                    }
+                    EventResult::Stop => { result = EventResult::Stop; break; }
                 }
             }
         }
-        
-        // If we should stop propagation, don't call type handlers
-        if result == EventResult::Stop {
-            return result;
-        }
-        
-        // Type-based handlers
-        if let Some(type_handlers) = self.type_handlers.get(&TypeId::of::<dyn Event>()) {
-            for (_, handler) in type_handlers {
-                match handler(event) {
+        if result == EventResult::Stop { return result; }
+        if let Some(handlers) = self.type_handlers.get(&event.as_any().type_id()) {
+            for (_, handler) in handlers {
+                match handler.handle(event).await {
                     EventResult::Continue => {},
-                    EventResult::Stop => {
-                        result = EventResult::Stop;
-                        break;
-                    }
+                    EventResult::Stop => { result = EventResult::Stop; break; }
                 }
             }
         }
-        
         result
     }
-    
-    /// Queue an event for asynchronous processing
-    pub fn queue_event(&mut self, event: Box<dyn Event>) {
-        self.event_queue.push_back(event);
-    }
-    
-    /// Process all queued events
-    pub fn process_queue(&mut self) -> usize {
+
+    pub fn queue_event(&mut self, event: Box<dyn Event>) { self.event_queue.push_back(event); }
+
+    pub async fn process_queue_internal(&mut self) -> usize {
         let mut count = 0;
-        
+        // Process events one by one from the queue
         while let Some(event) = self.event_queue.pop_front() {
-            self.dispatch(&*event);
+             // Temporarily borrow self immutably to call dispatch_internal
+            let dispatcher_ref = &*self;
+            dispatcher_ref.dispatch_internal(&*event).await;
             count += 1;
         }
-        
         count
     }
-    
-    /// Get the number of queued events
-    pub fn queue_size(&self) -> usize {
-        self.event_queue.len()
-    }
+
+    pub fn queue_size(&self) -> usize { self.event_queue.len() }
 }
 
-impl Default for EventDispatcher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl Default for EventDispatcher { fn default() -> Self { Self::new() } }
 
-// Thread-safe shared event dispatcher for application-wide events
+
+//--------------------------------------------------
+// SharedEventDispatcher (Public API)
+//--------------------------------------------------
+
+/// Thread-safe shared event dispatcher using Tokio Mutex
+#[derive(Clone)] // Only Clone
 pub struct SharedEventDispatcher {
     dispatcher: Arc<Mutex<EventDispatcher>>
 }
 
+// Manual Debug impl for SharedEventDispatcher
+impl fmt::Debug for SharedEventDispatcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SharedEventDispatcher").finish_non_exhaustive()
+    }
+}
+
+// Single implementation block for SharedEventDispatcher
 impl SharedEventDispatcher {
-    /// Create a new shared event dispatcher
-    pub fn new() -> Self {
-        Self {
-            dispatcher: Arc::new(Mutex::new(EventDispatcher::new()))
-        }
+    pub fn new() -> Self { Self { dispatcher: Arc::new(Mutex::new(EventDispatcher::new())) } }
+
+    pub fn clone_dispatcher(&self) -> Arc<Mutex<EventDispatcher>> { self.dispatcher.clone() }
+
+    pub async fn dispatch(&self, event: &dyn Event) -> Result<EventResult> {
+        let dispatcher = self.dispatcher.lock().await;
+        Ok(dispatcher.dispatch_internal(event).await)
     }
-    
-    /// Get a clone of the dispatcher Arc for sharing
-    pub fn clone_dispatcher(&self) -> Arc<Mutex<EventDispatcher>> {
-        self.dispatcher.clone()
+
+    pub async fn queue_event(&self, event: Box<dyn Event>) -> Result<()> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        dispatcher.queue_event(event); Ok(())
     }
-    
-    /// Dispatch an event
-    pub fn dispatch(&self, event: &dyn Event) -> Result<EventResult> {
-        match self.dispatcher.lock() {
-            Ok(dispatcher) => Ok(dispatcher.dispatch(event)),
-            Err(_) => Err(Error::Event("Failed to lock dispatcher".into()))
-        }
+
+    pub async fn process_queue(&self) -> Result<usize> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        Ok(dispatcher.process_queue_internal().await)
     }
-    
-    /// Queue an event for asynchronous processing
-    pub fn queue_event(&self, event: Box<dyn Event>) -> Result<()> {
-        match self.dispatcher.lock() {
-            Ok(mut dispatcher) => {
-                dispatcher.queue_event(event);
-                Ok(())
-            },
-            Err(_) => Err(Error::Event("Failed to lock dispatcher".into()))
-        }
+
+    pub async fn register_handler( &self, event_name: &'static str, handler: Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync> ) -> Result<EventId> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        Ok(dispatcher.register_handler(event_name, handler))
     }
-    
-    /// Process all queued events
-    pub fn process_queue(&self) -> Result<usize> {
-        match self.dispatcher.lock() {
-            Ok(mut dispatcher) => Ok(dispatcher.process_queue()),
-            Err(_) => Err(Error::Event("Failed to lock dispatcher".into()))
-        }
+
+    pub async fn register_type_handler<E: Event + 'static>( &self, handler: Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync> ) -> Result<EventId> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        Ok(dispatcher.register_type_handler::<E>(handler))
     }
-    
-    /// Register a handler for a specific event name
-    pub fn register_handler<F>(&self, event_name: &'static str, handler: F) -> Result<EventId>
-    where
-        F: Fn(&dyn Event) -> EventResult + Send + Sync + 'static,
-    {
-        match self.dispatcher.lock() {
-            Ok(mut dispatcher) => Ok(dispatcher.register_handler(event_name, handler)),
-            Err(_) => Err(Error::Event("Failed to lock dispatcher".into()))
-        }
-    }
-    
-    /// Register a handler for a specific event type
-    pub fn register_type_handler<E, F>(&self, handler: F) -> Result<EventId>
-    where
-        E: Event + 'static,
-        F: Fn(&E) -> EventResult + Send + Sync + 'static,
-    {
-        match self.dispatcher.lock() {
-            Ok(mut dispatcher) => Ok(dispatcher.register_type_handler(handler)),
-            Err(_) => Err(Error::Event("Failed to lock dispatcher".into()))
-        }
+
+    pub async fn unregister_handler(&self, id: EventId) -> Result<bool> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        Ok(dispatcher.unregister_handler(id))
     }
 }
 
-impl Default for SharedEventDispatcher {
-    fn default() -> Self {
-        Self::new()
-    }
+impl Default for SharedEventDispatcher { fn default() -> Self { Self::new() } }
+
+//--------------------------------------------------
+// Helper Functions
+//--------------------------------------------------
+
+/// Create a new event dispatcher instance
+pub fn create_dispatcher() -> SharedEventDispatcher { SharedEventDispatcher::new() }
+
+/// Helper function to create synchronous handlers that are compatible with async system
+pub fn sync_event_handler<F>(f: F) -> Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync>
+where F: Fn(&dyn Event) -> EventResult + Send + Sync + 'static {
+    Box::new(move |event| { let result = f(event); Box::pin(async move { result }) })
 }
 
-// Create a new event dispatcher instance
-pub fn create_dispatcher() -> SharedEventDispatcher {
-    SharedEventDispatcher::new()
-}
-
-// Global functions for handling events
-// These are convenience methods for common event operations
-// Note: In a real application, you would typically pass the EventDispatcher
-// as a dependency to components that need it, rather than using globals
-
-/// Create a simple event handler function for common event types
-pub fn create_handler<F>(handler_fn: F) -> Box<dyn Fn(&dyn Event) -> EventResult + Send + Sync>
-where
-    F: Fn(&dyn Event) -> EventResult + Send + Sync + 'static,
-{
-    Box::new(handler_fn)
-}
-
-/// Create a typed event handler function
-pub fn create_typed_handler<E, F>(handler_fn: F) -> Box<dyn Fn(&E) -> EventResult + Send + Sync>
-where
-    E: Event + 'static,
-    F: Fn(&E) -> EventResult + Send + Sync + 'static,
-{
-    Box::new(handler_fn)
+/// Helper function to create typed synchronous handlers
+pub fn sync_typed_handler<E, F>(f: F) -> Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync>
+where E: Event + 'static, F: Fn(&E) -> EventResult + Send + Sync + 'static {
+    Box::new(move |event| { let result = f(event); Box::pin(async move { result }) })
 }

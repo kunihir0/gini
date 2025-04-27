@@ -3,12 +3,15 @@ pub mod pipeline;
 pub mod context;
 pub mod dry_run;
 pub mod dependency;
+pub mod manager;
 pub mod requirement;
 
 use crate::kernel::error::Result;
 use std::fmt;
+use async_trait::async_trait; // Import async_trait
 
 /// Core trait that all stages must implement
+#[async_trait] // Apply async_trait
 pub trait Stage: Send + Sync {
     /// The unique identifier of the stage
     fn id(&self) -> &str;
@@ -25,7 +28,7 @@ pub trait Stage: Send + Sync {
     }
     
     /// Execute the stage with the given context
-    fn execute(&self, context: &mut context::StageContext) -> Result<()>;
+    async fn execute(&self, context: &mut context::StageContext) -> Result<()>; // Make execute async
     
     /// Generate a description of what this stage would do in dry run mode
     fn dry_run_description(&self, context: &context::StageContext) -> String {
@@ -59,3 +62,4 @@ pub use context::StageContext;
 pub use requirement::StageRequirement;
 pub use registry::StageRegistry;
 pub use pipeline::StagePipeline;
+pub use manager::StageManager;

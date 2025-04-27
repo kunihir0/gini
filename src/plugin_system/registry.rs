@@ -75,6 +75,10 @@ impl PluginRegistry {
     pub fn get_plugin(&self, name: &str) -> Option<&dyn Plugin> {
         self.plugins.get(name).map(AsRef::as_ref)
     }
+/// Get an iterator over registered plugin names and references
+    pub fn iter_plugins(&self) -> impl Iterator<Item = (&String, &Box<dyn Plugin>)> {
+        self.plugins.iter()
+    }
     
     /// Initialize a plugin
     pub fn initialize_plugin(&mut self, name: &str, app: &mut crate::kernel::bootstrap::Application) -> Result<()> {

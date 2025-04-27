@@ -15,6 +15,10 @@ pub enum Error {
     Storage(String),
     /// Event system error
     Event(String),
+    /// Component error
+    Component(String),
+    /// Dependency injection error
+    DependencyInjection(String),
     /// Generic error with message
     Other(String),
 }
@@ -30,6 +34,8 @@ impl fmt::Display for Error {
             Error::Stage(msg) => write!(f, "Stage error: {}", msg),
             Error::Storage(msg) => write!(f, "Storage error: {}", msg),
             Error::Event(msg) => write!(f, "Event error: {}", msg),
+            Error::Component(msg) => write!(f, "Component error: {}", msg),
+            Error::DependencyInjection(msg) => write!(f, "Dependency injection error: {}", msg),
             Error::Other(msg) => write!(f, "Error: {}", msg),
         }
     }
@@ -46,5 +52,11 @@ impl From<&str> for Error {
 impl From<String> for Error {
     fn from(msg: String) -> Self {
         Error::Other(msg)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(io_err: std::io::Error) -> Self {
+        Error::Storage(format!("I/O error: {}", io_err))
     }
 }

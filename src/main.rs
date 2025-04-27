@@ -8,12 +8,13 @@ mod utils;
 
 use crate::kernel::bootstrap::Application;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("OSX-Forge: QEMU/KVM Deployment System");
     println!("Initializing application...");
     
     // Create and initialize the application
-    let mut app = match Application::new() {
+    let mut app = match Application::new(None) {
         Ok(app) => app,
         Err(e) => {
             eprintln!("Failed to initialize application: {}", e);
@@ -22,7 +23,8 @@ fn main() {
     };
     
     // Run the application
-    if let Err(e) = app.run() {
+    let run_result = app.run().await;
+    if let Err(e) = run_result {
         eprintln!("Application error: {}", e);
     }
     
