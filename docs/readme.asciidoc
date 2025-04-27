@@ -74,12 +74,16 @@ osxforge/
 ├── .gitignore
 ├── README.md
 ├── src/
-│   ├── main.rs                # Application entry point
-│   ├── kernel/                # Minimal application kernel
+│   ├── main.rs                # Application entry point (async with Tokio)
+│   ├── kernel/                # Core application kernel
 │   │   ├── mod.rs
-│   │   ├── bootstrap.rs       # Core bootstrap
+│   │   ├── bootstrap.rs       # Application setup and lifecycle
+│   │   ├── component.rs       # Kernel component trait and registry
 │   │   ├── constants.rs       # Kernel constants
-│   │   └── error.rs           # Error handling
+│   │   ├── error.rs           # Error handling
+│   │   └── tests/             # Kernel tests
+│   │       ├── mod.rs
+│   │       └── bootstrap_tests.rs
 │   ├── plugin_system/         # Plugin infrastructure
 │   │   ├── mod.rs
 │   │   ├── registry.rs        # Plugin registry
@@ -89,7 +93,8 @@ osxforge/
 │   │   ├── version.rs         # Version compatibility
 │   │   ├── adapter.rs         # Legacy adapters
 │   │   ├── manifest.rs        # Plugin manifest handling
-│   │   └── conflict.rs        # Conflict resolution
+│   │   ├── conflict.rs        # Conflict resolution
+│   │   └── manager.rs         # Plugin manager component
 │   ├── stage_manager/         # Stage management system
 │   │   ├── mod.rs
 │   │   ├── registry.rs        # Stage registration
@@ -97,14 +102,17 @@ osxforge/
 │   │   ├── context.rs         # Shared stage context
 │   │   ├── dry_run.rs         # Dry run functionality
 │   │   ├── dependency.rs      # Stage dependency resolver
-│   │   └── requirement.rs     # Stage requirements
+│   │   ├── requirement.rs     # Stage requirements
+│   │   └── manager.rs         # Stage manager component
 │   ├── storage/               # Storage management
 │   │   ├── mod.rs
 │   │   ├── provider.rs        # Storage provider interface
-│   │   └── local.rs           # Local filesystem provider
-│   ├── event/                 # Event system
+│   │   ├── local.rs           # Local filesystem provider
+│   │   └── manager.rs         # Storage manager component
+│   ├── event/                 # Event system (async)
 │   │   ├── mod.rs
-│   │   ├── dispatcher.rs      # Event dispatcher
+│   │   ├── dispatcher.rs      # Async event dispatcher (using Tokio)
+│   │   ├── manager.rs         # Event manager component
 │   │   └── types.rs           # Event types
 │   ├── ui_bridge/             # Minimal UI abstraction layer
 │   │   ├── mod.rs
@@ -225,15 +233,24 @@ osxforge/
 == Everything is a Plugin Architecture
 
 === Core Kernel
-The OSX-Forge kernel is an ultra-lightweight component responsible for:
+The OSX-Forge kernel provides the core application lifecycle and component management. It has been refactored to use:
 
-* Loading and initializing plugins
-* Managing the plugin lifecycle
-* Providing the stage manager interface
-* Establishing the minimal communication bus
-* Managing system storage access
+* *Component-Based Architecture*: Key subsystems (Events, Plugins, Stages, Storage) are implemented as independent `KernelComponent` traits.
+* *Dependency Injection*: Components are managed via a central `DependencyRegistry`, promoting loose coupling and testability.
+* *Asynchronous Operations*: The kernel leverages the `Tokio` runtime for non-blocking I/O and concurrent task execution throughout its subsystems.
+* *Interface-Driven Design*: Components interact through defined traits (e.g., `EventManager`, `PluginManager`).
 
-All actual functionality is implemented as plugins, including core functionality.
+The kernel is responsible for:
+
+* Bootstrapping the application and initializing components in the correct order.
+* Providing access to shared components via the dependency registry.
+* Managing the overall application lifecycle (startup, shutdown).
+* Coordinating component interactions through events or direct calls where necessary.
+* Managing system storage access via the Storage Manager component. User-specific data and configurations are stored within the `./user/` directory in the project root.
+
+For a detailed explanation of the kernel's design principles and component interactions, see the link:docs/kernel/design.md[Kernel Architecture Design Document].
+
+All actual high-level functionality (like building OpenCore or setting up VMs) is implemented within plugins that utilize the kernel's components and services.
 
 === Core Plugins vs. Third-Party Plugins
 

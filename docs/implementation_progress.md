@@ -35,8 +35,9 @@
   - [x] Console provider
 - [x] Implement utility functions
   - [x] Filesystem utilities
-
-## Phase 2: Core Plugins
+ - [x] Refactor kernel for component architecture and async (Tokio)
+ 
+ ## Phase 2: Core Plugins
 
 - [ ] OpenCore builder plugin
 - [ ] VM setup plugin
@@ -52,9 +53,11 @@
 
 ## Current Status
 
-Phase 1 of the project is complete! We have successfully implemented all the core infrastructure components:
+Phase 1 of the project is complete! We have successfully implemented and subsequently refactored the core infrastructure components:
 
 1. **Kernel Infrastructure**
+   - Component-based architecture implemented
+   - Asynchronous operations using Tokio runtime integrated
    - Core error handling system
    - Bootstrap application
    - Configuration constants
