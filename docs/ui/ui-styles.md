@@ -1,26 +1,18 @@
-= Gini Terminal UI Style Guide
-:author: kunihir0
-:email: kunihir0@example.com
-:revdate: 2025-04-26
-:revnumber: 1.0
-:toc: left
-:toclevels: 4
-:sectnums:
-:sectnumlevels: 4
-:imagesdir: images
-:source-highlighter: highlight.js
-:icons: font
-:experimental:
+# Gini Terminal UI Style Guide
 
-== Document Information
+**Author:** kunihir0  
+**Email:** kunihir0@example.com  
+**Date:** 2025-04-26  
+**Version:** 1.0
 
-[cols="1,5"]
-|===
-|Date/Time (UTC) |2025-04-26 21:37:53
-|Author |kunihir0
-|===
+## Document Information
 
-== Introduction
+| | |
+|---|---|
+| Date/Time (UTC) | 2025-04-26 21:37:53 |
+| Author | kunihir0 |
+
+## Introduction
 
 This document defines the visual design language and interaction patterns for Gini's terminal-based interfaces. It provides guidelines for implementing both the Command Line Interface (CLI) and Text-based User Interface (TUI), ensuring a cohesive, aesthetically pleasing experience while maintaining consistency with the plugin architecture.
 
@@ -32,266 +24,119 @@ The design principles prioritize:
 * Appropriate feedback for both interactive and non-interactive modes
 * Accessibility through thoughtful color and contrast choices
 
-== Visual Design System
+## Visual Design System
 
-=== Color Palette
+### Color Palette
 
-==== Primary Colors (ANSI Escape Codes)
+#### Primary Colors (ANSI Escape Codes)
 
-[cols="2,3,5"]
-|===
-|Color Name |ANSI Code |Usage Context
+| Color Name | ANSI Code | Usage Context |
+|---|---|---|
+| Pink | `\033[38;5;219m` | Primary branding, key highlights, primary actions |
+| Purple | `\033[38;5;183m` | Secondary elements, gradient components, plugin boundaries |
+| Cyan | `\033[38;5;123m` | Interactive elements, information indicators, VM status |
+| Yellow | `\033[38;5;228m` | Warnings, attention highlights, configuration notices |
+| Green | `\033[38;5;156m` | Success messages, completion indicators, healthy status |
+| Red | `\033[38;5;210m` | Critical actions, error states, destructive operations |
+| Blue | `\033[38;5;111m` | Calm, non-threatening information, passive elements |
 
-|Pink
-|`\033[38;5;219m`
-|Primary branding, key highlights, primary actions
+#### Secondary Colors
 
-|Purple
-|`\033[38;5;183m`
-|Secondary elements, gradient components, plugin boundaries
+| Color Name | ANSI Code | Usage Context |
+|---|---|---|
+| Magenta | `\033[38;5;201m` | Special highlights, emphasis, OSX-specific features |
+| Light Blue | `\033[38;5;159m` | Subtle information, background details, help text |
+| Lavender | `\033[38;5;147m` | Gentle prompts, soft interactions, passive states |
+| Peach | `\033[38;5;223m` | Soft warnings, tertiary highlights, minor notices |
+| Mint | `\033[38;5;121m` | Secondary success indicators, resource optimization |
 
-|Cyan
-|`\033[38;5;123m`
-|Interactive elements, information indicators, VM status
+#### Background Colors
 
-|Yellow
-|`\033[38;5;228m`
-|Warnings, attention highlights, configuration notices
+| Background | ANSI Code | Usage Context |
+|---|---|---|
+| Black background | `\033[40m` | Default background |
+| Dark background | `\033[48;5;236m` | Dialog backgrounds, modal windows |
+| Purple background | `\033[45m` | Highlight areas, selection indicators |
+| Pink background | `\033[48;5;219m` | Current action indicator, critical notices |
 
-|Green
-|`\033[38;5;156m`
-|Success messages, completion indicators, healthy status
+#### Text Styling
 
-|Red
-|`\033[38;5;210m`
-|Critical actions, error states, destructive operations
+| Style | ANSI Code | Effect |
+|---|---|---|
+| Bold | `\033[1m` | Emphasize important information, commands, options |
+| Italic | `\033[3m` | Descriptions, quotes, supplementary information |
+| Underline | `\033[4m` | Hyperlinks, navigation options, selectable items |
+| Blink | `\033[5m` | Critical warnings only (use sparingly) |
 
-|Blue
-|`\033[38;5;111m`
-|Calm, non-threatening information, passive elements
-|===
+### Typography & Symbols
 
-==== Secondary Colors
+#### Icon System
 
-[cols="2,3,5"]
-|===
-|Color Name |ANSI Code |Usage Context
+##### Status Symbols
 
-|Magenta
-|`\033[38;5;201m`
-|Special highlights, emphasis, OSX-specific features
+| Status | Symbol | Color Coding |
+|---|---|---|
+| Success | `✓` | green |
+| Warning | `!` | yellow |
+| Error | `✗` | red |
+| Info | `✧` | cyan |
+| Progress | `→` | blue |
+| Star | `★` | purple |
+| VM | `◈` | pink |
+| Plugin | `⚙` | cyan |
 
-|Light Blue
-|`\033[38;5;159m`
-|Subtle information, background details, help text
+##### Animation Character Sets
 
-|Lavender
-|`\033[38;5;147m`
-|Gentle prompts, soft interactions, passive states
+| Spinner Type | Characters | Usage Context |
+|---|---|---|
+| Flower Spinner | `✿`, `❀`, `✾`, `❁`, `✽`, `✼`, `✻`, `✺`, `✹`, `✸` | General purpose, default style |
+| Star Spinner | `✦`, `✧`, `✩`, `✪`, `✫`, `✬`, `✭`, `✮` | VM preparation, OpenCore operations |
+| Braille Spinner | `⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏` | Technical operations, filesystem tasks |
+| Arrows Spinner | `←`, `↖`, `↑`, `↗`, `→`, `↘`, `↓`, `↙` | Network operations, data transfers |
+| Pulse Spinner | `•`, `○`, `●`, `○` | Resource monitoring, status checks |
+| Bounce Spinner | `⠁`, `⠂`, `⠄`, `⡀`, `⢀`, `⠠`, `⠐`, `⠈` | Recovery operations, diagnostic tools |
 
-|Peach
-|`\033[38;5;223m`
-|Soft warnings, tertiary highlights, minor notices
+#### Border & Frame Styles
 
-|Mint
-|`\033[38;5;121m`
-|Secondary success indicators, resource optimization
-|===
+| Frame Style | Characters | Usage Context |
+|---|---|---|
+| Single Frame | `╭─────╮`<br>`│     │`<br>`╰─────╯` | General dialogs, default style |
+| Double Frame | `╔═════╗`<br>`║     ║`<br>`╚═════╝` | Important notices, critical information |
+| Bold Frame | `┏━━━━━┓`<br>`┃     ┃`<br>`┗━━━━━┛` | Configuration screens, settings |
+| Dotted Frame | `.....`<br>`.   .`<br>`.....` | Optional information, tips |
+| ASCII Frame | `+-----+`<br>`\|     \|`<br>`+-----+` | Fallback for limited terminals |
+| Stars Frame | `✦✧✧✧✧✦`<br>`✧   ✧`<br>`✦✧✧✧✧✦` | Special announcements, achievements |
 
-==== Background Colors
+## Animation Guidelines
 
-[cols="2,3,5"]
-|===
-|Background |ANSI Code |Usage Context
-
-|Black background
-|`\033[40m`
-|Default background
-
-|Dark background
-|`\033[48;5;236m`
-|Dialog backgrounds, modal windows
-
-|Purple background
-|`\033[45m`
-|Highlight areas, selection indicators
-
-|Pink background
-|`\033[48;5;219m`
-|Current action indicator, critical notices
-|===
-
-==== Text Styling
-
-[cols="2,3,4"]
-|===
-|Style |ANSI Code |Effect
-
-|Bold
-|`\033[1m`
-|Emphasize important information, commands, options
-
-|Italic
-|`\033[3m`
-|Descriptions, quotes, supplementary information
-
-|Underline
-|`\033[4m`
-|Hyperlinks, navigation options, selectable items
-
-|Blink
-|`\033[5m`
-|Critical warnings only (use sparingly)
-|===
-
-=== Typography & Symbols
-
-==== Icon System
-
-===== Status Symbols
-
-[cols="2,2,4"]
-|===
-|Status |Symbol |Color Coding
-
-|Success
-|`✓`
-|green
-
-|Warning
-|`!`
-|yellow
-
-|Error
-|`✗`
-|red
-
-|Info
-|`✧`
-|cyan
-
-|Progress
-|`→`
-|blue
-
-|Star
-|`★`
-|purple
-
-|VM
-|`◈`
-|pink
-
-|Plugin
-|`⚙`
-|cyan
-|===
-
-===== Animation Character Sets
-
-[cols="2,4,4"]
-|===
-|Spinner Type |Characters |Usage Context
-
-|Flower Spinner
-|`✿`, `❀`, `✾`, `❁`, `✽`, `✼`, `✻`, `✺`, `✹`, `✸`
-|General purpose, default style
-
-|Star Spinner
-|`✦`, `✧`, `✩`, `✪`, `✫`, `✬`, `✭`, `✮`
-|VM preparation, OpenCore operations
-
-|Braille Spinner
-|`⠋`, `⠙`, `⠹`, `⠸`, `⠼`, `⠴`, `⠦`, `⠧`, `⠇`, `⠏`
-|Technical operations, filesystem tasks
-
-|Arrows Spinner
-|`←`, `↖`, `↑`, `↗`, `→`, `↘`, `↓`, `↙`
-|Network operations, data transfers
-
-|Pulse Spinner
-|`•`, `○`, `●`, `○`
-|Resource monitoring, status checks
-
-|Bounce Spinner
-|`⠁`, `⠂`, `⠄`, `⡀`, `⢀`, `⠠`, `⠐`, `⠈`
-|Recovery operations, diagnostic tools
-|===
-
-==== Border & Frame Styles
-
-[cols="2,3,4"]
-|===
-|Frame Style |Characters |Usage Context
-
-|Single Frame
-|`╭─────╮`
-|`│     │`
-|`╰─────╯`
-|General dialogs, default style
-
-|Double Frame
-|`╔═════╗`
-|`║     ║`
-|`╚═════╝`
-|Important notices, critical information
-
-|Bold Frame
-|`┏━━━━━┓`
-|`┃     ┃`
-|`┗━━━━━┛`
-|Configuration screens, settings
-
-|Dotted Frame
-|`.....`
-|`.   .`
-|`.....`
-|Optional information, tips
-
-|ASCII Frame
-|`+-----+`
-|`|     |`
-|`+-----+`
-|Fallback for limited terminals
-
-|Stars Frame
-|`✦✧✧✧✧✦`
-|`✧   ✧`
-|`✦✧✧✧✧✦`
-|Special announcements, achievements
-|===
-
-== Animation Guidelines
-
-=== CLI Animation Principles
+### CLI Animation Principles
 
 The Command Line Interface should incorporate animations that provide feedback without interfering with information processing:
 
-1. *Progressive Disclosure*: Start with minimal animations for critical information, escalate visual richness for success/completion states
-2. *Unobtrusive Progress*: Animations should indicate progress without dominating screen space
-3. *Meaningful Motion*: Each animation should convey specific information (not merely decorative)
-4. *Speed Consideration*: Animation timing should reflect actual progress, not arbitrary durations
-5. *Fallback Options*: All animations must have non-animated alternatives for accessibility and CI/CD environments
+1. **Progressive Disclosure**: Start with minimal animations for critical information, escalate visual richness for success/completion states
+2. **Unobtrusive Progress**: Animations should indicate progress without dominating screen space
+3. **Meaningful Motion**: Each animation should convey specific information (not merely decorative)
+4. **Speed Consideration**: Animation timing should reflect actual progress, not arbitrary durations
+5. **Fallback Options**: All animations must have non-animated alternatives for accessibility and CI/CD environments
 
-=== TUI Animation Principles
+### TUI Animation Principles
 
 The Text User Interface should leverage animations to enhance navigation and provide context:
 
-1. *State Transitions*: Use animations to indicate movement between screens/states
-2. *Focus Indicators*: Subtle animations should highlight the current focus point
-3. *Background Activity*: Use ambient animations to indicate ongoing background processes
-4. *Consistent Language*: Animation patterns should be consistent across similar operations
-5. *Performance Impact*: Animations must not cause noticeable performance degradation
+1. **State Transitions**: Use animations to indicate movement between screens/states
+2. **Focus Indicators**: Subtle animations should highlight the current focus point
+3. **Background Activity**: Use ambient animations to indicate ongoing background processes
+4. **Consistent Language**: Animation patterns should be consistent across similar operations
+5. **Performance Impact**: Animations must not cause noticeable performance degradation
 
-=== Standard Animation Techniques
+### Standard Animation Techniques
 
-==== Text Effects
+#### Text Effects
 
-===== Gradient Text
+##### Gradient Text
 Used for headings and important titles to create visual interest:
 
-[source,rust]
-----
+```rust
 fn gradient_text(text: &str, colors: &[&str]) -> String {
     let mut result = String::new();
     for (i, char) in text.chars().enumerate() {
@@ -303,13 +148,12 @@ fn gradient_text(text: &str, colors: &[&str]) -> String {
     }
     result
 }
-----
+```
 
-===== Typing Effect
+##### Typing Effect
 Used for introductory text and important notices:
 
-[source,rust]
-----
+```rust
 fn typing_effect(text: &str, speed: f32) {
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
@@ -331,13 +175,12 @@ fn typing_effect(text: &str, speed: f32) {
         std::thread::sleep(std::time::Duration::from_secs_f32(delay));
     }
 }
-----
+```
 
-===== Wave Text
+##### Wave Text
 Used for celebratory messages and success indicators:
 
-[source,rust]
-----
+```rust
 fn wave_text(text: &str, cycles: usize, amplitude: usize) {
     let term_size = terminal_size();
     let width = term_size.0;
@@ -369,15 +212,14 @@ fn wave_text(text: &str, cycles: usize, amplitude: usize) {
         }
     }
 }
-----
+```
 
-==== Progress Indicators
+#### Progress Indicators
 
-===== Dynamic Progress Bar
+##### Dynamic Progress Bar
 Used for long-running tasks with known progress:
 
-[source,rust]
-----
+```rust
 fn progress_bar(
     progress: f32, 
     width: usize, 
@@ -411,13 +253,12 @@ fn progress_bar(
     );
     std::io::stdout().flush().unwrap();
 }
-----
+```
 
-===== Multi-Style Spinner
+##### Multi-Style Spinner
 Used for operations with unknown duration:
 
-[source,rust]
-----
+```rust
 fn spinner(text: &str, spinner_type: &str, duration_secs: f32) {
     let frames = match spinner_type {
         "flower" => vec!["✿", "❀", "✾", "❁", "✽", "✼", "✻", "✺", "✹", "✸"],
@@ -443,13 +284,12 @@ fn spinner(text: &str, spinner_type: &str, duration_secs: f32) {
     }
     print!("\r{}\r", " ".repeat(text.len() + 3));
 }
-----
+```
 
-===== Step Indicator
+##### Step Indicator
 Used for multi-stage processes:
 
-[source,rust]
-----
+```rust
 fn print_step(step: usize, total_steps: usize, message: &str, status: &str) {
     let status_symbol = match status {
         "success" => format!("{} ✓ ", COLORS["green"]),
@@ -470,15 +310,14 @@ fn print_step(step: usize, total_steps: usize, message: &str, status: &str) {
         message
     );
 }
-----
+```
 
-==== Scene Transitions
+#### Scene Transitions
 
-===== Fade Transition
+##### Fade Transition
 Used when switching between major interface sections:
 
-[source,rust]
-----
+```rust
 fn fade_transition() {
     let term_size = terminal_size();
     let width = term_size.0 as usize;
@@ -517,13 +356,12 @@ fn fade_transition() {
     print!("\x1B[u");
     std::io::stdout().flush().unwrap();
 }
-----
+```
 
-===== Sparkle Effect
+##### Sparkle Effect
 Used for completion states and achievements:
 
-[source,rust]
-----
+```rust
 fn sparkle_effect(text: &str, duration_secs: f32) {
     let term_size = terminal_size();
     let width = term_size.0 as usize;
@@ -564,65 +402,49 @@ fn sparkle_effect(text: &str, duration_secs: f32) {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
-----
+```
 
-== CLI Interface Guidelines
+## CLI Interface Guidelines
 
-=== Command Structure
+### Command Structure
 
-==== Naming Conventions
+#### Naming Conventions
 
 * Use kebab-case for command and flag names (`create-vm` not `createVM` or `create_vm`)
 * Prefix destructive commands with verbs (`remove-vm` not just `vm-remove`)
 * Use consistent terminology across similar operations
 
-==== Command Flow
+#### Command Flow
 
-[source]
-----
+```
 gini <command> [subcommand] [options]
-----
+```
 
 Standard command categories:
 
-[cols="1,4"]
-|===
-|Category |Description
+| Category | Description |
+|---|---|
+| create | Creation commands (VMs, configurations, resources) |
+| list | Display available resources (VMs, plugins, configs) |
+| manage | Management operations (start, stop, modify) |
+| config | Configuration commands |
+| plugin | Plugin management |
+| test | Testing operations |
 
-|create
-|Creation commands (VMs, configurations, resources)
-
-|list
-|Display available resources (VMs, plugins, configs)
-
-|manage
-|Management operations (start, stop, modify)
-
-|config
-|Configuration commands
-
-|plugin
-|Plugin management 
-
-|test
-|Testing operations
-|===
-
-==== Flag Consistency
+#### Flag Consistency
 
 * Short flags: Single hyphen with single character (`-v`)
 * Long flags: Double hyphen with full name (`--version`)
 * Boolean flags don't take values (`--dry-run` not `--dry-run=true`)
 * Value flags use equals or space (`--name="My VM"` or `--name "My VM"`)
 
-=== CLI Animation Usage
+### CLI Animation Usage
 
-==== Basic Operations
+#### Basic Operations
 
 For simple, quick operations:
 
-[source,rust]
-----
+```rust
 fn simple_operation(message: &str) {
     // Display a simple spinner during the operation
     spinner(message, "braille", 1.5);
@@ -631,17 +453,16 @@ fn simple_operation(message: &str) {
         message + " completed"
     );
 }
-----
+```
 
-==== Multi-stage Operations
+#### Multi-stage Operations
 
 For complex operations with multiple steps:
 
-[source,rust]
-----
+```rust
 fn multi_stage_operation(operation_name: &str, steps: &[&str]) {
     println!("{}", gradient_text(&format!("• {} •", operation_name), 
-                              &["purple", "pink", "cyan"]));
+                             &["purple", "pink", "cyan"]));
     println!();
     
     for (i, step) in steps.iter().enumerate() {
@@ -655,14 +476,13 @@ fn multi_stage_operation(operation_name: &str, steps: &[&str]) {
     // Add sparkle effect at the end
     sparkle_effect(&format!("✨ {} Completed! ✨", operation_name), 1.2);
 }
-----
+```
 
-==== Dry Run Mode
+#### Dry Run Mode
 
 Dry run mode should use the same visual style but clearly indicate simulation:
 
-[source,rust]
-----
+```rust
 fn dry_run_operation(operation_name: &str, steps: &[&str]) {
     let dry_run_header = format!("[DRY RUN] {}", operation_name);
     
@@ -679,14 +499,13 @@ fn dry_run_operation(operation_name: &str, steps: &[&str]) {
     println!("\n{} This was a dry run. No changes were made.", 
         COLORS["yellow"] + "!" + COLORS["reset"]);
 }
-----
+```
 
-==== Progress Displays
+#### Progress Displays
 
 For operations with measurable progress:
 
-[source,rust]
-----
+```rust
 fn progress_operation(operation_name: &str, total_steps: usize) {
     println!("{}", operation_name);
     
@@ -708,14 +527,13 @@ fn progress_operation(operation_name: &str, total_steps: usize) {
     println!("\n{} Operation complete", 
         COLORS["green"] + "✓" + COLORS["reset"]);
 }
-----
+```
 
-=== CLI Examples
+### CLI Examples
 
-==== VM Creation Example
+#### VM Creation Example
 
-[source]
-----
+```
 $ gini create-vm --name "Monterey Dev" --os-version monterey --ram 8G
 
 ✨ Creating macOS VM: Monterey Dev ✨
@@ -732,12 +550,11 @@ $ gini create-vm --name "Monterey Dev" --os-version monterey --ram 8G
 
 Your VM is ready to use. Start it with:
   gini start-vm "Monterey Dev"
-----
+```
 
-==== Dry Run Example
+#### Dry Run Example
 
-[source]
-----
+```
 $ gini create-vm --name "Monterey Dev" --os-version monterey --dry-run
 
 ╭───────────────────────────────────────╮
@@ -754,12 +571,11 @@ $ gini create-vm --name "Monterey Dev" --os-version monterey --dry-run
 
 ! This was a dry run. No changes were made.
 ! Total estimated disk usage: 694MB
-----
+```
 
-==== Error State Example
+#### Error State Example
 
-[source]
-----
+```
 $ gini create-vm --name "Monterey Dev" --ram 128G
 
 ✨ Creating macOS VM: Monterey Dev ✨
@@ -775,16 +591,15 @@ Suggestions:
 • Free up disk space
 • Specify a smaller disk with --disk-size
 • Use a different storage location with --storage-path
-----
+```
 
-== TUI Interface Guidelines
+## TUI Interface Guidelines
 
-=== Layout Structure
+### Layout Structure
 
-==== Screen Regions
+#### Screen Regions
 
-[source]
-----
+```
 ┌─────────────────────────────────────────────────┐
 │                    Header                       │
 ├─────────────────────────────────────────────────┤
@@ -796,9 +611,9 @@ Suggestions:
 ├──────────────────────┬──────────────────────────┤
 │    Status Region     │     Controls/Help        │
 └──────────────────────┴──────────────────────────┘
-----
+```
 
-==== Navigation System
+#### Navigation System
 
 * Tab navigation between major sections
 * Arrow keys for movement within sections
@@ -806,14 +621,13 @@ Suggestions:
 * Escape to go back/cancel
 * Consistent shortcut keys across screens
 
-=== TUI Animation Usage
+### TUI Animation Usage
 
-==== Navigation Transitions
+#### Navigation Transitions
 
 When moving between screens:
 
-[source,rust]
-----
+```rust
 fn screen_transition(from_screen: &str, to_screen: &str) {
     // Save current screen state
     app.save_screen_state(from_screen);
@@ -827,14 +641,13 @@ fn screen_transition(from_screen: &str, to_screen: &str) {
     // Typing effect for screen title
     typing_effect(&format!("• {} •", to_screen.to_uppercase()), 0.02);
 }
-----
+```
 
-==== Background Processing
+#### Background Processing
 
 For operations running while UI remains interactive:
 
-[source,rust]
-----
+```rust
 fn background_task_indicator(task_name: &str, is_active: bool) {
     if is_active {
         // Show subtle spinner in status bar
@@ -852,14 +665,13 @@ fn background_task_indicator(task_name: &str, is_active: bool) {
         status_bar.set_left_text("");
     }
 }
-----
+```
 
-==== Ambient Animation
+#### Ambient Animation
 
 Subtle background animations for visual interest:
 
-[source,rust]
-----
+```rust
 fn update_ambient_animations() {
     // Only update every few frames for performance
     if app.frame_count % 5 != 0 {
@@ -892,24 +704,22 @@ fn update_ambient_animations() {
         }
     }
 }
-----
+```
 
-=== TUI Components 
+### TUI Components 
 
-==== VM List Component
+#### VM List Component
 
-[source]
-----
+```
 ┌─ Virtual Machines ───────────────────────────────┐
 │ • Monterey Dev                      [Running ✓]  │
 │ • Big Sur Test                      [Stopped ○]  │
 │ • Ventura Build Server              [Paused ⏸]   │
 │ • Catalina Legacy                   [Stopped ○]  │
 └─────────────────────────────────────────────────┘
-----
+```
 
-[source,rust]
-----
+```rust
 fn render_vm_list(vms: &[VirtualMachine], selected_idx: usize) {
     let status_symbols = [
         ("Running", "✓", "green"),
@@ -948,12 +758,11 @@ fn render_vm_list(vms: &[VirtualMachine], selected_idx: usize) {
     
     print_boxed_footer("single");
 }
-----
+```
 
-==== Dialog Box Component
+#### Dialog Box Component
 
-[source]
-----
+```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃               Confirm Action                    ┃
 ┃                                                 ┃
@@ -962,10 +771,9 @@ fn render_vm_list(vms: &[VirtualMachine], selected_idx: usize) {
 ┃                                                 ┃
 ┃          [Cancel]         [Delete]              ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-----
+```
 
-[source,rust]
-----
+```rust
 fn show_dialog(title: &str, message: &str, options: &[&str], dangerous: bool) -> usize {
     // Choose frame style based on dialog type
     let frame_style = if dangerous { "bold" } else { "single" };
@@ -1007,22 +815,20 @@ fn show_dialog(title: &str, message: &str, options: &[&str], dangerous: bool) ->
     
     selected
 }
-----
+```
 
-==== Resource Monitor Component
+#### Resource Monitor Component
 
-[source]
-----
+```
 ┌─ VM Resources ──────────────────────────────────┐
 │ CPU: ████████████████████░░░░░░░░░░  67%        │
 │ RAM: █████████████████████████████░  93%        │
 │ DSK: ██████░░░░░░░░░░░░░░░░░░░░░░░  24%        │
 │ NET: ███░░░░░░░░░░░░░░░░░░░░░░░░░░  12% ↑ 2MB/s│
 └─────────────────────────────────────────────────┘
-----
+```
 
-[source,rust]
-----
+```rust
 fn render_resource_monitor(vm_stats: &VmStats) {
     // Frame with title
     print_boxed_header("VM Resources", "single", &["cyan", "blue"]);
@@ -1078,14 +884,13 @@ fn render_bar(width: usize, fill: f32, color: &str, alert_condition: &str) {
         COLORS["reset"] + &"░".repeat(empty_width)
     );
 }
-----
+```
 
-=== TUI Example Pages
+### TUI Example Pages
 
-==== Main Dashboard
+#### Main Dashboard
 
-[source]
-----
+```
 ┌─ Gini ─────────────────────────────────────┐
 │                                                 │
 │ ✨ Welcome to Gini VM Manager ✨           │
@@ -1104,12 +909,11 @@ fn render_bar(width: usize, fill: f32, color: &str, alert_condition: &str) {
 │                                                 │
 └─────────────────────────────────────────────────┘
  [F1] Help   [F5] Refresh   [F10] Quit
-----
+```
 
-==== VM Creation Wizard
+#### VM Creation Wizard
 
-[source]
-----
+```
 ┌─ Create VM: Step 2/4 ─────────────────────────────┐
 │                                                   │
 │  Hardware Configuration                           │
@@ -1126,36 +930,35 @@ fn render_bar(width: usize, fill: f32, color: &str, alert_condition: &str) {
 │                                                   │
 └───────────────────────────────────────────────────┘
  [⬅ Back]                                  [Next ➡]
-----
+```
 
-== Accessibility Considerations
+## Accessibility Considerations
 
-=== Terminal Compatibility
+### Terminal Compatibility
 
 * All visual elements must have fallback options for limited terminals
 * Support for both 256-color and basic 16-color terminals
 * ASCII alternatives for Unicode characters
 * Non-animated alternatives for all animations
 
-=== Color Blindness
+### Color Blindness
 
 * Color is never the sole indicator of status
 * All color-based information is supplemented with symbols
 * Test color schemes with color blindness simulators
 * Maintain sufficient contrast ratios for all text
 
-=== Performance Modes
+### Performance Modes
 
 * Provide a "low animation" mode for slow terminals or remote connections
 * Add a "high contrast" mode for visibility-focused display
 * Include a "CI/CD" mode with no animations and minimal formatting
 
-== Implementation Guidelines
+## Implementation Guidelines
 
-=== Animation Framework
+### Animation Framework
 
-[source,rust]
-----
+```rust
 // Animation trait for standardizing animation interfaces
 pub trait Animation {
     fn update(&mut self, delta_time: f32) -> bool;
@@ -1207,12 +1010,11 @@ impl AnimationManager {
         self.global_scale = scale;
     }
 }
-----
+```
 
-=== Component System
+### Component System
 
-[source,rust]
-----
+```rust
 // UI component trait
 pub trait UiComponent {
     fn render(&self);
@@ -1301,96 +1103,61 @@ impl UiComponent for Frame {
         self.focused = focused;
     }
 }
-----
+```
 
-== Implementation Plan
+## Implementation Plan
 
-=== Phase 1: Core UI Components
+### Phase 1: Core UI Components
 
 * Implement basic text styling and color system
 * Create core UI components (frames, text blocks, progress bars)
 * Establish animation framework foundation
 * Build basic input handling
 
-=== Phase 2: CLI Interface
+### Phase 2: CLI Interface
 
 * Implement complete CLI command structure
 * Add CLI-specific animations and progress indicators
 * Create command documentation system
 * Build error handling and display
 
-=== Phase 3: TUI Framework
+### Phase 3: TUI Framework
 
 * Develop TUI layout system
 * Build navigation and focus management
 * Implement interactive components
 * Create screen transition system
 
-=== Phase 4: Animation Enhancements
+### Phase 4: Animation Enhancements
 
 * Add advanced text effects
 * Implement particles and ambient animations
 * Create sophisticated progress indicators
 * Build transition effects
 
-=== Phase 5: Polish and Accessibility
+### Phase 5: Polish and Accessibility
 
 * Implement terminal compatibility detection
 * Add accessibility modes
 * Create configuration system for UI preferences
 * Performance optimization for slow terminals
 
-== Appendix: Terminal Support
+## Appendix: Terminal Support
 
-[cols="2,2,2,2"]
-|===
-|Terminal |Color Support |Unicode Support |Animation Support
+| Terminal | Color Support | Unicode Support | Animation Support |
+|---|---|---|---|
+| iTerm2 | Full (24-bit) | Excellent | Excellent |
+| GNOME Terminal | Full (24-bit) | Excellent | Very Good |
+| Konsole | Full (24-bit) | Excellent | Very Good |
+| Windows Terminal | Full (24-bit) | Very Good | Very Good |
+| Alacritty | Full (24-bit) | Excellent | Excellent |
+| Terminal.app | Limited (256-color) | Good | Fair |
+| PuTTY | Limited (256-color) | Limited | Fair |
+| SSH Connections | Varies | Varies | Limited |
 
-|iTerm2
-|Full (24-bit)
-|Excellent
-|Excellent
+## Appendix: Ansi Color Reference
 
-|GNOME Terminal
-|Full (24-bit)
-|Excellent
-|Very Good
-
-|Konsole
-|Full (24-bit)
-|Excellent
-|Very Good
-
-|Windows Terminal
-|Full (24-bit)
-|Very Good
-|Very Good
-
-|Alacritty
-|Full (24-bit)
-|Excellent
-|Excellent
-
-|Terminal.app
-|Limited (256-color)
-|Good
-|Fair
-
-|PuTTY
-|Limited (256-color)
-|Limited
-|Fair
-
-|SSH Connections
-|Varies
-|Varies
-|Limited
-|===
-
-== Appendix: Ansi Color Reference
-
-[source,rust]
-----
+```rust
 // Color codes map
 pub static COLORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "reset" => "\x1B[0m",
@@ -1412,4 +1179,3 @@ pub static COLORS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "peach" => "\x1B[38;5;223m",
     "mint" => "\x1B[38;5;121m",
 };
-----

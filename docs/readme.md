@@ -1,15 +1,9 @@
-= Gini: QEMU/KVM Deployment System Architecture
-:toc: left
-:toclevels: 3
-:sectlinks:
-:sectnums:
-:icons: font
-:source-highlighter: highlight.js
-:experimental:
-:revdate: 2025-04-26
-:author: kunihir0
+# Gini: QEMU/KVM Deployment System Architecture
 
-== Introduction
+**Author:** kunihir0  
+**Last Updated:** 2025-04-27
+
+## Introduction
 
 Gini is a modular system for rapidly deploying macOS virtual machines using QEMU/KVM. This document outlines the architecture and implementation guidelines for the project.
 
@@ -20,10 +14,9 @@ The system assumes the user already has:
 * LVM for VM main storage
 * QEMU/KVM properly configured
 
-== Core Architecture Design: Everything is a Plugin
+## Core Architecture Design: Everything is a Plugin
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Gini Kernel] --> B[Plugin Manager]
     A --> C[Stage Manager]
@@ -57,183 +50,106 @@ graph TD
     style A fill:#f96,stroke:#333,stroke-width:2px
     style B fill:#9cf,stroke:#333,stroke-width:2px
     style DR fill:#afa,stroke:#333,stroke-width:2px
-....
+```
 
-== Project Structure
+## Project Structure
 
-[source]
-----
-osxforge/
-├── Cargo.toml
+```
+gini/                            # Project Root
+├── Cargo.toml                   # Workspace definition
 ├── Cargo.lock
 ├── .gitignore
-├── README.md
-├── src/
-│   ├── main.rs                # Application entry point (async with Tokio)
-│   ├── kernel/                # Core application kernel
-│   │   ├── mod.rs
-│   │   ├── bootstrap.rs       # Application setup and lifecycle
-│   │   ├── component.rs       # Kernel component trait and registry
-│   │   ├── constants.rs       # Kernel constants
-│   │   ├── error.rs           # Error handling
-│   │   └── tests/             # Kernel tests
-│   │       ├── mod.rs
-│   │       └── bootstrap_tests.rs
-│   ├── plugin_system/         # Plugin infrastructure
-│   │   ├── mod.rs
-│   │   ├── registry.rs        # Plugin registry
-│   │   ├── loader.rs          # Plugin loading
-│   │   ├── traits.rs          # Plugin traits
-│   │   ├── dependency.rs      # Dependency management
-│   │   ├── version.rs         # Version compatibility
-│   │   ├── adapter.rs         # Legacy adapters
-│   │   ├── manifest.rs        # Plugin manifest handling
-│   │   ├── conflict.rs        # Conflict resolution
-│   │   └── manager.rs         # Plugin manager component
-│   ├── stage_manager/         # Stage management system
-│   │   ├── mod.rs
-│   │   ├── registry.rs        # Stage registration
-│   │   ├── pipeline.rs        # Stage execution pipeline
-│   │   ├── context.rs         # Shared stage context
-│   │   ├── dry_run.rs         # Dry run functionality
-│   │   ├── dependency.rs      # Stage dependency resolver
-│   │   ├── requirement.rs     # Stage requirements
-│   │   └── manager.rs         # Stage manager component
-│   ├── storage/               # Storage management
-│   │   ├── mod.rs
-│   │   ├── provider.rs        # Storage provider interface
-│   │   ├── local.rs           # Local filesystem provider
-│   │   └── manager.rs         # Storage manager component
-│   ├── event/                 # Event system (async)
-│   │   ├── mod.rs
-│   │   ├── dispatcher.rs      # Async event dispatcher (using Tokio)
-│   │   ├── manager.rs         # Event manager component
-│   │   └── types.rs           # Event types
-│   ├── ui_bridge/             # Minimal UI abstraction layer
-│   │   ├── mod.rs
-│   │   └── messages.rs        # UI message types
-│   └── utils/                 # Core utilities
-│       ├── mod.rs
-│       └── fs.rs              # Basic filesystem functions
-├── plugins/
-│   ├── core/                  # Core plugins
-│   │   ├── opencore/          # OpenCore builder plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── gather.rs
-│   │   │   │   ├── edit.rs
-│   │   │   │   ├── assemble.rs
-│   │   │   │   ├── branding.rs
-│   │   │   │   └── compile.rs
-│   │   │   └── manifest.toml
-│   │   ├── vm_setup/          # VM setup plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── cpu.rs
-│   │   │   │   ├── ram.rs
-│   │   │   │   ├── disk.rs
-│   │   │   │   ├── network.rs
-│   │   │   │   └── display.rs
-│   │   │   └── manifest.toml
-│   │   ├── deployment/        # Deployment plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── recovery.rs
-│   │   │   │   ├── xml.rs
-│   │   │   │   └── launch.rs
-│   │   │   └── manifest.toml
-│   │   ├── cli_ui/            # CLI UI plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   └── commands.rs
-│   │   │   └── manifest.toml
-│   │   ├── tui_ui/            # TUI UI plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── app.rs
-│   │   │   │   └── views/
-│   │   │   └── manifest.toml
-│   │   ├── logging/           # Logging plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── formatter.rs
-│   │   │   │   └── router.rs
-│   │   │   └── manifest.toml
-│   │   ├── config_manager/    # Configuration management plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── store.rs
-│   │   │   │   ├── version_control.rs
-│   │   │   │   ├── schema.rs
-│   │   │   │   └── migration.rs
-│   │   │   └── manifest.toml
-│   │   ├── testing_framework/ # Testing framework plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── test_runner.rs
-│   │   │   │   ├── assertions.rs
-│   │   │   │   ├── mock_context.rs
-│   │   │   │   └── result_reporter.rs
-│   │   │   └── manifest.toml
-│   │   ├── perf_monitor/      # Performance monitoring plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── metrics.rs
-│   │   │   │   ├── collectors.rs
-│   │   │   │   ├── analyzers.rs
-│   │   │   │   └── reporters.rs
-│   │   │   └── manifest.toml
-│   │   ├── recovery_system/   # Recovery system plugin
-│   │   │   ├── Cargo.toml
-│   │   │   ├── src/
-│   │   │   │   ├── lib.rs
-│   │   │   │   ├── checkpoint.rs
-│   │   │   │   ├── restore.rs
-│   │   │   │   ├── journal.rs
-│   │   │   │   └── integrity.rs
-│   │   │   └── manifest.toml
-│   │   └── doc_generator/     # Documentation generator plugin
-│   │       ├── Cargo.toml
-│   │       ├── src/
-│   │       │   ├── lib.rs
-│   │       │   ├── collector.rs
-│   │       │   ├── markdown_generator.rs
-│   │       │   ├── html_generator.rs
-│   │       │   └── diagram_generator.rs
-│   │       └── manifest.toml
-│   └── third_party/           # Third-party plugins
-│       └── custom_kexts/      # Custom kexts plugin example
+├── CONTRIBUTING.md
+├── crates/                      # Workspace members
+│   ├── gini-core/               # Core library crate
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs           # Library root
+│   │       ├── event/           # Event system (async)
+│   │       │   ├── mod.rs
+│   │       │   ├── dispatcher.rs # Async event dispatcher (Tokio)
+│   │       │   ├── manager.rs    # Event manager component
+│   │       │   └── types.rs      # Event types
+│   │       ├── kernel/          # Core application kernel
+│   │       │   ├── mod.rs
+│   │       │   ├── bootstrap.rs  # Application setup and lifecycle
+│   │       │   ├── component.rs  # Kernel component trait and registry
+│   │       │   ├── constants.rs  # Kernel constants
+│   │       │   ├── error.rs      # Error handling
+│   │       │   └── tests/        # Kernel tests
+│   │       │       ├── mod.rs
+│   │       │       └── bootstrap_tests.rs
+│   │       ├── plugin_system/   # Plugin infrastructure
+│   │       │   ├── mod.rs
+│   │       │   ├── registry.rs   # Plugin registry
+│   │       │   ├── loader.rs     # Plugin loading
+│   │       │   ├── traits.rs     # Plugin traits
+│   │       │   ├── dependency.rs # Dependency management
+│   │       │   ├── version.rs    # Version compatibility
+│   │       │   ├── adapter.rs    # Legacy adapters
+│   │       │   ├── manifest.rs   # Plugin manifest handling
+│   │       │   ├── conflict.rs   # Conflict resolution
+│   │       │   ├── manager.rs    # Plugin manager component
+│   │       │   └── tests/        # Plugin system tests
+│   │       │       ├── mod.rs
+│   │       │       ├── loading_tests.rs
+│   │       │       └── preflight_tests.rs
+│   │       ├── stage_manager/   # Stage management system
+│   │       │   ├── mod.rs
+│   │       │   ├── registry.rs   # Stage registration
+│   │       │   ├── pipeline.rs   # Stage execution pipeline
+│   │       │   ├── context.rs    # Shared stage context
+│   │       │   ├── dry_run.rs    # Dry run functionality
+│   │       │   ├── dependency.rs # Stage dependency resolver
+│   │       │   ├── core_stages.rs # Core lifecycle stages
+│   │       │   ├── requirement.rs # Stage requirements
+│   │       │   └── manager.rs    # Stage manager component
+│   │       ├── storage/         # Storage management
+│   │       │   ├── mod.rs
+│   │       │   ├── provider.rs   # Storage provider interface
+│   │       │   ├── local.rs      # Local filesystem provider
+│   │       │   └── manager.rs    # Storage manager component
+│   │       ├── ui_bridge/       # Minimal UI abstraction layer
+│   │       │   ├── mod.rs
+│   │       │   └── messages.rs   # UI message types
+│   │       └── utils/           # Core utilities
+│   │           ├── mod.rs
+│   │           └── fs.rs         # Basic filesystem functions
+│   └── gini/                    # Binary crate
+│       ├── Cargo.toml
+│       └── src/
+│           └── main.rs          # Application entry point (async with Tokio)
+├── docs/
+│   ├── readme.md                # This document
+│   ├── implementation_progress.md # Progress tracking
+│   ├── refactoring_plan.md      # Refactoring details
+│   ├── kernel/
+│   │   └── design.md            # Kernel architecture design
+│   ├── plugin_system/
+│   │   └── dependencies.md      # Plugin dependency system design
+│   ├── stage_manager/
+│   │   └── plugin_lifecycle_stages.md # Plugin lifecycle stages design
+│   └── ui/
+│       └── ui-styles.md         # UI styling guidelines
+├── plugins/                     # Plugin directory
+│   └── examples/                # Example plugins
+│       └── compat_check/        # Compatibility check plugin example
 │           ├── Cargo.toml
-│           ├── src/
-│           │   ├── lib.rs
-│           │   └── kext_installer.rs
-│           └── manifest.toml
-├── tests/                     # Integration tests
-├── examples/                  # Usage examples
-└── assets/                    # Static assets
-    ├── templates/             # Configuration templates
-    ├── branding/              # Branding resources
-    └── schemas/               # JSON/YAML schemas
-----
+│           └── src/
+│               ├── plugin.rs    # Plugin implementation
+│               └── tests.rs     # Plugin tests
+└── tests/                       # Integration tests (future)
+```
 
-== Everything is a Plugin Architecture
+## Everything is a Plugin Architecture
 
-=== Core Kernel
+### Core Kernel
 The Gini kernel provides the core application lifecycle and component management. It has been refactored to use:
 
-* *Component-Based Architecture*: Key subsystems (Events, Plugins, Stages, Storage) are implemented as independent `KernelComponent` traits.
-* *Dependency Injection*: Components are managed via a central `DependencyRegistry`, promoting loose coupling and testability.
-* *Asynchronous Operations*: The kernel leverages the `Tokio` runtime for non-blocking I/O and concurrent task execution throughout its subsystems.
-* *Interface-Driven Design*: Components interact through defined traits (e.g., `EventManager`, `PluginManager`).
+* **Component-Based Architecture**: Key subsystems (Events, Plugins, Stages, Storage) are implemented as independent `KernelComponent` traits.
+* **Dependency Injection**: Components are managed via a central `DependencyRegistry`, promoting loose coupling and testability.
+* **Asynchronous Operations**: The kernel leverages the `Tokio` runtime for non-blocking I/O and concurrent task execution throughout its subsystems.
+* **Interface-Driven Design**: Components interact through defined traits (e.g., `EventManager`, `PluginManager`).
 
 The kernel is responsible for:
 
@@ -243,31 +159,30 @@ The kernel is responsible for:
 * Coordinating component interactions through events or direct calls where necessary.
 * Managing system storage access via the Storage Manager component. User-specific data and configurations are stored within the `./user/` directory in the project root.
 
-For a detailed explanation of the kernel's design principles and component interactions, see the link:docs/kernel/design.md[Kernel Architecture Design Document].
+For a detailed explanation of the kernel's design principles and component interactions, see the [Kernel Architecture Design Document](kernel/design.md).
 
 All actual high-level functionality (like building OpenCore or setting up VMs) is implemented within plugins that utilize the kernel's components and services.
 
-=== Core Plugins vs. Third-Party Plugins
+### Core Plugins vs. Third-Party Plugins
 
-==== Core Plugins
+#### Core Plugins
 * Shipped with the application
 * Provide essential functionality
 * Always loaded by default
 * Have special versioning guarantees
 * Follow stricter review process
 
-==== Third-Party Plugins
+#### Third-Party Plugins
 * Installed separately by users
 * Provide optional functionality
 * Loaded on demand
 * Can be community-developed
 * Can extend or replace core functionality
 
-=== Plugin Priorities
+### Plugin Priorities
 Core plugins have higher priority by default, but can be overridden:
 
-[source,rust]
-----
+```rust
 pub enum PluginPriority {
     Kernel(u8),          // 0-10: Reserved for kernel
     CoreCritical(u8),    // 11-50: Critical core functionality
@@ -276,16 +191,15 @@ pub enum PluginPriority {
     ThirdParty(u8),      // 151-200: Standard third-party
     ThirdPartyLow(u8),   // 201-255: Low-priority third-party
 }
-----
+```
 
-== Implementation Guidelines
+## Implementation Guidelines
 
-=== Plugin System
+### Plugin System
 
-==== API Versioning
+#### API Versioning
 
-[source,rust]
-----
+```rust
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ApiVersion {
     pub major: u32,
@@ -311,12 +225,11 @@ pub struct VersionRange {
     pub min: ApiVersion,
     pub max: ApiVersion,
 }
-----
+```
 
-==== Plugin Interface
+#### Plugin Interface
 
-[source,rust]
-----
+```rust
 pub trait Plugin {
     fn name(&self) -> &'static str;
     fn version(&self) -> &str;
@@ -340,13 +253,12 @@ pub trait Plugin {
     fn stages(&self) -> Vec<Box<dyn Stage>>;
     fn shutdown(&self) -> Result<(), PluginError>;
 }
-----
+```
 
-==== Plugin Manifest
+#### Plugin Manifest
 All plugins define their metadata in a manifest file:
 
-[source,toml]
-----
+```toml
 [plugin]
 name = "opencore-builder"
 version = "1.2.0"
@@ -364,11 +276,11 @@ logging = "^1.0.0"
 
 [stage_requirements]
 provides = ["opencore.gather", "opencore.edit", "opencore.assemble", "opencore.branding", "opencore.compile"]
-----
+```
 
-=== Dry Run Mode
+### Dry Run Mode
 
-==== Overview
+#### Overview
 Dry run mode allows users to preview the actions that would be performed without actually executing them. This is critical for:
 
 * Understanding the impact of a command
@@ -377,10 +289,9 @@ Dry run mode allows users to preview the actions that would be performed without
 * Debugging plugin implementations
 * Educational purposes for users learning the system
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub enum ExecutionMode {
     Live,
     DryRun,
@@ -408,19 +319,18 @@ impl DryRunnable for FileOperation {
         match self.operation_type {
             FileOperationType::Create => format!("Would create file at {}", self.destination.display()),
             FileOperationType::Copy => format!("Would copy {} to {}", self.source.display(), 
-                                              self.destination.unwrap_or_default().display()),
+                                             self.destination.unwrap_or_default().display()),
             FileOperationType::Delete => format!("Would delete {}", self.source.display()),
             // ...other operations
         }
     }
 }
-----
+```
 
-==== Dry Run Context
+#### Dry Run Context
 The context tracks operations in dry run mode instead of executing them:
 
-[source,rust]
-----
+```rust
 pub struct DryRunContext {
     planned_operations: Vec<Box<dyn DryRunnable>>,
     stage_operations: HashMap<String, Vec<Box<dyn DryRunnable>>>,
@@ -442,15 +352,14 @@ impl DryRunContext {
         // Generate a complete report of all planned operations
     }
 }
-----
+```
 
-=== Configuration Management Plugin
+### Configuration Management Plugin
 
-==== Overview
+#### Overview
 The Configuration Management plugin provides a centralized system for managing user preferences, VM configurations, and system settings with version control capabilities.
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Configuration Manager Plugin] --> B[Configuration Store]
     A --> C[Version Control]
@@ -473,12 +382,11 @@ graph TD
     E --> P[Automatic Upgrades]
     
     style A fill:#f96,stroke:#333,stroke-width:2px
-....
+```
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub struct ConfigManagerPlugin {
     store: ConfigStore,
     version_control: VersionControl,
@@ -536,12 +444,11 @@ impl VersionControl {
         // Get diff between versions
     }
 }
-----
+```
 
-==== Configuration Schema Example
+#### Configuration Schema Example
 
-[source,json]
-----
+```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -606,15 +513,14 @@ impl VersionControl {
   },
   "required": ["version", "name", "hardware", "macos"]
 }
-----
+```
 
-=== Testing Framework Plugin
+### Testing Framework Plugin
 
-==== Overview
+#### Overview
 The Testing Framework plugin provides facilities for automated testing of other plugins, enabling test-driven development and continuous integration.
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Testing Framework Plugin] --> B[Test Runner]
     A --> C[Mock Context]
@@ -639,12 +545,11 @@ graph TD
     E --> R[JUnit Reporter]
     
     style A fill:#f96,stroke:#333,stroke-width:2px
-....
+```
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub struct TestingFrameworkPlugin {
     test_runner: TestRunner,
     assertions: AssertionLibrary,
@@ -726,12 +631,11 @@ pub struct Assertions {
         // Assert that a config is valid against schema
     }
 }
-----
+```
 
-==== Example Test
+#### Example Test
 
-[source,rust]
-----
+```rust
 fn test_opencore_edit_stage() {
     // Arrange
     let stage = OpenCoreEditStage::new();
@@ -747,15 +651,14 @@ fn test_opencore_edit_stage() {
     Assertions::assert_dry_run_contains(&context, "Would modify config.plist");
     Assertions::assert_config_property(&context, "boot_args", "-v keepsyms=1");
 }
-----
+```
 
-=== Performance Monitoring Plugin
+### Performance Monitoring Plugin
 
-==== Overview
+#### Overview
 The Performance Monitoring plugin collects, analyzes, and reports telemetry data to help users optimize their VM configurations and discover performance bottlenecks.
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Performance Monitoring Plugin] --> B[Metric Collectors]
     A --> C[Data Storage]
@@ -779,12 +682,11 @@ graph TD
     E --> R3[Export Options]
     
     style A fill:#f96,stroke:#333,stroke-width:2px
-....
+```
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub struct PerfMonitorPlugin {
     collectors: HashMap<String, Box<dyn MetricCollector>>,
     store: Box<dyn MetricStore>,
@@ -866,12 +768,11 @@ impl Analyzer for RecommendationEngine {
         // Generate VM optimization recommendations
     }
 }
-----
+```
 
-==== Real-time Dashboard Example
+#### Real-time Dashboard Example
 
-[source,rust]
-----
+```rust
 pub struct DashboardReporter {
     ui_bridge: Arc<UiBridge>,
 }
@@ -892,15 +793,14 @@ impl Reporter for DashboardReporter {
         self.ui_bridge.send_message(UiMessage::DashboardUpdate(dashboard_update));
     }
 }
-----
+```
 
-=== Recovery System Plugin
+### Recovery System Plugin
 
-==== Overview
+#### Overview
 The Recovery System plugin provides mechanisms for creating checkpoints during operations, journaling actions, and restoring system state after failures or interruptions.
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Recovery System Plugin] --> B[Transaction Journal]
     A --> C[Checkpoint Manager]
@@ -922,12 +822,11 @@ graph TD
     E --> R3[Partial Recovery]
     
     style A fill:#f96,stroke:#333,stroke-width:2px
-....
+```
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub struct RecoverySystemPlugin {
     journal: TransactionJournal,
     checkpoint_manager: CheckpointManager,
@@ -1018,12 +917,11 @@ impl RecoveryEngine {
         // Generate a plan to recover from a failed transaction
     }
 }
-----
+```
 
-==== Example Recovery Flow
+#### Example Recovery Flow
 
-[source,rust]
-----
+```rust
 // During normal operation
 fn execute_vm_creation(context: &mut StageContext) -> Result<(), StageError> {
     // Start tracking this operation
@@ -1083,15 +981,14 @@ fn check_recovery_on_startup(app: &mut Application) {
         }
     }
 }
-----
+```
 
-=== Documentation Generation Plugin
+### Documentation Generation Plugin
 
-==== Overview
+#### Overview
 The Documentation Generator plugin extracts documentation from plugin manifests, source code comments, and runtime information to generate comprehensive user and developer documentation.
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Documentation Generator Plugin] --> B[Code Collectors]
     A --> C[Manifest Parser]
@@ -1115,12 +1012,11 @@ graph TD
     E --> E4[PDF]
     
     style A fill:#f96,stroke:#333,stroke-width:2px
-....
+```
 
-==== Implementation
+#### Implementation
 
-[source,rust]
-----
+```rust
 pub struct DocGeneratorPlugin {
     collectors: Vec<Box<dyn DocumentationCollector>>,
     generators: HashMap<String, Box<dyn ContentGenerator>>,
@@ -1224,12 +1120,11 @@ impl OutputFormatter for HtmlFormatter {
         "html"
     }
 }
-----
+```
 
-==== Diagram Generator Example
+#### Diagram Generator Example
 
-[source,rust]
-----
+```rust
 pub struct DiagramGenerator;
 
 impl ContentGenerator for DiagramGenerator {
@@ -1263,12 +1158,11 @@ impl ContentGenerator for DiagramGenerator {
         document
     }
 }
-----
+```
 
-==== Usage Example
+#### Usage Example
 
-[source,rust]
-----
+```rust
 fn generate_documentation(app: &Application, output_dir: &Path) -> Result<(), DocError> {
     let doc_plugin = app.get_service::<DocGeneratorPlugin>().unwrap();
     
@@ -1283,12 +1177,11 @@ fn generate_documentation(app: &Application, output_dir: &Path) -> Result<(), Do
     println!("Documentation generated at: {}", output_dir.display());
     Ok(())
 }
-----
+```
 
-== Stage System Design
+## Stage System Design
 
-[mermaid]
-....
+```mermaid
 graph TB
     subgraph "Stage System Flow"
         A[Stage Manager] --> B{Load Stages from Plugins}
@@ -1339,15 +1232,14 @@ graph TB
     style OC3 fill:#f99,stroke:#333,stroke-width:2px
     style OC7 fill:#9cf,stroke:#333,stroke-width:2px
     style OC8 fill:#9cf,stroke:#333,stroke-width:2px
-....
+```
 
-== Dry Run Mode Example
+## Dry Run Mode Example
 
-=== CLI Command Example
+### CLI Command Example
 
-[source]
-----
-$ osxforge create-vm --name "My macOS VM" --version monterey --cpu-cores 4 --ram 8G --dry-run
+```
+$ gini create-vm --name "My macOS VM" --version monterey --cpu-cores 4 --ram 8G --dry-run
 
 Dry Run Results:
 ================
@@ -1362,8 +1254,8 @@ Stage: vm_setup.ram
 - Would enable memory ballooning
 
 Stage: opencore.gather
-- Would download OpenCore v0.8.5 files to ~/.osxforge/tmp/opencore_0.8.5
-- Would download OVMF firmware to ~/.osxforge/tmp/OVMF_CODE.fd
+- Would download OpenCore v0.8.5 files to ~/.gini/tmp/opencore_0.8.5
+- Would download OVMF firmware to ~/.gini/tmp/OVMF_CODE.fd
 
 Stage: opencore.edit
 - Would modify config.plist to enable GUI boot menu
@@ -1375,7 +1267,7 @@ Stage: custom_kexts.add_kexts
 - Would update config.plist to enable these kexts
 
 Stage: opencore.assemble
-- Would create EFI directory structure in ~/.osxforge/tmp/efi_mount
+- Would create EFI directory structure in ~/.gini/tmp/efi_mount
 - Would copy modified config.plist to EFI/OC/config.plist
 - Would copy kexts to EFI/OC/Kexts directory
 
@@ -1384,17 +1276,17 @@ Stage: opencore.branding
 - Would set boot entry name to "My macOS VM"
 
 Stage: opencore.compile
-- Would create OpenCore.qcow2 image (~15MB) at ~/.osxforge/vms/My macOS VM/OpenCore.qcow2
+- Would create OpenCore.qcow2 image (~15MB) at ~/.gini/vms/My macOS VM/OpenCore.qcow2
 
 Stage: recovery.prepare
 - Would download macOS Monterey BaseSystem.dmg (~630MB)
 
 Stage: deployment.generate_script
-- Would create VM launch script at ~/.osxforge/vms/My macOS VM/start.sh
+- Would create VM launch script at ~/.gini/vms/My macOS VM/start.sh
 - Would set executable permissions on script
 
 Stage: deployment.xml
-- Would generate libvirt XML definition at ~/.osxforge/vms/My macOS VM/vm.xml
+- Would generate libvirt XML definition at ~/.gini/vms/My macOS VM/vm.xml
 
 Stage: recovery_system.checkpoint
 - Would create recovery checkpoint "vm_creation_completed"
@@ -1411,12 +1303,11 @@ Summary:
 - No potential conflicts detected
 
 To execute these changes, run the same command without the --dry-run flag.
-----
+```
 
-=== TUI Dry Run Example
+### TUI Dry Run Example
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[TUI Interface] --> B[Execution View]
     B --> C{Dry Run?}
@@ -1434,12 +1325,11 @@ graph TD
     
     style C fill:#f96,stroke:#333,stroke-width:2px
     style D fill:#afa,stroke:#333,stroke-width:2px
-....
+```
 
-== Plugin Dependency Resolution
+## Plugin Dependency Resolution
 
-[mermaid]
-....
+```mermaid
 graph TD
     A[Load Plugin Manifests] --> B[Verify API Compatibility]
     B --> C[Build Dependency Graph]
@@ -1456,75 +1346,76 @@ graph TD
     
     style A fill:#f96,stroke:#333,stroke-width:2px
     style J fill:#9cf,stroke:#333,stroke-width:2px
-....
+```
 
-== Key Features and Benefits of "Everything is a Plugin"
+## Key Features and Benefits of "Everything is a Plugin"
 
-=== Extreme Modularity
+### Extreme Modularity
 * Even core functionality can be replaced
 * Plugins are equal citizens with consistent interface
 * System can be pared down to minimal set of plugins
 * Different plugin combinations for different use cases
 
-=== Simplified Development Model
+### Simplified Development Model
 * Consistent development approach for all features
 * Same tools and patterns for core and third-party
 * Self-contained modules with clear dependencies
 * Built-in versioning and compatibility checks
 
-=== Progressive Enhancement
+### Progressive Enhancement
 * Start with minimal core plugins
 * Add only what's needed for specific workflows
 * More complex features implemented as plugins
 * Easy to disable unwanted functionality
 
-=== Resilient Architecture
+### Resilient Architecture
 * Failure in one plugin doesn't break the system
 * Hot-swappable components
 * Clear isolation boundaries
 * Runtime dependency resolution
 * Pre-flight checks to prevent initialization of incompatible/unready plugins
 
-=== Customization
+### Customization
 * Mix and match plugins for custom workflows
 * Override core plugins with customized versions
 * Replace individual stages within plugins
 * Create specialized distributions with selected plugins
 
-=== Dry Run Capability
+### Dry Run Capability
 * Preview operations before execution
 * Educational tool for understanding system behavior
 * Debugging aid for plugin developers
 * Safety feature for testing new plugins
 * Resource usage estimation
 
-== Implementation Plan
+## Implementation Plan
 
-=== Phase 1: Kernel Infrastructure
+### Phase 1: Kernel Infrastructure (Completed)
 * Plugin system architecture
 * Dependency resolution
 * Minimal stage manager
 * Dry run mode framework
+* Cargo workspace structure
 
-=== Phase 2: Core Plugins
+### Phase 2: Core Plugins (In Progress)
 * Convert core functionality to plugins
 * Implement plugin priority system
 * Basic UI plugin
 * Dry run reporting
 
-=== Phase 3: Core Enhancement Plugins
+### Phase 3: Core Enhancement Plugins (Planned)
 * Configuration management system
 * Recovery system
 * Performance monitoring
 * Testing framework
 
-=== Phase 4: Plugin Marketplace and Documentation
+### Phase 4: Plugin Marketplace and Documentation (Planned)
 * Plugin discovery mechanism
 * Plugin installation/management
 * Plugin repository structure
 * Documentation generation
 
-=== Phase 5: Advanced Plugins and Polish
+### Phase 5: Advanced Plugins and Polish (Planned)
 * Create specialized plugins
 * Implement adapters for API changes
 * Build third-party plugin examples
