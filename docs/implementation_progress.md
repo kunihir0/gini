@@ -44,8 +44,8 @@
 +- [x] Design plugin dependency resolution and pre-flight check mechanisms (Completed: 2025-04-27)
 +  - [x] Create `docs/plugin_system/dependencies.md`
 +  - [x] Create `docs/stage_manager/plugin_lifecycle_stages.md`
-+- [ ] Implement dependency resolution logic in `PluginLoader`/`Manager`
-+- [ ] Define and register new core lifecycle stages in `StageManager`
++- [x] Implement dependency resolution logic in `PluginLoader`/`Manager` (Completed: 2025-04-27)
++- [x] Define and register new core lifecycle stages in `StageManager` (Completed: 2025-04-27)
 +
 +### Core Plugins
 +
@@ -114,8 +114,8 @@ Phase 1 of the project is complete! We have successfully implemented and subsequ
 With Phase 1 completed, we are now proceeding to Phase 2:
 
 1. Kernel Enhancements:
-+   - Implement plugin dependency resolution
-+   - Implement pre-flight check stages
++   - ~~Implement plugin dependency resolution~~ (Completed)
++   - ~~Implement pre-flight check stages~~ (Completed)
 +
 +2. Core Plugins:
    - OpenCore builder plugin

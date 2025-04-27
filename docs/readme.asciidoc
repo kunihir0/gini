@@ -30,10 +30,8 @@ graph TD
     A --> D[Minimum UI Bridge]
     A --> E[Storage Manager]
     A --> F[Event System]
-    
     B --> G[Core Plugins]
     B --> H[Third-Party Plugins]
-    
     G --> CP1[Core: OpenCore Builder]
     G --> CP2[Core: VM Setup]
     G --> CP3[Core: Deployment]
@@ -44,24 +42,21 @@ graph TD
     G --> CP8[Core: Recovery System]
     G --> CP9[Core: Testing Framework]
     G --> CP10[Core: Documentation Generator]
-    
     C <--> B
-    C <--> EX[Execution Engine] 
+    C <--> EX[Execution Engine]
     EX --> DR[Dry Run Mode]
     EX --> LI[Live Mode]
-    
     D <--> B
     E <--> B
     F <--> B
-    
-    style A fill:#f96,stroke:#333,stroke-width:2px
-    style B fill:#9cf,stroke:#333,stroke-width:2px
-    style DR fill:#afa,stroke:#333,stroke-width:2px
-    
     CP6 -.-> REP[Configuration Repository]
     CP7 -.-> TM[Telemetry Store]
     CP8 -.-> RS[Recovery Snapshots]
     CP10 -.-> DOCS[Documentation Output]
+    
+    style A fill:#f96,stroke:#333,stroke-width:2px
+    style B fill:#9cf,stroke:#333,stroke-width:2px
+    style DR fill:#afa,stroke:#333,stroke-width:2px
 ....
 
 == Project Structure
@@ -338,6 +333,10 @@ pub trait Plugin {
     fn required_stages(&self) -> Vec<StageRequirement>;
     
     fn init(&self, app: &mut Application) -> Result<(), PluginError>;
+    
+    // Perform pre-flight checks before initialization
+    async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginError>;
+    
     fn stages(&self) -> Vec<Box<dyn Stage>>;
     fn shutdown(&self) -> Result<(), PluginError>;
 }
@@ -1484,6 +1483,7 @@ graph TD
 * Hot-swappable components
 * Clear isolation boundaries
 * Runtime dependency resolution
+* Pre-flight checks to prevent initialization of incompatible/unready plugins
 
 === Customization
 * Mix and match plugins for custom workflows
