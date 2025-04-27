@@ -64,3 +64,7 @@ pub use requirement::StageRequirement;
 pub use registry::StageRegistry;
 pub use pipeline::StagePipeline;
 pub use manager::StageManager;
+
+// Test module declaration
+#[cfg(test)]
+mod tests;

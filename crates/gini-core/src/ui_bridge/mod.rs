@@ -316,3 +316,7 @@ impl Default for UiBridge {
         Self::new()
     }
 }
+
+// Test module declaration
+#[cfg(test)]
+mod tests;

@@ -1,56 +1,55 @@
 use super::*; // Import items from the parent module (plugin.rs)
-use std::env;
 use std::path::PathBuf; // Import PathBuf
 use gini_core::plugin_system::traits::PluginError; // Correct path for PluginError
 use gini_core::stage_manager::context::StageContext; // Import StageContext
+// No need for std::env or serial_test anymore
+
+// Helper to create a context for tests
+fn create_test_context() -> StageContext {
+    // Using new_live as new_dry_run might behave differently regarding data persistence
+    // If dry_run behavior is specifically needed, adjust accordingly.
+    let dummy_config_path = PathBuf::from("./dummy_config_for_test_context");
+    StageContext::new_live(dummy_config_path)
+}
 
 #[tokio::test]
+// Removed #[serial]
 async fn preflight_check_pass() {
-    // Set the environment variable to make the check pass
-    env::set_var("GINI_COMPAT_CHECK_PASS", "1");
-
     let plugin = CompatCheckPlugin;
-    // Create a dry run context with a dummy path
-    let dummy_config_path = PathBuf::from("./dummy_config_for_test");
-    let context = StageContext::new_dry_run(dummy_config_path);
+    let mut context = create_test_context();
+
+    // Set the context data to make the check pass
+    context.set_data(COMPAT_CHECK_CONTEXT_KEY, "1".to_string());
+
     let result = plugin.preflight_check(&context).await; // Pass context
 
     // Assert that the check passed
     assert!(result.is_ok());
-
-    // Clean up the environment variable
-    env::remove_var("GINI_COMPAT_CHECK_PASS");
 }
 
 #[tokio::test]
+// Removed #[serial]
 async fn preflight_check_fail_not_set() {
-    // Ensure the environment variable is not set
-    env::remove_var("GINI_COMPAT_CHECK_PASS");
-
     let plugin = CompatCheckPlugin;
-    let dummy_config_path = PathBuf::from("./dummy_config_for_test");
-    let context = StageContext::new_dry_run(dummy_config_path); // Create context
+    let context = create_test_context(); // Context starts empty
+
     let result = plugin.preflight_check(&context).await; // Pass context
 
-    // Assert that the check failed with the correct error type and variant
-    assert!(matches!(result, Err(PluginError::PreflightCheckError(_)))); // Check specific variant
-
-    // No need to clean up env var here as it wasn't set
+    // Assert that the check failed because the key wasn't set
+    assert!(matches!(result, Err(PluginError::PreflightCheckError(msg)) if msg.contains("not found")));
 }
 
 #[tokio::test]
+// Removed #[serial]
 async fn preflight_check_fail_wrong_value() {
-    // Set the environment variable to a value other than "1"
-    env::set_var("GINI_COMPAT_CHECK_PASS", "0");
-
     let plugin = CompatCheckPlugin;
-    let dummy_config_path = PathBuf::from("./dummy_config_for_test");
-    let context = StageContext::new_dry_run(dummy_config_path); // Create context
+    let mut context = create_test_context();
+
+    // Set the context data to an incorrect value
+    context.set_data(COMPAT_CHECK_CONTEXT_KEY, "0".to_string());
+
     let result = plugin.preflight_check(&context).await; // Pass context
 
-    // Assert that the check failed with the correct error type and variant
-    assert!(matches!(result, Err(PluginError::PreflightCheckError(_)))); // Check specific variant
-
-    // Clean up the environment variable
-    env::remove_var("GINI_COMPAT_CHECK_PASS");
+    // Assert that the check failed with the correct error type and message
+    assert!(matches!(result, Err(PluginError::PreflightCheckError(msg)) if msg.contains("incorrect value '0'")));
 }

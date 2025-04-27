@@ -1,0 +1,1633 @@
+   Compiling gini-core v0.1.0 (/home/xiao/Documents/source/repo/osx-amd-kvm/crates/gini-core)
+   Compiling compat-check-example v0.1.0 (/home/xiao/Documents/source/repo/osx-amd-kvm/plugins/examples/compat_check)
+   Compiling gini v0.1.0 (/home/xiao/Documents/source/repo/osx-amd-kvm/crates/gini)
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:114:64
+    |
+114 |     let handler_id = dispatcher.register_handler("test.event", handler);
+    |                                                                ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:144:64
+    |
+144 |     let handler_id = dispatcher.register_handler("test.event", handler);
+    |                                                                ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:177:47
+    |
+177 |     dispatcher.register_handler("test.event", handler1);
+    |                                               ^^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:178:47
+    |
+178 |     dispatcher.register_handler("test.event", handler2);
+    |                                               ^^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `TypedHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:201:47
+    |
+201 |     dispatcher.register_handler("test.event", handler);
+    |                                               ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `TypedHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `TypedHandler`
+    = note: required for the cast from `Box<TypedHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:223:47
+    |
+223 |     dispatcher.register_handler("test.event", handler);
+    |                                               ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/dispatcher_tests.rs:255:45
+    |
+255 |         lock.register_handler("test.event", handler);
+    |                                             ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `dispatcher_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `dispatcher_tests::TestHandler`
+    = note: required for the cast from `Box<dispatcher_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0599]: no method named `is_some` found for reference `&Arc<SharedEventDispatcher>` in the current scope
+  --> crates/gini-core/src/event/tests/manager_tests.rs:81:34
+   |
+81 |     assert!(manager.dispatcher().is_some(), "Manager should have a dispatcher");
+   |                                  ^^^^^^^ method not found in `&Arc<SharedEventDispatcher>`
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+  --> crates/gini-core/src/event/tests/manager_tests.rs:99:45
+   |
+99 |         lock.register_handler("test.event", handler);
+   |                                             ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+   |
+   = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `manager_tests::TestHandler`
+   = note: required for the cast from `Box<manager_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+   = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/manager_tests.rs:143:45
+    |
+143 |         lock.register_handler("test.event", handler);
+    |                                             ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `manager_tests::TestHandler`
+    = note: required for the cast from `Box<manager_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/manager_tests.rs:178:46
+    |
+178 |         lock.register_handler("multi.event", handler);
+    |                                              ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `manager_tests::TestHandler`
+    = note: required for the cast from `Box<manager_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: expected a `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+   --> crates/gini-core/src/event/tests/manager_tests.rs:211:45
+    |
+211 |         lock.register_handler("test.event", handler);
+    |                                             ^^^^^^^ expected an `Fn(&(dyn Event + 'static))` closure, found `manager_tests::TestHandler`
+    |
+    = help: the trait `for<'a> Fn(&'a (dyn Event + 'static))` is not implemented for `manager_tests::TestHandler`
+    = note: required for the cast from `Box<manager_tests::TestHandler>` to `Box<dyn Fn(&dyn Event) -> Pin<Box<...>> + Send + Sync>`
+    = note: the full name for the type has been written to '/home/xiao/Documents/source/repo/osx-amd-kvm/target/debug/deps/gini_core-18eb65c1b9ecb0fc.long-type-17995550060677523803.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0599]: no variant or associated item named `ApplicationStarted` found for enum `SystemEvent` in the current scope
+ --> crates/gini-core/src/event/tests/types_tests.rs:8:30
+  |
+8 |     let event = SystemEvent::ApplicationStarted;
+  |                              ^^^^^^^^^^^^^^^^^^ variant or associated item not found in `SystemEvent`
+  |
+ ::: crates/gini-core/src/event/types.rs:7:1
+  |
+7 | pub enum SystemEvent {
+  | -------------------- variant or associated item `ApplicationStarted` not found for this enum
+  |
+help: there is a variant with a similar name
+  |
+8 -     let event = SystemEvent::ApplicationStarted;
+8 +     let event = SystemEvent::ApplicationStart;
+  |
+
+error[E0599]: no variant or associated item named `ApplicationStarted` found for enum `SystemEvent` in the current scope
+  --> crates/gini-core/src/event/tests/types_tests.rs:28:23
+   |
+28 |         (SystemEvent::ApplicationStarted, "system.application_started"),
+   |                       ^^^^^^^^^^^^^^^^^^ variant or associated item not found in `SystemEvent`
+   |
+  ::: crates/gini-core/src/event/types.rs:7:1
+   |
+7  | pub enum SystemEvent {
+   | -------------------- variant or associated item `ApplicationStarted` not found for this enum
+   |
+help: there is a variant with a similar name
+   |
+28 -         (SystemEvent::ApplicationStarted, "system.application_started"),
+28 +         (SystemEvent::ApplicationStart, "system.application_started"),
+   |
+
+error[E0599]: no variant or associated item named `ApplicationStopping` found for enum `SystemEvent` in the current scope
+  --> crates/gini-core/src/event/tests/types_tests.rs:29:23
+   |
+29 |         (SystemEvent::ApplicationStopping, "system.application_stopping"),
+   |                       ^^^^^^^^^^^^^^^^^^^ variant or associated item not found in `SystemEvent`
+   |
+  ::: crates/gini-core/src/event/types.rs:7:1
+   |
+7  | pub enum SystemEvent {
+   | -------------------- variant or associated item `ApplicationStopping` not found for this enum
+   |
+help: there is a variant with a similar name
+   |
+29 -         (SystemEvent::ApplicationStopping, "system.application_stopping"),
+29 +         (SystemEvent::ApplicationStart, "system.application_stopping"),
+   |
+
+error[E0599]: no variant or associated item named `ConfigLoaded` found for enum `SystemEvent` in the current scope
+  --> crates/gini-core/src/event/tests/types_tests.rs:30:23
+   |
+30 |         (SystemEvent::ConfigLoaded, "system.config_loaded"),
+   |                       ^^^^^^^^^^^^ variant or associated item not found in `SystemEvent`
+   |
+  ::: crates/gini-core/src/event/types.rs:7:1
+   |
+7  | pub enum SystemEvent {
+   | -------------------- variant or associated item `ConfigLoaded` not found for this enum
+
+error[E0599]: no variant or associated item named `ConfigSaving` found for enum `SystemEvent` in the current scope
+  --> crates/gini-core/src/event/tests/types_tests.rs:31:23
+   |
+31 |         (SystemEvent::ConfigSaving, "system.config_saving"),
+   |                       ^^^^^^^^^^^^ variant or associated item not found in `SystemEvent`
+   |
+  ::: crates/gini-core/src/event/types.rs:7:1
+   |
+7  | pub enum SystemEvent {
+   | -------------------- variant or associated item `ConfigSaving` not found for this enum
+
+error[E0599]: no variant named `LogMessage` found for enum `SystemEvent`
+  --> crates/gini-core/src/event/tests/types_tests.rs:32:23
+   |
+32 |         (SystemEvent::LogMessage { level: "INFO".to_string(), message: "Test message".to_string() }, 
+   |                       ^^^^^^^^^^ variant not found in `SystemEvent`
+   |
+  ::: crates/gini-core/src/event/types.rs:7:1
+   |
+7  | pub enum SystemEvent {
+   | -------------------- variant `LogMessage` not found here
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:43:17
+   |
+43 |     let event = PluginEvent::Loading { plugin_id: "test-plugin".to_string() };
+   |                 ^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Loading` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+43 -     let event = PluginEvent::Loading { plugin_id: "test-plugin".to_string() };
+43 +     let event = <PluginEvent as Example>::Loading { plugin_id: "test-plugin".to_string() };
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:59:12
+   |
+59 |     if let PluginEvent::Loading { plugin_id } = event {
+   |            ^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Loading` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+59 -     if let PluginEvent::Loading { plugin_id } = event {
+59 +     if let <PluginEvent as Example>::Loading { plugin_id } = event {
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:70:10
+   |
+70 |         (PluginEvent::Loading { plugin_id: "test".to_string() }, "plugin.loading"),
+   |          ^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Loading` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+70 -         (PluginEvent::Loading { plugin_id: "test".to_string() }, "plugin.loading"),
+70 +         (<PluginEvent as Example>::Loading { plugin_id: "test".to_string() }, "plugin.loading"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:71:10
+   |
+71 |         (PluginEvent::Loaded { plugin_id: "test".to_string() }, "plugin.loaded"),
+   |          ^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Loaded` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+71 -         (PluginEvent::Loaded { plugin_id: "test".to_string() }, "plugin.loaded"),
+71 +         (<PluginEvent as Example>::Loaded { plugin_id: "test".to_string() }, "plugin.loaded"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:72:10
+   |
+72 |         (PluginEvent::LoadFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |          ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `LoadFailed` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+72 -         (PluginEvent::LoadFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+72 +         (<PluginEvent as Example>::LoadFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:74:10
+   |
+74 |         (PluginEvent::Initializing { plugin_id: "test".to_string() }, "plugin.initializing"),
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Initializing` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+74 -         (PluginEvent::Initializing { plugin_id: "test".to_string() }, "plugin.initializing"),
+74 +         (<PluginEvent as Example>::Initializing { plugin_id: "test".to_string() }, "plugin.initializing"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:75:10
+   |
+75 |         (PluginEvent::Initialized { plugin_id: "test".to_string() }, "plugin.initialized"),
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Initialized` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+75 -         (PluginEvent::Initialized { plugin_id: "test".to_string() }, "plugin.initialized"),
+75 +         (<PluginEvent as Example>::Initialized { plugin_id: "test".to_string() }, "plugin.initialized"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:76:10
+   |
+76 |         (PluginEvent::InitializeFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `InitializeFailed` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+76 -         (PluginEvent::InitializeFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+76 +         (<PluginEvent as Example>::InitializeFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:78:10
+   |
+78 |         (PluginEvent::Stopping { plugin_id: "test".to_string() }, "plugin.stopping"),
+   |          ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Stopping` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+78 -         (PluginEvent::Stopping { plugin_id: "test".to_string() }, "plugin.stopping"),
+78 +         (<PluginEvent as Example>::Stopping { plugin_id: "test".to_string() }, "plugin.stopping"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:79:10
+   |
+79 |         (PluginEvent::Stopped { plugin_id: "test".to_string() }, "plugin.stopped"),
+   |          ^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `Stopped` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+79 -         (PluginEvent::Stopped { plugin_id: "test".to_string() }, "plugin.stopped"),
+79 +         (<PluginEvent as Example>::Stopped { plugin_id: "test".to_string() }, "plugin.stopped"),
+   |
+
+error[E0223]: ambiguous associated type
+  --> crates/gini-core/src/event/tests/types_tests.rs:80:10
+   |
+80 |         (PluginEvent::StopFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |          ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: if there were a trait named `Example` with associated type `StopFailed` implemented for `PluginEvent`, you could use the fully-qualified path
+   |
+80 -         (PluginEvent::StopFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+80 +         (<PluginEvent as Example>::StopFailed { plugin_id: "test".to_string(), error: "Failed".to_string() }, 
+   |
+
+error[E0599]: no variant named `Started` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:91:29
+    |
+91  |     let event = StageEvent::Started { stage_id: "test-stage".to_string() };
+    |                             ^^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Started` not found here
+
+error[E0599]: no variant named `Started` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:107:24
+    |
+107 |     if let StageEvent::Started { stage_id } = event {
+    |                        ^^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Started` not found here
+
+error[E0599]: no variant named `Started` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:118:22
+    |
+118 |         (StageEvent::Started { stage_id: "test".to_string() }, "stage.started"),
+    |                      ^^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Started` not found here
+
+error[E0599]: no variant named `Completed` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:119:22
+    |
+119 |         (StageEvent::Completed { stage_id: "test".to_string() }, "stage.completed"),
+    |                      ^^^^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Completed` not found here
+
+error[E0599]: no variant named `Failed` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:120:22
+    |
+120 |         (StageEvent::Failed { stage_id: "test".to_string(), error: "Failed".to_string() }, 
+    |                      ^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Failed` not found here
+
+error[E0599]: no variant named `Skipped` found for enum `StageEvent`
+   --> crates/gini-core/src/event/tests/types_tests.rs:122:22
+    |
+122 |         (StageEvent::Skipped { stage_id: "test".to_string(), reason: "Not needed".to_string() }, 
+    |                      ^^^^^^^ variant not found in `StageEvent`
+    |
+   ::: crates/gini-core/src/event/types.rs:120:1
+    |
+120 | pub enum StageEvent {
+    | ------------------- variant `Skipped` not found here
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:58:25
+   |
+58 |     assert_eq!(registry.len(), 0, "New registry should be empty");
+   |                         ^^^ method not found in `StageRegistry`
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `len` not found for this struct
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `len`, perhaps you need to implement it:
+           candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `get_all` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:59:22
+   |
+59 |     assert!(registry.get_all().is_empty(), "New registry should have empty stage list");
+   |                      ^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `get_all` not found for this struct
+   |
+help: there is a method `get_all_ids` with a similar name
+   |
+59 |     assert!(registry.get_all_ids().is_empty(), "New registry should have empty stage list");
+   |                             ++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:68:27
+   |
+68 |     let result = registry.register(Box::new(stage));
+   |                           ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+68 |     let result = registry.register_stage(Box::new(stage));
+   |                                   ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:72:25
+   |
+72 |     assert_eq!(registry.len(), 1, "Registry should have one stage");
+   |                         ^^^ method not found in `StageRegistry`
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `len` not found for this struct
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `len`, perhaps you need to implement it:
+           candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:73:22
+   |
+73 |     assert!(registry.contains("test.stage"), "Registry should contain stage by ID");
+   |                      ^^^^^^^^ method not found in `StageRegistry`
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `contains` not found for this struct
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+           candidate #1: `RangeBounds`
+           candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: no method named `get_all` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:75:27
+   |
+75 |     let stages = registry.get_all();
+   |                           ^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `get_all` not found for this struct
+   |
+help: there is a method `get_all_ids` with a similar name
+   |
+75 |     let stages = registry.get_all_ids();
+   |                                  ++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:85:28
+   |
+85 |     let result1 = registry.register(Box::new(stage1));
+   |                            ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+85 |     let result1 = registry.register_stage(Box::new(stage1));
+   |                                    ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:90:28
+   |
+90 |     let result2 = registry.register(Box::new(stage2));
+   |                            ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+90 |     let result2 = registry.register_stage(Box::new(stage2));
+   |                                    ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:94:25
+   |
+94 |     assert_eq!(registry.len(), 1, "Registry should still have only one stage");
+   |                         ^^^ method not found in `StageRegistry`
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `len` not found for this struct
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `len`, perhaps you need to implement it:
+           candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:103:14
+    |
+103 |     registry.register(Box::new(stage)).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+103 |     registry.register_stage(Box::new(stage)).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `get` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:106:27
+    |
+106 |     let result = registry.get("test.stage");
+    |                           ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `get` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `get`, perhaps you need to implement it:
+            candidate #1: `SliceIndex`
+
+error[E0599]: no method named `get` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:114:30
+    |
+114 |     let not_found = registry.get("nonexistent");
+    |                              ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `get` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `get`, perhaps you need to implement it:
+            candidate #1: `SliceIndex`
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:125:31
+    |
+125 |         let result = registry.register(Box::new(stage));
+    |                               ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+125 |         let result = registry.register_stage(Box::new(stage));
+    |                                       ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:130:25
+    |
+130 |     assert_eq!(registry.len(), 5, "Registry should have 5 stages");
+    |                         ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `len` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `len`, perhaps you need to implement it:
+            candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:133:26
+    |
+133 |         assert!(registry.contains(&id), "Registry should contain stage {}", id);
+    |                          ^^^^^^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `RangeBounds`
+            candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: no method named `get` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:135:30
+    |
+135 |         let stage = registry.get(&id).unwrap();
+    |                              ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `get` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `get`, perhaps you need to implement it:
+            candidate #1: `SliceIndex`
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:154:18
+    |
+154 |         registry.register(Box::new(MockStage::new(id))).unwrap();
+    |                  ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+154 |         registry.register_stage(Box::new(MockStage::new(id))).unwrap();
+    |                          ++++++
+
+error[E0599]: no method named `get_all` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:158:31
+    |
+158 |     let all_stages = registry.get_all();
+    |                               ^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `get_all` not found for this struct
+    |
+help: there is a method `get_all_ids` with a similar name
+    |
+158 |     let all_stages = registry.get_all_ids();
+    |                                      ++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:177:14
+    |
+177 |     registry.register(Box::new(MockStage::new("stage.1"))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+177 |     registry.register_stage(Box::new(MockStage::new("stage.1"))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:178:14
+    |
+178 |     registry.register(Box::new(MockStage::new("stage.2"))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+178 |     registry.register_stage(Box::new(MockStage::new("stage.2"))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:179:14
+    |
+179 |     registry.register(Box::new(MockStage::new("stage.3"))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+179 |     registry.register_stage(Box::new(MockStage::new("stage.3"))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:181:25
+    |
+181 |     assert_eq!(registry.len(), 3, "Registry should have 3 stages initially");
+    |                         ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `len` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `len`, perhaps you need to implement it:
+            candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `remove` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:184:27
+    |
+184 |     let result = registry.remove("stage.2");
+    |                           ^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `remove` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `remove`, perhaps you need to implement it:
+            candidate #1: `bitflags::traits::Flags`
+help: there is a method `remove_stage` with a similar name
+    |
+184 |     let result = registry.remove_stage("stage.2");
+    |                                 ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:188:25
+    |
+188 |     assert_eq!(registry.len(), 2, "Registry should have 2 stages after removal");
+    |                         ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `len` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `len`, perhaps you need to implement it:
+            candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:189:22
+    |
+189 |     assert!(registry.contains("stage.1"), "Stage 1 should still exist");
+    |                      ^^^^^^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `RangeBounds`
+            candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:190:23
+    |
+190 |     assert!(!registry.contains("stage.2"), "Stage 2 should be removed");
+    |                       ^^^^^^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `RangeBounds`
+            candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:191:22
+    |
+191 |     assert!(registry.contains("stage.3"), "Stage 3 should still exist");
+    |                      ^^^^^^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `RangeBounds`
+            candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: no method named `remove` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:194:33
+    |
+194 |     let error_result = registry.remove("nonexistent");
+    |                                 ^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `remove` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `remove`, perhaps you need to implement it:
+            candidate #1: `bitflags::traits::Flags`
+help: there is a method `remove_stage` with a similar name
+    |
+194 |     let error_result = registry.remove_stage("nonexistent");
+    |                                       ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:204:18
+    |
+204 |         registry.register(Box::new(MockStage::new(&format!("stage.{}", i)))).unwrap();
+    |                  ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+204 |         registry.register_stage(Box::new(MockStage::new(&format!("stage.{}", i)))).unwrap();
+    |                          ++++++
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:207:25
+    |
+207 |     assert_eq!(registry.len(), 3, "Registry should have 3 stages initially");
+    |                         ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `len` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `len`, perhaps you need to implement it:
+            candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `len` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:213:25
+    |
+213 |     assert_eq!(registry.len(), 0, "Registry should be empty after clear");
+    |                         ^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `len` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `len`, perhaps you need to implement it:
+            candidate #1: `ExactSizeIterator`
+
+error[E0599]: no method named `get_all` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:214:22
+    |
+214 |     assert!(registry.get_all().is_empty(), "get_all should return empty list after clear");
+    |                      ^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `get_all` not found for this struct
+    |
+help: there is a method `get_all_ids` with a similar name
+    |
+214 |     assert!(registry.get_all_ids().is_empty(), "get_all should return empty list after clear");
+    |                             ++++
+
+error[E0599]: no method named `contains` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/registry_tests.rs:215:23
+    |
+215 |     assert!(!registry.contains("stage.1"), "Registry should not contain any stages after clear");
+    |                       ^^^^^^^^ method not found in `StageRegistry`
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `contains` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `contains`, perhaps you need to implement one of them:
+            candidate #1: `RangeBounds`
+            candidate #2: `bitflags::traits::Flags`
+
+error[E0599]: the method `clone` exists for enum `Result<(), Error>`, but its trait bounds were not satisfied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:84:21
+    |
+84  |         self.result.clone()
+    |                     ^^^^^ method cannot be called on `Result<(), Error>` due to unsatisfied trait bounds
+    |
+   ::: crates/gini-core/src/kernel/error.rs:7:1
+    |
+7   | pub enum Error {
+    | -------------- doesn't satisfy `kernel::error::Error: Clone`
+    |
+   ::: /home/xiao/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:528:1
+    |
+528 | pub enum Result<T, E> {
+    | --------------------- doesn't satisfy `_: Clone`
+    |
+    = note: the following trait bounds were not satisfied:
+            `kernel::error::Error: Clone`
+            which is required by `std::result::Result<(), kernel::error::Error>: Clone`
+note: the method `clone` exists on the type `()`
+   --> /home/xiao/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/clone.rs:165:5
+    |
+165 |     fn clone(&self) -> Self;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider annotating `kernel::error::Error` with `#[derive(Clone)]`
+   --> crates/gini-core/src/kernel/error.rs:7:1
+    |
+7   + #[derive(Clone)]
+8   | pub enum Error {
+    |
+help: use the `?` operator to extract the `()` value, propagating a `Result::Err` value to the caller
+    |
+84  |         self.result?.clone()
+    |                    +
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:94:14
+   |
+94 |     registry.register(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+   |              ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+94 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+   |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:95:14
+   |
+95 |     registry.register(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+   |              ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+95 |     registry.register_stage(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+   |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+  --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:96:14
+   |
+96 |     registry.register(Box::new(MockStage::new("stage.3", Arc::clone(&tracker)))).unwrap();
+   |              ^^^^^^^^
+   |
+  ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+   |
+12 | pub struct StageRegistry {
+   | ------------------------ method `register` not found for this struct
+   |
+help: there is a method `register_stage` with a similar name
+   |
+96 |     registry.register_stage(Box::new(MockStage::new("stage.3", Arc::clone(&tracker)))).unwrap();
+   |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+  --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:99:20
+   |
+99 |     let pipeline = StagePipeline::new(registry);
+   |                    ^^^^^^^^^^^^^^^^^^----------
+   |                                      ||
+   |                                      |expected `&str`, found `StageRegistry`
+   |                                      argument #2 of type `&str` is missing
+   |
+note: associated function defined here
+  --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+   |
+23 |     pub fn new(name: &str, description: &str) -> Self {
+   |            ^^^ ----------  -----------------
+help: provide the argument
+   |
+99 -     let pipeline = StagePipeline::new(registry);
+99 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+   |
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:108:27
+    |
+108 |     let result = pipeline.execute(&mut context).await;
+    |                           ^^^^^^^-------------- argument #2 of type `&SharedStageRegistry` is missing
+    |
+note: method defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:162:18
+    |
+162 |     pub async fn execute(
+    |                  ^^^^^^^
+...
+165 |         registry: &SharedStageRegistry // Accept registry here
+    |         ------------------------------
+help: provide the argument
+    |
+108 -     let result = pipeline.execute(&mut context).await;
+108 +     let result = pipeline.execute(&mut context, /* &SharedStageRegistry */).await;
+    |
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:127:14
+    |
+127 |     registry.register(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+127 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:128:14
+    |
+128 |     registry.register(Box::new(MockStage::new("stage.2", Arc::clone(&tracker))
+    |     ---------^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+128 |     registry.register_stage(Box::new(MockStage::new("stage.2", Arc::clone(&tracker))
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:130:14
+    |
+130 |     registry.register(Box::new(MockStage::new("stage.3", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+130 |     registry.register_stage(Box::new(MockStage::new("stage.3", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:133:20
+    |
+133 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+133 -     let pipeline = StagePipeline::new(registry);
+133 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:142:27
+    |
+142 |     let result = pipeline.execute(&mut context).await;
+    |                           ^^^^^^^-------------- argument #2 of type `&SharedStageRegistry` is missing
+    |
+note: method defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:162:18
+    |
+162 |     pub async fn execute(
+    |                  ^^^^^^^
+...
+165 |         registry: &SharedStageRegistry // Accept registry here
+    |         ------------------------------
+help: provide the argument
+    |
+142 -     let result = pipeline.execute(&mut context).await;
+142 +     let result = pipeline.execute(&mut context, /* &SharedStageRegistry */).await;
+    |
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:164:14
+    |
+164 |     registry.register(Box::new(MockStage::new("stage.1", Arc::new(ExecutionTracker::new())))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+164 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::new(ExecutionTracker::new())))).unwrap();
+    |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:166:20
+    |
+166 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+166 -     let pipeline = StagePipeline::new(registry);
+166 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:184:14
+    |
+184 |     registry.register(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+184 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:186:20
+    |
+186 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+186 -     let pipeline = StagePipeline::new(registry);
+186 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:200:20
+    |
+200 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+200 -     let pipeline = StagePipeline::new(registry);
+200 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:204:27
+    |
+204 |     let result = pipeline.execute(&mut context).await;
+    |                           ^^^^^^^-------------- argument #2 of type `&SharedStageRegistry` is missing
+    |
+note: method defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:162:18
+    |
+162 |     pub async fn execute(
+    |                  ^^^^^^^
+...
+165 |         registry: &SharedStageRegistry // Accept registry here
+    |         ------------------------------
+help: provide the argument
+    |
+204 -     let result = pipeline.execute(&mut context).await;
+204 +     let result = pipeline.execute(&mut context, /* &SharedStageRegistry */).await;
+    |
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:216:14
+    |
+216 |     registry.register(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+216 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:217:14
+    |
+217 |     registry.register(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+217 |     registry.register_stage(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:219:20
+    |
+219 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+219 -     let pipeline = StagePipeline::new(registry);
+219 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0599]: no method named `id` found for struct `String` in the current scope
+    --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:230:26
+     |
+230  |     assert_eq!(stages[0].id(), "stage.1", "First stage should be stage.1");
+     |                          ^^
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+note: `Stage` defines an item `id`, perhaps you need to implement it
+    --> crates/gini-core/src/stage_manager/mod.rs:16:1
+     |
+16   | pub trait Stage: Send + Sync {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is a method `find` with a similar name, but with different arguments
+    --> /home/xiao/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/str/mod.rs:1442:5
+     |
+1442 |     pub fn find<P: Pattern>(&self, pat: P) -> Option<usize> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `id` found for struct `String` in the current scope
+    --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:231:26
+     |
+231  |     assert_eq!(stages[1].id(), "stage.2", "Second stage should be stage.2");
+     |                          ^^
+     |
+     = help: items from traits can only be used if the trait is implemented and in scope
+note: `Stage` defines an item `id`, perhaps you need to implement it
+    --> crates/gini-core/src/stage_manager/mod.rs:16:1
+     |
+16   | pub trait Stage: Send + Sync {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is a method `find` with a similar name, but with different arguments
+    --> /home/xiao/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/str/mod.rs:1442:5
+     |
+1442 |     pub fn find<P: Pattern>(&self, pat: P) -> Option<usize> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:240:14
+    |
+240 |     registry.register(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+240 |     registry.register_stage(Box::new(MockStage::new("stage.1", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0599]: no method named `register` found for struct `StageRegistry` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:241:14
+    |
+241 |     registry.register(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+    |              ^^^^^^^^
+    |
+   ::: crates/gini-core/src/stage_manager/registry.rs:12:1
+    |
+12  | pub struct StageRegistry {
+    | ------------------------ method `register` not found for this struct
+    |
+help: there is a method `register_stage` with a similar name
+    |
+241 |     registry.register_stage(Box::new(MockStage::new("stage.2", Arc::clone(&tracker)))).unwrap();
+    |                      ++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:243:20
+    |
+243 |     let pipeline = StagePipeline::new(registry);
+    |                    ^^^^^^^^^^^^^^^^^^----------
+    |                                      ||
+    |                                      |expected `&str`, found `StageRegistry`
+    |                                      argument #2 of type `&str` is missing
+    |
+note: associated function defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:23:12
+    |
+23  |     pub fn new(name: &str, description: &str) -> Self {
+    |            ^^^ ----------  -----------------
+help: provide the argument
+    |
+243 -     let pipeline = StagePipeline::new(registry);
+243 +     let pipeline = StagePipeline::new(/* &str */, /* &str */);
+    |
+
+error[E0599]: no method named `clear` found for struct `StagePipeline` in the current scope
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:252:14
+    |
+252 |     pipeline.clear();
+    |              ^^^^^ method not found in `StagePipeline`
+    |
+   ::: crates/gini-core/src/stage_manager/pipeline.rs:9:1
+    |
+9   | pub struct StagePipeline {
+    | ------------------------ method `clear` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `clear`, perhaps you need to implement it:
+            candidate #1: `bitflags::traits::Flags`
+
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+   --> crates/gini-core/src/stage_manager/tests/pipeline_tests.rs:258:27
+    |
+258 |     let result = pipeline.execute(&mut context).await;
+    |                           ^^^^^^^-------------- argument #2 of type `&SharedStageRegistry` is missing
+    |
+note: method defined here
+   --> crates/gini-core/src/stage_manager/pipeline.rs:162:18
+    |
+162 |     pub async fn execute(
+    |                  ^^^^^^^
+...
+165 |         registry: &SharedStageRegistry // Accept registry here
+    |         ------------------------------
+help: provide the argument
+    |
+258 -     let result = pipeline.execute(&mut context).await;
+258 +     let result = pipeline.execute(&mut context, /* &SharedStageRegistry */).await;
+    |
+
+error[E0599]: no method named `root_path` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:19:25
+   |
+19 |     assert_eq!(provider.root_path(), &root_path);
+   |                         ^^^^^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `root_path` not found for this struct
+
+error[E0599]: no method named `store` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:36:14
+   |
+36 |     provider.store(key, &data).await?;
+   |              ^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `store` not found for this struct
+
+error[E0599]: no method named `retrieve` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:39:30
+   |
+39 |     let retrieved = provider.retrieve(key).await?;
+   |                              ^^^^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `retrieve` not found for this struct
+
+error[E0599]: no method named `store` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:59:14
+   |
+59 |     provider.store(key, &data).await?;
+   |              ^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `store` not found for this struct
+
+error[E0308]: mismatched types
+  --> crates/gini-core/src/storage/tests/local_tests.rs:62:34
+   |
+62 |     let exists = provider.exists(key).await?;
+   |                           ------ ^^^ expected `&Path`, found `&str`
+   |                           |
+   |                           arguments to this method are incorrect
+   |
+   = note: expected reference `&Path`
+              found reference `&str`
+note: method defined here
+  --> crates/gini-core/src/storage/provider.rs:11:8
+   |
+11 |     fn exists(&self, path: &Path) -> bool;
+   |        ^^^^^^        ----
+
+error[E0277]: `bool` is not a future
+  --> crates/gini-core/src/storage/tests/local_tests.rs:62:39
+   |
+62 |     let exists = provider.exists(key).await?;
+   |                                      -^^^^^
+   |                                      ||
+   |                                      |`bool` is not a future
+   |                                      help: remove the `.await`
+   |
+   = help: the trait `Future` is not implemented for `bool`
+   = note: bool must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `bool` to implement `IntoFuture`
+
+error[E0599]: no method named `delete` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:66:14
+   |
+66 |     provider.delete(key).await?;
+   |              ^^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `delete` not found for this struct
+
+error[E0308]: mismatched types
+  --> crates/gini-core/src/storage/tests/local_tests.rs:69:47
+   |
+69 |     let exists_after_delete = provider.exists(key).await?;
+   |                                        ------ ^^^ expected `&Path`, found `&str`
+   |                                        |
+   |                                        arguments to this method are incorrect
+   |
+   = note: expected reference `&Path`
+              found reference `&str`
+note: method defined here
+  --> crates/gini-core/src/storage/provider.rs:11:8
+   |
+11 |     fn exists(&self, path: &Path) -> bool;
+   |        ^^^^^^        ----
+
+error[E0277]: `bool` is not a future
+  --> crates/gini-core/src/storage/tests/local_tests.rs:69:52
+   |
+69 |     let exists_after_delete = provider.exists(key).await?;
+   |                                                   -^^^^^
+   |                                                   ||
+   |                                                   |`bool` is not a future
+   |                                                   help: remove the `.await`
+   |
+   = help: the trait `Future` is not implemented for `bool`
+   = note: bool must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `bool` to implement `IntoFuture`
+
+error[E0599]: no method named `store` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:89:18
+   |
+89 |         provider.store(key, &data).await?;
+   |                  ^^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `store` not found for this struct
+
+error[E0599]: no method named `list` found for struct `LocalStorageProvider` in the current scope
+  --> crates/gini-core/src/storage/tests/local_tests.rs:93:32
+   |
+93 |     let listed_keys = provider.list().await?;
+   |                                ^^^^ method not found in `LocalStorageProvider`
+   |
+  ::: crates/gini-core/src/storage/local.rs:8:1
+   |
+8  | pub struct LocalStorageProvider {
+   | ------------------------------- method `list` not found for this struct
+
+error[E0599]: no method named `store` found for struct `LocalStorageProvider` in the current scope
+   --> crates/gini-core/src/storage/tests/local_tests.rs:116:14
+    |
+116 |     provider.store(key, &data).await?;
+    |              ^^^^^ method not found in `LocalStorageProvider`
+    |
+   ::: crates/gini-core/src/storage/local.rs:8:1
+    |
+8   | pub struct LocalStorageProvider {
+    | ------------------------------- method `store` not found for this struct
+
+error[E0308]: mismatched types
+   --> crates/gini-core/src/storage/tests/local_tests.rs:119:34
+    |
+119 |     let exists = provider.exists(key).await?;
+    |                           ------ ^^^ expected `&Path`, found `&str`
+    |                           |
+    |                           arguments to this method are incorrect
+    |
+    = note: expected reference `&Path`
+               found reference `&str`
+note: method defined here
+   --> crates/gini-core/src/storage/provider.rs:11:8
+    |
+11  |     fn exists(&self, path: &Path) -> bool;
+    |        ^^^^^^        ----
+
+error[E0277]: `bool` is not a future
+   --> crates/gini-core/src/storage/tests/local_tests.rs:119:39
+    |
+119 |     let exists = provider.exists(key).await?;
+    |                                      -^^^^^
+    |                                      ||
+    |                                      |`bool` is not a future
+    |                                      help: remove the `.await`
+    |
+    = help: the trait `Future` is not implemented for `bool`
+    = note: bool must be a future or must implement `IntoFuture` to be awaited
+    = note: required for `bool` to implement `IntoFuture`
+
+error[E0599]: no method named `retrieve` found for struct `LocalStorageProvider` in the current scope
+   --> crates/gini-core/src/storage/tests/local_tests.rs:123:30
+    |
+123 |     let retrieved = provider.retrieve(key).await?;
+    |                              ^^^^^^^^ method not found in `LocalStorageProvider`
+    |
+   ::: crates/gini-core/src/storage/local.rs:8:1
+    |
+8   | pub struct LocalStorageProvider {
+    | ------------------------------- method `retrieve` not found for this struct
+
+error[E0599]: no method named `list` found for struct `LocalStorageProvider` in the current scope
+   --> crates/gini-core/src/storage/tests/local_tests.rs:127:32
+    |
+127 |     let listed_keys = provider.list().await?;
+    |                                ^^^^ method not found in `LocalStorageProvider`
+    |
+   ::: crates/gini-core/src/storage/local.rs:8:1
+    |
+8   | pub struct LocalStorageProvider {
+    | ------------------------------- method `list` not found for this struct
+
+Some errors have detailed explanations: E0061, E0223, E0277, E0308, E0599.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `gini-core` (lib test) due to 111 previous errors

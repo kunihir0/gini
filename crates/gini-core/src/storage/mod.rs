@@ -23,5 +23,9 @@ pub struct OldStorageManager {
 
 impl OldStorageManager {
     // ... (old methods) ...
-}
-*/
+    }
+    */
+    
+    // Test module declaration
+    #[cfg(test)]
+    mod tests;

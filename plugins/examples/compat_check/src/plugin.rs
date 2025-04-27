@@ -5,7 +5,10 @@ use gini_core::stage_manager::{Stage, StageContext, requirement::StageRequiremen
 use gini_core::kernel::bootstrap::Application; // For init method signature
 use gini_core::kernel::Result as KernelResult; // Removed unused KernelError import
 use async_trait::async_trait;
-use std::env;
+use std::env; // Keep for potential other uses, or remove if truly unused later
+
+// Define a key for the context data
+const COMPAT_CHECK_CONTEXT_KEY: &str = "compat_check_value";
 
 struct CompatCheckPlugin;
 
@@ -46,18 +49,32 @@ impl Plugin for CompatCheckPlugin {
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginError> {
         println!("Running preflight check for CompatCheckPlugin...");
-        match env::var("GINI_COMPAT_CHECK_PASS") {
-            Ok(val) if val == "1" => {
-                println!("Preflight check passed (GINI_COMPAT_CHECK_PASS=1).");
+
+        // Get the check value from the context
+        let check_value = context.get_data::<String>(COMPAT_CHECK_CONTEXT_KEY);
+
+        match check_value {
+            Some(val) if val == "1" => {
+                println!("Preflight check passed (Context Key '{}'='1').", COMPAT_CHECK_CONTEXT_KEY);
                 Ok(())
             }
-            _ => {
-                let err_msg = "Preflight check failed: GINI_COMPAT_CHECK_PASS environment variable not set to '1'.";
+            Some(val) => {
+                 let err_msg = format!(
+                    "Preflight check failed: Context Key '{}' has incorrect value '{}' (expected '1').",
+                    COMPAT_CHECK_CONTEXT_KEY, val
+                );
                 println!("{}", err_msg);
-                // Use the correct error variant
-                Err(PluginError::PreflightCheckError(err_msg.to_string()))
+                Err(PluginError::PreflightCheckError(err_msg))
+            }
+            None => {
+                 let err_msg = format!(
+                    "Preflight check failed: Context Key '{}' not found.",
+                    COMPAT_CHECK_CONTEXT_KEY
+                );
+                println!("{}", err_msg);
+                Err(PluginError::PreflightCheckError(err_msg))
             }
         }
     }

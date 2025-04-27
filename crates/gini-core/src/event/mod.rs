@@ -78,3 +78,7 @@ pub type EventHandler = Box<dyn AsyncEventHandler>;
 pub use dispatcher::{EventDispatcher, SharedEventDispatcher, create_dispatcher};
 pub use manager::{EventManager, DefaultEventManager, BoxedEvent};
 pub use types::{SystemEvent, PluginEvent, StageEvent};
+
+// Test module declaration
+#[cfg(test)]
+mod tests;

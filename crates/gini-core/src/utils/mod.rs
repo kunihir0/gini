@@ -78,3 +78,7 @@ pub fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
 pub fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
     std::fs::remove_dir_all(path)
 }
+
+// Test module declaration
+#[cfg(test)]
+mod tests;
