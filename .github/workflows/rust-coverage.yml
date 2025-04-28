@@ -64,27 +64,27 @@ jobs:
             # Use a separate directory for output
             REPORT_OUTPUT_DIR="target/coverage-report"
             mkdir -p "$REPORT_OUTPUT_DIR"
-        
+            
             # Debug info
             echo "Repository contents:"
             ls -la
-            echo "Source directory contents:"
-            ls -la src || echo "No src directory found at root level"
-            echo "Profile files count and location:"
+            echo "Crates directory contents:"
+            ls -la crates
+            echo "Profile files count:"
             find target/coverage -name "*.profraw" | wc -l
-            find target/coverage -name "*.profraw" | head -n 5
-        
-            # Explicitly specify profraw files location as an argument
+            
+            # Explicitly specify profraw files location as an argument with UPPERCASE log level
+            # and adjusted source path patterns for workspace structure
             grcov target/coverage \
               --binary-path ./target/debug \
               --source-dir . \
               --output-path "$REPORT_OUTPUT_DIR" \
               --ignore-not-existing \
-              --keep-only 'src/*' \
+              --keep-only 'crates/*/src/*' \
               --branch \
-              --log-level debug \
+              --log-level DEBUG \
               --output-types html,cobertura
-        
+            
             # Check if any files were processed
             echo "Generated files:"
             find "$REPORT_OUTPUT_DIR"/html -type f | wc -l
