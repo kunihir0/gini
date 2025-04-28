@@ -111,8 +111,20 @@ impl PluginRegistry {
             .collect()
     }
     
-    /// Initialize a plugin by ID
+    /// Public entry point for initializing a single plugin.
+    /// Handles the initial call and sets up cycle detection.
     pub fn initialize_plugin(&mut self, id: &str, app: &mut crate::kernel::bootstrap::Application) -> Result<()> {
+        let mut currently_initializing = HashSet::new();
+        self.initialize_plugin_recursive(id, app, &mut currently_initializing)
+    }
+
+    /// Internal recursive function for plugin initialization with cycle detection.
+    fn initialize_plugin_recursive(
+        &mut self,
+        id: &str,
+        app: &mut crate::kernel::bootstrap::Application,
+        currently_initializing: &mut HashSet<String>,
+    ) -> Result<()> {
         // Ensure plugin exists and is enabled before initializing
         if !self.has_plugin(id) {
             return Err(Error::Plugin(format!("Plugin not found: {}", id)));
@@ -126,6 +138,15 @@ impl PluginRegistry {
             return Ok(()); // Already initialized
         }
 
+        // --- Cycle Detection ---
+        if currently_initializing.contains(id) {
+            return Err(Error::Plugin(format!(
+                "Cyclic dependency detected during initialization involving plugin '{}'", id
+            )));
+        }
+        currently_initializing.insert(id.to_string());
+        // --- End Cycle Detection ---
+
         // Get plugin dependencies (needs cloning the Arc to access methods)
         let plugin_arc = match self.plugins.get(id) {
              Some(p) => p.clone(),
@@ -134,17 +155,50 @@ impl PluginRegistry {
         let dependencies = plugin_arc.dependencies().clone();
 
 
-        // Initialize dependencies first
+        // Check and initialize dependencies first
         for dep in dependencies {
-            // Only initialize required dependencies that exist and are enabled
-            if dep.required && self.has_plugin(&dep.plugin_name) && self.is_enabled(&dep.plugin_name) && !self.initialized.contains(&dep.plugin_name) {
-                 self.initialize_plugin(&dep.plugin_name, app)?;
-            } else if dep.required && (!self.has_plugin(&dep.plugin_name) || !self.is_enabled(&dep.plugin_name)) {
-                // If a required dependency is missing or disabled, fail initialization
+            let dep_exists = self.has_plugin(&dep.plugin_name);
+            let dep_enabled = self.is_enabled(&dep.plugin_name);
+
+            // Check for missing/disabled required dependencies
+            if dep.required && (!dep_exists || !dep_enabled) {
                 return Err(Error::Plugin(format!(
-                    "Plugin {} requires enabled dependency {}, which is missing or disabled.",
+                    "Plugin '{}' requires enabled dependency '{}', which is missing or disabled.",
                     id, dep.plugin_name
                 )));
+            }
+
+            // Check version constraint if dependency exists
+            if dep_exists {
+                 if let Some(dep_plugin) = self.get_plugin(&dep.plugin_name) {
+                     if let Some(ref required_range) = dep.version_range {
+                         match semver::Version::parse(dep_plugin.version()) {
+                             Ok(dep_version) => {
+                                 if !required_range.includes(&dep_version) {
+                                     return Err(Error::Plugin(format!(
+                                         "Plugin '{}' requires dependency '{}' version '{}', but found version '{}'",
+                                         id,
+                                         dep.plugin_name,
+                                         required_range.constraint_string(),
+                                         dep_plugin.version()
+                                     )));
+                                 }
+                             },
+                             Err(e) => {
+                                 return Err(Error::Plugin(format!(
+                                     "Failed to parse version string '{}' for dependency plugin '{}': {}",
+                                     dep_plugin.version(), dep.plugin_name, e
+                                 )));
+                             }
+                         }
+                     }
+                 }
+            }
+
+            // Initialize dependency if required, enabled, exists, and not already initialized
+            if dep.required && dep_exists && dep_enabled && !self.initialized.contains(&dep.plugin_name) {
+                 // Recursive call with the tracking set
+                 self.initialize_plugin_recursive(&dep.plugin_name, app, currently_initializing)?;
             }
         }
 
@@ -153,6 +207,11 @@ impl PluginRegistry {
         // If `init` requires `&mut self`, the design needs rethinking (e.g., Arc<Mutex<dyn Plugin>>).
         plugin_arc.init(app)?;
         self.initialized.insert(id.to_string());
+
+        // --- Cycle Detection Cleanup ---
+        currently_initializing.remove(id);
+        // --- End Cycle Detection Cleanup ---
+
         Ok(())
     }
     
@@ -174,6 +233,7 @@ impl PluginRegistry {
             if !self.initialized.contains(&id) {
                 // initialize_plugin already checks for enabled status, but double-checking doesn't hurt
                  if self.is_enabled(&id) {
+                    // Call the public method which sets up cycle detection
                     self.initialize_plugin(&id, app)?;
                  }
             }
@@ -183,23 +243,86 @@ impl PluginRegistry {
     
     /// Shutdown all plugins
     pub fn shutdown_all(&mut self) -> Result<()> {
-        // Get IDs of initialized plugins
-        let mut initialized_plugin_ids: Vec<String> = self.initialized.iter().cloned().collect();
+        // Build dependency graph for initialized plugins
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        let mut reverse_adj: HashMap<String, Vec<String>> = HashMap::new(); // For reverse topological sort
+        let initialized_plugin_ids: HashSet<String> = self.initialized.iter().cloned().collect();
 
-        // Sort initialized plugins by priority in reverse for shutdown
-        initialized_plugin_ids.sort_by(|a, b| {
-            let priority_a = self.plugins.get(a).map(|p| p.priority()).unwrap_or(PluginPriority::ThirdPartyLow(255));
-            let priority_b = self.plugins.get(b).map(|p| p.priority()).unwrap_or(PluginPriority::ThirdPartyLow(255));
-            // Reverse the comparison for shutdown order
-            priority_b.cmp(&priority_a)
-        });
+        for id in &initialized_plugin_ids {
+            adj.entry(id.clone()).or_default(); // Ensure all initialized plugins are in the graph
+            reverse_adj.entry(id.clone()).or_default();
+            if let Some(plugin) = self.plugins.get(id) {
+                for dep in plugin.dependencies() {
+                    // Only consider dependencies that are also initialized
+                    if initialized_plugin_ids.contains(&dep.plugin_name) {
+                        // Standard adjacency list: id depends on dep.plugin_name
+                        adj.entry(id.clone()).or_default().push(dep.plugin_name.clone());
+                        // Reverse adjacency list: dep.plugin_name is depended on by id
+                        reverse_adj.entry(dep.plugin_name.clone()).or_default().push(id.clone());
+                    }
+                }
+            }
+        }
 
-        // Shutdown each initialized plugin
+        // Perform topological sort (Kahn's algorithm)
+        // We want to shut down plugins with *no dependents* first.
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        for id in &initialized_plugin_ids {
+             // Calculate in-degree based on the *reverse* graph (how many plugins depend on this one)
+             in_degree.insert(id.clone(), reverse_adj.get(id).map_or(0, |dependents| dependents.len()));
+        }
+
+        // Queue contains nodes with in-degree 0 (in the reverse graph, meaning no other initialized plugin depends on them)
+        let mut queue: std::collections::VecDeque<String> = initialized_plugin_ids
+            .iter()
+            .filter(|id| *in_degree.get(*id).unwrap_or(&1) == 0)
+            .cloned()
+            .collect();
+
+        let mut shutdown_order = Vec::new(); // This will store the order: least dependent first
+        while let Some(id) = queue.pop_front() {
+// DEBUG LOGGING FOR CYCLE
+            println!("[shutdown_all] Processing ID: {}", id);
+            println!("[shutdown_all] Current Queue: {:?}", queue);
+            println!("[shutdown_all] Current In-Degrees: {:?}", in_degree);
+            println!("[shutdown_all] Current Shutdown Order: {:?}", shutdown_order);
+            // END DEBUG LOGGING
+            shutdown_order.push(id.clone());
+
+            // For each plugin `dep_id` that the current plugin `id` depends on (using original adj list)
+             if let Some(dependencies) = adj.get(&id) {
+                 for dep_id in dependencies {
+                     if let Some(degree) = in_degree.get_mut(dep_id) {
+                         *degree -= 1;
+                         if *degree == 0 {
+                             queue.push_back(dep_id.clone());
+                         }
+                     }
+                 }
+             }
+        }
+
+
+        // Check if topological sort included all initialized plugins (cycle detection)
+        if shutdown_order.len() != initialized_plugin_ids.len() {
+            // This indicates a cycle among initialized plugins, which ideally shouldn't happen
+            // if initialization succeeded, but handle defensively.
+             return Err(Error::Plugin(
+                 "Cyclic dependency detected among initialized plugins during shutdown sort.".to_string()
+             ));
+        }
+
+        // Shutdown plugins in the calculated topological order.
+        // The `shutdown_order` Vec contains plugins where dependencies appear *before*
+        // the plugins that depend on them (e.g., A before B if B depends on A).
+        // For shutdown, we need to process this list *as is* to ensure dependents
+        // are shut down before their dependencies.
         let mut shutdown_errors = Vec::new();
-        for id in initialized_plugin_ids {
-            if let Some(plugin) = self.plugins.get(&id) {
+        for id in shutdown_order { // Iterate normally
+            // Explicitly convert id (&String) to &str using as_str()
+            if let Some(plugin) = self.plugins.get(id.as_str()) {
                  // Check if it's still marked as initialized before shutting down
-                 if self.initialized.contains(&id) {
+                 if self.initialized.contains(id.as_str()) { // Use as_str()
                     println!("Shutting down plugin: {}", id);
                     if let Err(e) = plugin.shutdown() {
                         let err_msg = format!("Error shutting down plugin {}: {}", id, e);
@@ -208,7 +331,7 @@ impl PluginRegistry {
                         // Continue shutting down others even if one fails
                     }
                     // Mark as uninitialized *after* attempting shutdown
-                    self.initialized.remove(&id);
+                    self.initialized.remove(id.as_str()); // Use as_str()
                  }
             }
         }

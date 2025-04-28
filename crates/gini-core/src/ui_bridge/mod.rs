@@ -309,12 +309,18 @@ impl UiBridge {
             timestamp: SystemTime::now(),
         })
     }
+
+    /// Get the name of the current default provider
+    pub fn get_default_provider_name(&self) -> Option<String> {
+        self.default_provider.clone()
+    }
 }
 
 impl Default for UiBridge {
     fn default() -> Self {
         Self::new()
     }
+
 }
 
 // Test module declaration

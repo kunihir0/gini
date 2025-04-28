@@ -1,3 +1,5 @@
 target/
 user/
 .roo/
+*.profraw
+#coverage/

@@ -1,5 +1,9 @@
 pub mod registry_tests;
-// Declare test submodules
+pub mod manifest_tests;
+pub mod conflict_tests;
+pub mod adapter_tests;
+pub mod dependency_tests;
+pub mod traits_tests;
 pub mod preflight_tests;
 pub mod loading_tests;
 pub mod manager_tests; // Added manager tests

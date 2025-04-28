@@ -1,0 +1,257 @@
+#![cfg(test)]
+
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex as StdMutex};
+use tokio::sync::Mutex;
+use async_trait::async_trait;
+
+use crate::kernel::bootstrap::Application;
+use crate::kernel::component::KernelComponent;
+use crate::kernel::error::{Error, Result as KernelResult};
+use crate::plugin_system::dependency::PluginDependency;
+use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
+use crate::plugin_system::version::VersionRange;
+use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::manager::StageManager;
+use crate::stage_manager::pipeline::PipelineBuilder;
+use crate::stage_manager::requirement::StageRequirement;
+use crate::storage::manager::DefaultStorageManager;
+use crate::plugin_system::manager::DefaultPluginManager;
+use std::path::PathBuf;
+
+use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior};
+
+#[tokio::test]
+async fn test_plugin_loading_and_stage_execution() {
+    // Destructure the new shutdown_order tracker, even if unused here
+    let (plugin_manager, stage_manager, _storage_manager, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+
+    // Initialize components manually (they'd normally be initialized by the kernel)
+    KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
+    KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
+
+    // Register test plugins
+    let plugin1 = TestPlugin::new("Plugin1", stages_executed.clone());
+    let plugin2 = TestPlugin::new("Plugin2", stages_executed.clone());
+
+    // Test plugin versions - this will call the version() method to address code coverage
+    assert_eq!(plugin1.version(), "1.0.0", "TestPlugin should have version 1.0.0");
+    assert_eq!(plugin2.version(), "1.0.0", "TestPlugin should have version 1.0.0");
+
+    // Get the registry from the plugin manager
+    let registry = plugin_manager.registry();
+    {
+        let mut registry_lock = registry.lock().await;
+        registry_lock.register_plugin(Box::new(plugin1)).expect("Failed to register Plugin1");
+        registry_lock.register_plugin(Box::new(plugin2)).expect("Failed to register Plugin2");
+    }
+
+    // Create a test context
+    let mut context = StageContext::new_live(std::env::temp_dir());
+
+    // Register the plugin stages with the stage manager
+    {
+        let registry = plugin_manager.registry();
+        let plugins = {
+            let reg = registry.lock().await;
+            reg.get_plugins_arc() // Assuming this returns Vec<Arc<dyn Plugin>>
+        };
+
+        for plugin in plugins {
+            for stage in plugin.stages() { // Assuming stages() returns Vec<Box<dyn Stage>>
+                StageManager::register_stage(&*stage_manager, stage).await.expect("Failed to register plugin stage");
+            }
+        }
+    }
+
+    // Create a pipeline to execute the plugin-provided stages
+    let plugin_stages = vec!["Plugin1_Stage".to_string(), "Plugin2_Stage".to_string()];
+    let mut pipeline = StageManager::create_pipeline(
+        &*stage_manager,
+        "Test Pipeline",
+        "Pipeline for plugin stages",
+        plugin_stages
+    ).await.expect("Failed to create pipeline");
+
+    // Execute the pipeline
+    let results = StageManager::execute_pipeline(&*stage_manager, &mut pipeline, &mut context).await
+        .expect("Failed to execute pipeline");
+
+    // Verify all stages were executed successfully
+    for (stage_id, result) in &results {
+        match result {
+            StageResult::Success => {},
+            _ => panic!("Stage {} did not succeed: {:?}", stage_id, result),
+        }
+    }
+
+    // Check that our tracker contains the expected stage IDs
+    let executed = stages_executed.lock().await;
+    assert!(executed.contains("Plugin1_Stage"), "Plugin1_Stage was not executed");
+    assert!(executed.contains("Plugin2_Stage"), "Plugin2_Stage was not executed");
+}
+
+#[tokio::test]
+async fn test_plugin_stage_registration() {
+    // Destructure the new shutdown_order tracker, even if unused here
+    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+
+    // Initialize components
+    KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
+    KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
+
+    // Create a plugin that provides stages
+    let plugin = TestPlugin::new("StageRegistrationPlugin", stages_executed.clone());
+
+    // Register the plugin
+    {
+        let mut registry = plugin_manager.registry().lock().await;
+        registry.register_plugin(Box::new(plugin)).expect("Failed to register plugin");
+    }
+
+    // Track the number of stages before plugin registration
+    let stages_before = stage_manager.get_stage_ids().await.expect("Failed to get stage IDs").len();
+
+    // Register plugin stages with stage manager
+    {
+        let registry = plugin_manager.registry();
+        let plugins = {
+            let reg = registry.lock().await;
+            reg.get_plugins_arc()
+        };
+
+        for plugin in plugins {
+            for stage in plugin.stages() {
+                StageManager::register_stage(&*stage_manager, stage).await.expect("Failed to register plugin stage");
+            }
+        }
+    }
+
+    // Verify the plugin's stage was registered with the stage manager
+    let stages_after = stage_manager.get_stage_ids().await.expect("Failed to get stage IDs");
+    assert_eq!(stages_after.len(), stages_before + 1, "Plugin stage should be registered");
+
+    // Check that the specific stage exists
+    let expected_stage_id = "StageRegistrationPlugin_Stage";
+    // Check if any stage ID contains our expected ID
+    let stage_exists = stages_after.iter().any(|id| id == expected_stage_id);
+    assert!(stage_exists, "Plugin's stage should be registered with the stage manager");
+}
+
+#[tokio::test]
+async fn test_plugin_stage_execution() {
+    // Destructure the new shutdown_order tracker, even if unused here
+    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+
+    // Initialize components
+    KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
+    KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
+
+    // Create plugins that provide stages
+    let plugin_a = TestPlugin::new("StageExecPluginA", stages_executed.clone());
+    let plugin_b = TestPlugin::new("StageExecPluginB", stages_executed.clone());
+
+    // Register the plugins
+    {
+        let mut registry = plugin_manager.registry().lock().await;
+        registry.register_plugin(Box::new(plugin_a)).expect("Failed to register plugin A");
+        registry.register_plugin(Box::new(plugin_b)).expect("Failed to register plugin B");
+    }
+
+    // Register plugin stages with stage manager
+    {
+        let registry = plugin_manager.registry();
+        let plugins = {
+            let reg = registry.lock().await;
+            reg.get_plugins_arc()
+        };
+
+        for plugin in plugins {
+            for stage in plugin.stages() {
+                StageManager::register_stage(&*stage_manager, stage).await.expect("Failed to register plugin stage");
+            }
+        }
+    }
+
+    // Create a pipeline using the plugin-provided stages
+    let mut pipeline = PipelineBuilder::new("Plugin Stage Execution", "Test executing plugin stages")
+        .add_stage("StageExecPluginA_Stage")
+        .add_stage("StageExecPluginB_Stage")
+        .build();
+
+    // Execute the pipeline
+    let mut context = StageContext::new_live(std::env::temp_dir());
+    let results = StageManager::execute_pipeline(&*stage_manager, &mut pipeline, &mut context).await
+        .expect("Failed to execute pipeline");
+
+    // Verify that both plugin stages executed successfully
+    for (stage_id, result) in &results {
+        assert!(matches!(result, StageResult::Success),
+            "Stage {} should succeed", stage_id);
+    }
+
+    // Check that the tracker contains the expected stages
+    let executed = stages_executed.lock().await;
+    assert!(executed.contains("StageExecPluginA_Stage"), "Plugin A's stage should be executed");
+    assert!(executed.contains("StageExecPluginB_Stage"), "Plugin B's stage should be executed");
+}
+
+#[tokio::test]
+async fn test_plugin_system_stage_manager_integration() {
+    // Destructure the new shutdown_order tracker, even if unused here
+    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+
+    // Initialize components
+    KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
+    KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
+
+    // Create a test plugin that will register its own stages
+    let test_plugin = TestPlugin::new("IntegrationPlugin", stages_executed.clone());
+
+    // Register the plugin
+    {
+        let mut registry = plugin_manager.registry().lock().await;
+        registry.register_plugin(Box::new(test_plugin)).expect("Failed to register test plugin");
+    }
+
+    // Register the plugin's stages with the stage manager
+    {
+        let registry = plugin_manager.registry();
+        let plugins = {
+            let reg = registry.lock().await;
+            reg.get_plugins_arc()
+        };
+
+        for plugin in plugins {
+            for stage in plugin.stages() {
+                StageManager::register_stage(&*stage_manager, stage).await.expect("Failed to register plugin stage");
+            }
+        }
+    }
+
+    // Create a pipeline with the plugin's stage
+    let mut pipeline = StageManager::create_pipeline(
+        &*stage_manager,
+        "Integration Pipeline",
+        "Test plugin and stage manager integration",
+        vec!["IntegrationPlugin_Stage".to_string()]
+    ).await.expect("Failed to create pipeline");
+
+    // Create a context for execution
+    let mut context = StageContext::new_live(std::env::temp_dir());
+
+    // Execute the pipeline
+    let results = StageManager::execute_pipeline(&*stage_manager, &mut pipeline, &mut context).await
+        .expect("Failed to execute pipeline");
+
+    // Verify the stage executed successfully
+    let stage_result = results.get("IntegrationPlugin_Stage").expect("Missing result for plugin stage");
+    match stage_result {
+        StageResult::Success => {},
+        _ => panic!("Plugin stage execution failed: {:?}", stage_result),
+    }
+
+    // Check that our tracker contains the expected stage ID
+    let executed = stages_executed.lock().await;
+    assert!(executed.contains("IntegrationPlugin_Stage"), "Plugin stage was not executed");
+}

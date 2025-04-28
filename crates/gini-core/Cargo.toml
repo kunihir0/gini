@@ -25,8 +25,12 @@ semver = "1.0.26"
 thiserror = "2.0.12" # Assuming this is used by core error types
 tempfile = "3.10"
 # Or use workspace dependency: thiserror = { workspace = true }
+serde = { version = "1.0", features = ["derive"] } # For manifest parsing
+serde_json = "1.0" # For manifest parsing
 
 [dev-dependencies]
 # Tests moved here require tempfile
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] } # Add tokio for async tests
 tempfile = "3.10"
 # Or use workspace dependency: tempfile = { workspace = true }
+# serde_json moved to main dependencies

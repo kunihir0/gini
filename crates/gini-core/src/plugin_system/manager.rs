@@ -328,6 +328,18 @@ impl PluginManager for DefaultPluginManager {
     }
 
     async fn disable_plugin(&self, id: &str) -> Result<()> {
+        // First check if plugin is a core plugin
+        let plugin_opt = self.get_plugin(id).await?;
+        
+        if let Some(plugin) = plugin_opt {
+            // Don't allow disabling core plugins
+            if plugin.is_core() {
+                return Err(Error::Plugin(format!(
+                    "Cannot disable core plugin '{}'", id
+                )));
+            }
+        }
+        
         let mut registry = self.registry.lock().await;
         registry.disable_plugin(id) // Delegate to registry
     }

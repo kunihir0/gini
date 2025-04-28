@@ -28,3 +28,7 @@ pub use storage::StorageProvider; // Assuming this is the primary public trait/s
 // Inside plugin_system/mod.rs:
 // #[cfg(test)]
 // mod tests;
+
+// Integration tests across multiple modules
+#[cfg(test)]
+pub mod tests;

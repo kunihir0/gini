@@ -27,6 +27,38 @@ pub enum SystemEvent {
     ConfigChange { key: String, value: String },
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct TestEvent {
+    name: String,
+}
+
+#[cfg(test)]
+impl TestEvent {
+    pub fn new(name: &str) -> Self {
+        TestEvent { name: name.to_string() }
+    }
+}
+
+#[cfg(test)]
+impl crate::event::Event for TestEvent {
+    fn name(&self) -> &'static str {
+        Box::leak(self.name.clone().into_boxed_str())
+    }
+    
+    fn clone_event(&self) -> Box<dyn crate::event::Event> {
+        Box::new(self.clone())
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl Event for SystemEvent {
     fn name(&self) -> &'static str {
         match self {

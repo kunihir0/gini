@@ -136,34 +136,44 @@ impl AdapterRegistry {
 /// Macro to create an adapter implementation
 #[macro_export]
 macro_rules! define_adapter {
-    ($adapter_name:ident, $trait_name:ident) => {
-        pub struct $adapter_name<T: $trait_name + Send + Sync + 'static> {
+    // Add $impl_type:ident as the second argument
+    ($adapter_name:ident, $impl_type:ident, $trait_name:ident) => {
+        // The struct name is $adapter_name, generic over the implementation type $impl_type
+        // Use $impl_type as the generic parameter name as well
+        pub struct $adapter_name<$impl_type: $trait_name + Send + Sync + 'static> {
             name: String,
-            implementation: T,
+            // The implementation field holds the concrete type $impl_type
+            implementation: $impl_type, // Use $impl_type here
         }
         
-        impl<T: $trait_name + Send + Sync + 'static> $adapter_name<T> {
-            pub fn new(name: &str, implementation: T) -> Self {
+        // Implement methods for the wrapper struct
+        impl $adapter_name<$impl_type> { // Specify $impl_type here
+            // new takes the concrete implementation type
+            pub fn new(name: &str, implementation: $impl_type) -> Self {
                 Self {
                     name: name.to_string(),
-                    implementation,
+                    implementation, // Store the concrete type
                 }
             }
             
-            pub fn implementation(&self) -> &T {
+            // Return a reference to the concrete implementation
+            pub fn implementation(&self) -> &$impl_type {
                 &self.implementation
             }
-            
-            pub fn implementation_mut(&mut self) -> &mut T {
+
+            // Return a mutable reference to the concrete implementation
+            pub fn implementation_mut(&mut self) -> &mut $impl_type {
                 &mut self.implementation
             }
         }
-        
-        impl<T: $trait_name + Send + Sync + 'static> crate::plugin_system::adapter::Adapter for $adapter_name<T> {
+
+        // Implement the Adapter trait for the wrapper struct
+        impl crate::plugin_system::adapter::Adapter for $adapter_name<$impl_type> { // Specify $impl_type
             fn type_id(&self) -> std::any::TypeId {
-                std::any::TypeId::of::<$adapter_name<T>>()
+                // Use the TypeId of the wrapper struct itself
+                std::any::TypeId::of::<$adapter_name<$impl_type>>()
             }
-            
+
             fn as_any(&self) -> &dyn std::any::Any {
                 self
             }
