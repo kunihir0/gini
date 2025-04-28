@@ -61,36 +61,40 @@ jobs:
 
       - name: Generate coverage report
         run: |
-              # Use a separate directory for output
-              REPORT_OUTPUT_DIR="target/coverage-report"
-              mkdir -p "$REPORT_OUTPUT_DIR"
-  
-              # Debug info
-              echo "Profile files count:"
-              find target/coverage -name "*.profraw" | wc -l
-  
-              # Corrected grcov command - Output to a different directory
-              grcov \
-                . \
-                --binary-path target/debug \
-                -s . \
-                -o "$REPORT_OUTPUT_DIR" \
-                --ignore-not-existing \
-                --keep-only 'src/*' \
-                --branch \
-                --log-level INFO \
-                --output-types html,cobertura
-  
-              # Check if any files were processed - this should now show more files
-              echo "Generated files:"
-              find "$REPORT_OUTPUT_DIR"/html -type f | wc -l
-              ls -la "$REPORT_OUTPUT_DIR"/html/
+            # Use a separate directory for output
+            REPORT_OUTPUT_DIR="target/coverage-report"
+            mkdir -p "$REPORT_OUTPUT_DIR"
+        
+            # Debug info
+            echo "Repository contents:"
+            ls -la
+            echo "Source directory contents:"
+            ls -la src || echo "No src directory found at root level"
+            echo "Profile files count and location:"
+            find target/coverage -name "*.profraw" | wc -l
+            find target/coverage -name "*.profraw" | head -n 5
+        
+            # Explicitly specify profraw files location as an argument
+            grcov target/coverage \
+              --binary-path ./target/debug \
+              --source-dir . \
+              --output-path "$REPORT_OUTPUT_DIR" \
+              --ignore-not-existing \
+              --keep-only 'src/*' \
+              --branch \
+              --log-level debug \
+              --output-types html,cobertura
+        
+            # Check if any files were processed
+            echo "Generated files:"
+            find "$REPORT_OUTPUT_DIR"/html -type f | wc -l
+            ls -la "$REPORT_OUTPUT_DIR"/html/
 
       - name: Extract coverage percentage
         id: extract-coverage
         run: |
                 REPORT_OUTPUT_DIR="target/coverage-report"
-                COVERAGE=$(xmllint --xpath "concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')" "$REPORT_OUTPUT_DIR/cobertura.xml") # <-- Update path
+                COVERAGE=$(xmllint --xpath "concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')" "$REPORT_OUTPUT_DIR/cobertura.xml")
                 echo "Coverage: $COVERAGE"
                 echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
 
