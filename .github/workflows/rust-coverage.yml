@@ -42,7 +42,7 @@ jobs:
 
       - name: Build and test with coverage
         env:
-          LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
+          LLVM_PROFILE_FILE: "%p-%m.profraw"
           CARGO_INCREMENTAL: "0"
           RUSTFLAGS: "-Cinstrument-coverage"
           RUSTDOCFLAGS: "-Cinstrument-coverage"
@@ -52,12 +52,14 @@ jobs:
         run: |
           mkdir -p target/coverage-report
           
-          grcov target/coverage \
+          # Use . as the input path to find all profraw files
+          grcov . \
             --binary-path ./target/debug \
-            --source-dir 'crates/gini-core/**,crates/gini/**' \
+            -s . \
             --output-path target/coverage-report \
             --ignore-not-existing \
-            --keep-only 'crates/gini-core/**,crates/gini/**' \
+            --keep-only 'crates/gini-core/**' \
+            --keep-only 'crates/gini/**' \
             --branch \
             --output-types html,cobertura
 
