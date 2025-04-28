@@ -71,10 +71,10 @@ jobs:
   
               # Corrected grcov command - Output to a different directory
               grcov \
-                target/coverage \
+                . \
                 --binary-path target/debug \
                 -s . \
-                -o "$REPORT_OUTPUT_DIR" \  # <--- Output to a different directory
+                -o "$REPORT_OUTPUT_DIR" \
                 --ignore-not-existing \
                 --keep-only 'src/*' \
                 --branch \
