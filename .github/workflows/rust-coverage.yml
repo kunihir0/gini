@@ -63,7 +63,7 @@ jobs:
           # Generate coverage reports (HTML and cobertura)
           grcov target/coverage \
             --binary-path ./target/debug \
-            --source-dir ./crates/* \
+            --source-dir ./crates/** \
             --output-path target/coverage-report \
             --ignore-not-existing \
             --branch \
