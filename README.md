@@ -2,8 +2,8 @@
 
 A modular system for deploying macOS virtual machines using QEMU/KVM.
 
-[![Rust Coverage](https://github.com/kunihir0/gini/actions/workflows/rust-coverage.yml/badge.svg)](https://github.com/kunihir0/gini/actions/workflows/rust-coverage.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kunihir0/gini/gh-pages/coverage.json)](https://kunihir0.github.io/gini/)
+[![Rust Coverage](https://github.com/kunihir0/osx/actions/workflows/rust-coverage.yml/badge.svg)](https://github.com/kunihir0/osx/actions/workflows/rust-coverage.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kunihir0/osx/coverage.json)](https://kunihir0.github.io/osx/html)
 
 ## Overview
 
