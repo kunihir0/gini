@@ -1,4 +1,4 @@
-name: Rust Coverage
+name: Rust Code Coverage
 
 on:
   push:
@@ -7,11 +7,12 @@ on:
     branches: [ main, dev, staging ]
 
 jobs:
-  build_and_test:
-    name: Build and Test with Coverage
+  coverage:
+    name: Generate Code Coverage
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required for gh-pages deployment
+      pull-requests: write  # Required for PR comments
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
     steps:
@@ -36,67 +37,62 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache grcov
-        id: cache-grcov
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/bin/grcov
-          key: ${{ runner.os }}-grcov
-
       - name: Install grcov
-        if: steps.cache-grcov.outputs.cache-hit != 'true'
-        run: cargo install grcov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: grcov
+          version: latest
+          use-tool-cache: true
 
       - name: Install xmllint
         run: sudo apt-get update && sudo apt-get install -y libxml2-utils
 
-      - name: Build and run tests
+      - name: Build and run tests with coverage
         env:
           LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
           CARGO_INCREMENTAL: "0"
           RUSTFLAGS: "-Cinstrument-coverage"
           RUSTDOCFLAGS: "-Cinstrument-coverage"
-        run: |
-          cargo test --workspace -- --test-threads=8
+        run: cargo test --workspace
 
-      - name: Generate coverage report
+      - name: Generate coverage reports
         run: |
-            # Use a separate directory for output
-            REPORT_OUTPUT_DIR="target/coverage-report"
-            mkdir -p "$REPORT_OUTPUT_DIR"
-            
-            # Debug info
-            echo "Repository contents:"
-            ls -la
-            echo "Crates directory contents:"
-            ls -la crates
-            echo "Profile files count:"
-            find target/coverage -name "*.profraw" | wc -l
-            
-            # Explicitly specify profraw files location as an argument with UPPERCASE log level
-            # and adjusted source path patterns for workspace structure
-            grcov target/coverage \
-              --binary-path ./target/debug \
-              --source-dir . \
-              --output-path "$REPORT_OUTPUT_DIR" \
-              --ignore-not-existing \
-              --keep-only 'crates/*/src/*' \
-              --branch \
-              --log-level DEBUG \
-              --output-types html,cobertura
-            
-            # Check if any files were processed
-            echo "Generated files:"
-            find "$REPORT_OUTPUT_DIR"/html -type f | wc -l
-            ls -la "$REPORT_OUTPUT_DIR"/html/
+          # Create coverage directory
+          mkdir -p target/coverage-report
+          
+          # Generate coverage reports (HTML and cobertura)
+          grcov target/coverage \
+            --binary-path ./target/debug \
+            --source-dir ./crates/* \
+            --output-path target/coverage-report \
+            --ignore-not-existing \
+            --branch \
+            --output-types html,cobertura
 
       - name: Extract coverage percentage
         id: extract-coverage
         run: |
-                REPORT_OUTPUT_DIR="target/coverage-report"
-                COVERAGE=$(xmllint --xpath "concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')" "$REPORT_OUTPUT_DIR/cobertura.xml")
-                echo "Coverage: $COVERAGE"
-                echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          COVERAGE=$(xmllint --xpath "concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')" "target/coverage-report/cobertura.xml")
+          echo "Coverage: $COVERAGE"
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          
+          # Calculate numeric value for badge
+          COVERAGE_PCT=$(xmllint --xpath "100 * string(//coverage/@line-rate)" "target/coverage-report/cobertura.xml")
+          COVERAGE_INT=$(printf "%.0f" $COVERAGE_PCT)
+          
+          # Colors based on coverage: red < 50% < orange < 70% < yellow < 80% < green
+          if [ $COVERAGE_INT -lt 50 ]; then
+            COLOR=red
+          elif [ $COVERAGE_INT -lt 70 ]; then
+            COLOR=orange
+          elif [ $COVERAGE_INT -lt 80 ]; then
+            COLOR=yellow
+          else
+            COLOR=green
+          fi
+          
+          # Create a coverage.json file for shields.io
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE_INT}%\",\"color\":\"${COLOR}\"}" > "target/coverage-report/coverage.json"
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -105,96 +101,53 @@ jobs:
           path: target/coverage-report/
           if-no-files-found: error
 
-      - name: Create coverage badges
-        if: github.ref == 'refs/heads/main'
-        run: |
-            REPORT_OUTPUT_DIR="target/coverage-report"
-            mkdir -p "$REPORT_OUTPUT_DIR/badges" # Badges should also go in the new dir
-            # Extract just the number
-            COVERAGE_PCT=$(xmllint --xpath "100 * string(//coverage/@line-rate)" "$REPORT_OUTPUT_DIR/cobertura.xml") # <-- Update path
-            # Round to integer
-            COVERAGE_INT=$(printf "%.0f" $COVERAGE_PCT)
-  
-            # Colors based on coverage: red < 50% < orange < 70% < yellow < 80% < green
-            if [ $COVERAGE_INT -lt 50 ]; then
-              COLOR=red
-            elif [ $COVERAGE_INT -lt 70 ]; then
-              COLOR=orange
-            elif [ $COVERAGE_INT -lt 80 ]; then
-              COLOR=yellow
-            else
-              COLOR=green
-            fi
-  
-            # Create a coverage.json file for shields.io
-            echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE_INT}%\",\"color\":\"${COLOR}\"}" > "$REPORT_OUTPUT_DIR/coverage.json"
-
       - name: Deploy coverage to GitHub Pages
         if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v4
         with:
-              github_token: ${{ secrets.GITHUB_TOKEN }}
-              publish_dir: ./target/coverage-report
-              force_orphan: true
-              user_name: 'github-actions[bot]'
-              user_email: 'github-actions[bot]@users.noreply.github.com'
-              commit_message: 'Update coverage report'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/coverage-report
+          force_orphan: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'Update coverage report'
 
-      - name: Find Previous Coverage
+      - name: Compare with Previous Coverage
         if: github.event_name == 'pull_request'
         id: prev-coverage
         run: |
-                # Fetch main branch coverage using GitHub API
-                REPO="${GITHUB_REPOSITORY}"
-                # Assume coverage.json is now published to target/coverage-report/coverage.json
-                MAIN_BRANCH_COVERAGE=$(curl -s "https://raw.githubusercontent.com/${REPO}/main/target/coverage-report/coverage.json" | jq -r '.message' || echo "N/A") # <-- Update path
-      
-                # If we successfully got the coverage value, calculate diff
-                if [[ "$MAIN_BRANCH_COVERAGE" != "N/A" ]]; then
-                  # Extract current coverage percentage from the new location
-                  CURRENT_COVERAGE=$(xmllint --xpath "100 * string(//coverage/@line-rate)" target/coverage-report/cobertura.xml) # <-- Update path
-                  CURRENT_COVERAGE_ROUNDED=$(printf "%.1f" $CURRENT_COVERAGE)
-      
-                  # Extract only the number from main branch coverage (remove the % sign)
-                  MAIN_COVERAGE_NUM=$(echo $MAIN_BRANCH_COVERAGE | sed 's/%//')
-      
-                  # Calculate difference
-                  DIFF=$(echo "$CURRENT_COVERAGE_ROUNDED - $MAIN_COVERAGE_NUM" | bc)
-      
-                  # Format with plus sign for positive values
-                  if (( $(echo "$DIFF >= 0" | bc -l) )); then
-                    DIFF_FORMATTED="+$DIFF%"
-                  else
-                    DIFF_FORMATTED="$DIFF%"
-                  fi
-      
-                  echo "diff=$DIFF_FORMATTED" >> $GITHUB_OUTPUT
-                else
-                  echo "diff=N/A" >> $GITHUB_OUTPUT
-                fi
+          REPO="${GITHUB_REPOSITORY}"
+          MAIN_BRANCH_COVERAGE=$(curl -s "https://raw.githubusercontent.com/${REPO}/main/coverage.json" | jq -r '.message' 2>/dev/null || echo "N/A")
+          
+          if [[ "$MAIN_BRANCH_COVERAGE" != "N/A" ]]; then
+            CURRENT_COVERAGE=$(xmllint --xpath "100 * string(//coverage/@line-rate)" target/coverage-report/cobertura.xml)
+            CURRENT_COVERAGE_ROUNDED=$(printf "%.1f" $CURRENT_COVERAGE)
+            
+            MAIN_COVERAGE_NUM=$(echo $MAIN_BRANCH_COVERAGE | sed 's/%//')
+            
+            DIFF=$(echo "$CURRENT_COVERAGE_ROUNDED - $MAIN_COVERAGE_NUM" | bc)
+            
+            if (( $(echo "$DIFF >= 0" | bc -l) )); then
+              DIFF_FORMATTED="+$DIFF%"
+            else
+              DIFF_FORMATTED="$DIFF%"
+            fi
+            
+            echo "diff=$DIFF_FORMATTED" >> $GITHUB_OUTPUT
+          else
+            echo "diff=N/A" >> $GITHUB_OUTPUT
+          fi
 
-      # Comment on PR with coverage info
-      - name: Find Comment
-        if: github.event_name == 'pull_request'
-        uses: peter-evans/find-comment@v2
-        id: fc
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: Code coverage report
-
-      - name: Create or Update Comment
+      - name: Comment on PR
         if: github.event_name == 'pull_request'
         uses: peter-evans/create-or-update-comment@v2
         with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### Code coverage report
+            ### Code Coverage Report
             ${{ steps.extract-coverage.outputs.coverage }}
             Change: ${{ steps.prev-coverage.outputs.diff }}
             
-            [Full HTML report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            
-            Download the report artifact for complete details.
+            [Full HTML Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           edit-mode: replace
+          comment-id: ${{ github.event.pull_request.number }}-coverage
