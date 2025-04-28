@@ -61,20 +61,24 @@ jobs:
 
       - name: Generate coverage report
         run: |
-           mkdir -p target/coverage
-           # Debug info
-           echo "Profile files count:"
-           find target/coverage -name "*.profraw" | wc -l
-            # More verbose grcov command
+            mkdir -p target/coverage
+            # Debug info
+            echo "Profile files count:"
+            find target/coverage -name "*.profraw" | wc -l
+            
+            # Updated grcov command with correct parameters
             grcov \
               target/coverage \
               --binary-path target/debug \
               -s . \
               -o target/coverage \
               --ignore-not-existing \
+              --ignore "/*" \
+              --keep-only 'src/*' \
               --branch \
-              --output-types html,cobertura,lcov \
-              -v  # Verbose output
+              --log-level INFO \
+              --output-types html,cobertura
+            
             # Check if any files were processed
             echo "Generated files:"
             find target/coverage/html -type f | wc -l
