@@ -10,6 +10,10 @@ jobs:
   build_and_test:
     name: Build and Test with Coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for gh-pages deployment
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -32,7 +36,15 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Cache grcov
+        id: cache-grcov
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/grcov
+          key: ${{ runner.os }}-grcov
+
       - name: Install grcov
+        if: steps.cache-grcov.outputs.cache-hit != 'true'
         run: cargo install grcov
 
       - name: Install xmllint
@@ -45,7 +57,7 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage"
           RUSTDOCFLAGS: "-Cinstrument-coverage"
         run: |
-          cargo test --workspace
+          cargo test --workspace -- --test-threads=8
 
       - name: Generate coverage report
         run: |
@@ -68,7 +80,7 @@ jobs:
           echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4  # Updated to use v4
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: target/coverage/
@@ -100,14 +112,46 @@ jobs:
 
       - name: Deploy coverage to GitHub Pages
         if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/coverage
-          keep_files: false
+          force_orphan: true  # Forces first-time deployment by creating a new orphan branch
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'Update coverage report'
+
+      - name: Find Previous Coverage
+        if: github.event_name == 'pull_request'
+        id: prev-coverage
+        run: |
+          # Fetch main branch coverage using GitHub API
+          REPO="${GITHUB_REPOSITORY}"
+          MAIN_BRANCH_COVERAGE=$(curl -s "https://raw.githubusercontent.com/${REPO}/main/target/coverage/coverage.json" | jq -r '.message' || echo "N/A")
+          
+          # If we successfully got the coverage value, calculate diff
+          if [[ "$MAIN_BRANCH_COVERAGE" != "N/A" ]]; then
+            # Extract current coverage percentage
+            CURRENT_COVERAGE=$(xmllint --xpath "100 * string(//coverage/@line-rate)" target/coverage/cobertura.xml)
+            CURRENT_COVERAGE_ROUNDED=$(printf "%.1f" $CURRENT_COVERAGE)
+            
+            # Extract only the number from main branch coverage (remove the % sign)
+            MAIN_COVERAGE_NUM=$(echo $MAIN_BRANCH_COVERAGE | sed 's/%//')
+            
+            # Calculate difference
+            DIFF=$(echo "$CURRENT_COVERAGE_ROUNDED - $MAIN_COVERAGE_NUM" | bc)
+            
+            # Format with plus sign for positive values
+            if (( $(echo "$DIFF >= 0" | bc -l) )); then
+              DIFF_FORMATTED="+$DIFF%"
+            else
+              DIFF_FORMATTED="$DIFF%"
+            fi
+            
+            echo "diff=$DIFF_FORMATTED" >> $GITHUB_OUTPUT
+          else
+            echo "diff=N/A" >> $GITHUB_OUTPUT
+          fi
 
       # Comment on PR with coverage info
       - name: Find Comment
@@ -128,6 +172,7 @@ jobs:
           body: |
             ### Code coverage report
             ${{ steps.extract-coverage.outputs.coverage }}
+            Change: ${{ steps.prev-coverage.outputs.diff }}
             
             [Full HTML report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
             
