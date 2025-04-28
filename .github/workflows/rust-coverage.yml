@@ -61,28 +61,27 @@ jobs:
 
       - name: Generate coverage report
         run: |
-            mkdir -p target/coverage
-            # Debug info
-            echo "Profile files count:"
-            find target/coverage -name "*.profraw" | wc -l
-            
-            # Updated grcov command with correct parameters
-            grcov \
-              target/coverage \
-              --binary-path target/debug \
-              -s . \
-              -o target/coverage \
-              --ignore-not-existing \
-              --ignore "/*" \
-              --keep-only 'src/*' \
-              --branch \
-              --log-level INFO \
-              --output-types html,cobertura
-            
-            # Check if any files were processed
-            echo "Generated files:"
-            find target/coverage/html -type f | wc -l
-            ls -la target/coverage/html/
+              mkdir -p target/coverage
+              # Debug info
+              echo "Profile files count:"
+              find target/coverage -name "*.profraw" | wc -l
+  
+              # Corrected grcov command
+              grcov \
+                target/coverage \
+                --binary-path target/debug \
+                -s . \
+                -o target/coverage \
+                --ignore-not-existing \
+                --keep-only 'src/*' \  # <-- Keep this to focus on source files
+                --branch \
+                --log-level INFO \
+                --output-types html,cobertura
+  
+              # Check if any files were processed - this should now show more files
+              echo "Generated files:"
+              find target/coverage/html -type f | wc -l
+              ls -la target/coverage/html/
 
       - name: Extract coverage percentage
         id: extract-coverage
