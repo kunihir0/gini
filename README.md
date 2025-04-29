@@ -2,8 +2,8 @@
 
 A modular system for deploying macOS virtual machines using QEMU/KVM.
 
-[![Rust Coverage](https://github.com/kunihir0/osx/actions/workflows/rust-coverage.yml/badge.svg)](https://github.com/kunihir0/osx/actions/workflows/rust-coverage.yml)
-[![Coverage](https://raw.githubusercontent.com/kunihir0/osx/refs/heads/gh-pages/html/badges/for_the_badge.svg)](https://kunihir0.github.io/osx/html)
+[![Rust Coverage](https://github.com/your-organization/gini/actions/workflows/rust-coverage.yml/badge.svg)](https://github.com/your-organization/gini/actions/workflows/rust-coverage.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/your-organization/gini/gh-pages/coverage.json)](https://your-organization.github.io/gini/)
 
 ## Overview
 
@@ -54,6 +54,7 @@ See the [setup guide](docs/setup-guide.md) for detailed instructions on setting 
 - [Stage Manager](docs/stage-manager.md)
 - [Storage System](docs/storage-system.md)
 - [UI Bridge](docs/ui-bridge.md)
+- [Implementation Status](docs/implementation_status.md)
 
 ## Developer Guides
 
@@ -62,6 +63,10 @@ See the [setup guide](docs/setup-guide.md) for detailed instructions on setting 
 - [Creating Plugins](docs/plugin-creation-guide.md)
 - [Contributing](docs/contributing.md)
 - [API Reference](docs/api-reference.md)
+
+## Project Status
+
+Check our [Implementation Status Tracker](docs/implementation_status.md) for detailed information about the current state of implementation, planned features, and development timeline.
 
 ## Repository Structure
 
