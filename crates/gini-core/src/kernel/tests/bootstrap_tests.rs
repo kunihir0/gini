@@ -8,7 +8,8 @@ use async_trait::async_trait; // Import async_trait
 use crate::event::DefaultEventManager;
 use crate::stage_manager::manager::DefaultStageManager;
 use crate::plugin_system::DefaultPluginManager;
-use crate::storage::DefaultStorageManager;
+use crate::storage::{DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
+use crate::storage::config::ConfigManager; // Added ConfigManager
 
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -124,7 +125,8 @@ async fn test_get_component() {
     let stage_manager = app.get_component::<DefaultStageManager>().await;
     assert!(stage_manager.is_some(), "Should retrieve DefaultStageManager");
 
-    let plugin_manager = app.get_component::<DefaultPluginManager>().await;
+    // Specify the generic parameter when retrieving DefaultPluginManager
+    let plugin_manager = app.get_component::<DefaultPluginManager<LocalStorageProvider>>().await;
     assert!(plugin_manager.is_some(), "Should retrieve DefaultPluginManager");
 
     let storage_manager = app.get_component::<DefaultStorageManager>().await;

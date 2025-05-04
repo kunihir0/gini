@@ -1,10 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet, VecDeque}; // Ensure this is the only import line for these
+use std::sync::Arc;
 
 use crate::kernel::error::{Error, Result};
 use crate::plugin_system::traits::{Plugin, PluginPriority};
 use crate::plugin_system::version::ApiVersion;
 use crate::plugin_system::dependency::PluginDependency;
+use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict}; // Import ConflictManager and conflict types
+use semver::Version; // Import semver::Version for incompatibility checks
 
 /// Registry for managing plugins
 pub struct PluginRegistry {
@@ -16,6 +18,8 @@ pub struct PluginRegistry {
     pub enabled: HashSet<String>,
     /// Current API version
     api_version: ApiVersion,
+    /// Conflict manager
+    conflict_manager: ConflictManager, // Add ConflictManager field
 }
 
 impl PluginRegistry {
@@ -26,6 +30,7 @@ impl PluginRegistry {
             initialized: HashSet::new(),
             enabled: HashSet::new(), // Initialize enabled set
             api_version,
+            conflict_manager: ConflictManager::new(), // Initialize ConflictManager
         }
     }
     
@@ -109,6 +114,107 @@ impl PluginRegistry {
             .filter(|(id, _)| self.enabled.contains(*id))
             .map(|(_, plugin)| plugin.clone())
             .collect()
+    }
+
+    /// Builds the dependency graph for a given set of plugin IDs.
+    /// Returns the adjacency list (plugin -> dependencies) and reverse adjacency list (plugin -> dependents).
+    fn build_dependency_graph(
+        &self,
+        plugin_ids: &HashSet<String>,
+    ) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        let mut reverse_adj: HashMap<String, Vec<String>> = HashMap::new();
+
+        for id in plugin_ids {
+            // Ensure all plugins in the set are keys in the maps
+            adj.entry(id.clone()).or_default();
+            reverse_adj.entry(id.clone()).or_default();
+
+            if let Some(plugin) = self.plugins.get(id) {
+                for dep in plugin.dependencies() {
+                    // Only consider dependencies that are also in the target set (e.g., enabled plugins)
+                    if plugin_ids.contains(&dep.plugin_name) {
+                        // Standard adjacency list: id depends on dep.plugin_name
+                        adj.entry(id.clone()).or_default().push(dep.plugin_name.clone());
+                        // Reverse adjacency list: dep.plugin_name is depended on by id
+                        reverse_adj.entry(dep.plugin_name.clone()).or_default().push(id.clone());
+                    }
+                    // We don't add dependencies outside the set to the graph itself,
+                    // but version/existence checks later will handle them.
+                }
+            }
+        }
+        (adj, reverse_adj)
+    }
+
+    /// Performs a topological sort (Kahn's algorithm) on a given graph.
+    /// Returns the sorted list of plugin IDs or a DependencyError::CyclicDependency.
+    fn topological_sort(
+        &self,
+        plugin_ids: &HashSet<String>,
+        adj: &HashMap<String, Vec<String>>, // plugin -> dependencies
+    ) -> std::result::Result<Vec<String>, crate::plugin_system::dependency::DependencyError> {
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        let mut sorted_list = Vec::new();
+        let mut queue = VecDeque::new();
+
+        // Calculate initial in-degrees (number of incoming edges/dependencies)
+        for id in plugin_ids {
+            in_degree.insert(id.clone(), 0);
+        }
+        for dependencies in adj.values() {
+            for dep_id in dependencies {
+                if plugin_ids.contains(dep_id) { // Only count edges within the set
+                    *in_degree.entry(dep_id.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+
+        // Initialize queue with nodes having in-degree 0
+        for id in plugin_ids {
+            if *in_degree.get(id).unwrap_or(&1) == 0 { // Use unwrap_or to handle potential missing entries defensively
+                queue.push_back(id.clone());
+            }
+        }
+
+        while let Some(id) = queue.pop_front() {
+            sorted_list.push(id.clone());
+
+            // For each neighbor (dependency) of the current node `id`
+            if let Some(dependencies) = adj.get(&id) {
+                for dep_id in dependencies {
+                     if plugin_ids.contains(dep_id) { // Process only dependencies within the set
+                        if let Some(degree) = in_degree.get_mut(dep_id) {
+                            *degree -= 1;
+                            if *degree == 0 {
+                                queue.push_back(dep_id.clone());
+                            }
+                        }
+                     }
+                }
+            }
+        }
+
+        if sorted_list.len() == plugin_ids.len() {
+            // The result should be in initialization order (dependencies first).
+            // Kahn's algorithm naturally produces this order.
+            // However, the standard algorithm adds nodes with 0 in-degree first.
+            // If A depends on B (A -> B), B has in-degree 0 initially. B gets added.
+            // Then A's in-degree becomes 0. A gets added. Order: [B, A]. This is correct for init.
+             // Reverse the list to get initialization order (dependencies first)
+             sorted_list.reverse();
+             Ok(sorted_list)
+        } else {
+            // Cycle detected. Find the nodes involved in the cycle (nodes not in sorted_list).
+            let cycle_nodes: Vec<String> = plugin_ids
+                .iter()
+                .filter(|id| !sorted_list.contains(id))
+                .cloned()
+                .collect();
+            // Note: This doesn't give the exact path, just the nodes involved.
+            // More complex cycle finding algorithms exist but add complexity.
+            Err(crate::plugin_system::dependency::DependencyError::CyclicDependency(cycle_nodes))
+        }
     }
     
     /// Public entry point for initializing a single plugin.
@@ -215,29 +321,83 @@ impl PluginRegistry {
         Ok(())
     }
     
-    /// Initialize all plugins in dependency order
+    /// Initialize all plugins in dependency order, after checking for conflicts.
     pub fn initialize_all(&mut self, app: &mut crate::kernel::bootstrap::Application) -> Result<()> {
-        // Get IDs of enabled plugins
-        let mut enabled_plugin_ids: Vec<String> = self.enabled.iter().cloned().collect();
+        // 1. Detect conflicts among enabled plugins
+        self.detect_all_conflicts()?;
+        println!("[Init] Detected conflicts: {:?}", self.conflict_manager.get_conflicts());
 
-        // Sort enabled plugins by priority
-        enabled_plugin_ids.sort_by(|a, b| {
-            let priority_a = self.plugins.get(a).map(|p| p.priority()).unwrap_or(PluginPriority::ThirdPartyLow(255));
-            let priority_b = self.plugins.get(b).map(|p| p.priority()).unwrap_or(PluginPriority::ThirdPartyLow(255));
-            priority_a.cmp(&priority_b)
-        });
+        // 2. Check for critical unresolved conflicts
+        if !self.conflict_manager.all_critical_conflicts_resolved() {
+            let critical_conflicts = self.conflict_manager.get_critical_unresolved_conflicts();
+            let conflict_details: Vec<String> = critical_conflicts
+                .iter()
+                .map(|c| format!("  - {} vs {}: {}", c.first_plugin, c.second_plugin, c.description))
+                .collect();
+            return Err(Error::Plugin(format!(
+                "Cannot initialize plugins due to unresolved critical conflicts:\n{}",
+                conflict_details.join("\n")
+            )));
+        }
 
-        // Initialize enabled plugins in order
-        for id in enabled_plugin_ids {
-            // Check if already initialized (might happen due to dependency resolution)
+        // 3. Get IDs of enabled plugins
+        // TODO: Factor in plugins disabled by conflict resolution?
+        let enabled_plugin_ids: HashSet<String> = self.enabled.iter().cloned().collect();
+        if enabled_plugin_ids.is_empty() {
+             println!("[Init] No enabled plugins to initialize.");
+             return Ok(());
+        }
+
+        // 4. Build dependency graph for enabled plugins
+        println!("[Init] Building dependency graph for enabled plugins: {:?}", enabled_plugin_ids);
+        let (adj, _reverse_adj) = self.build_dependency_graph(&enabled_plugin_ids);
+        println!("[Init] Adjacency List: {:?}", adj);
+
+
+        // 5. Perform Topological Sort and Cycle Detection
+        println!("[Init] Performing topological sort...");
+        let sorted_plugin_ids = match self.topological_sort(&enabled_plugin_ids, &adj) {
+             Ok(sorted_ids) => {
+                 println!("[Init] Topological sort successful. Order: {:?}", sorted_ids);
+                 sorted_ids
+             }
+             Err(dep_err) => {
+                 // Map DependencyError to kernel::Error::Plugin
+                 let err_msg = format!("Dependency resolution failed: {}", dep_err); // Format the error
+                 eprintln!("[Init] {}", err_msg);
+                 return Err(Error::Plugin(err_msg)); // Wrap the formatted string
+             }
+        };
+
+        // 6. Perform Enhanced Version Compatibility Check (Placeholder - Needs Implementation)
+        // TODO: Implement check_transitive_version_constraints(&enabled_plugin_ids, &adj)?;
+        println!("[Init] Skipping transitive version constraint check (TODO).");
+
+
+        // 7. Initialize plugins in topological order
+        println!("[Init] Initializing plugins in topological order...");
+        for id in sorted_plugin_ids {
+            // Check if already initialized (might happen due to dependency resolution within recursive calls)
             if !self.initialized.contains(&id) {
-                // initialize_plugin already checks for enabled status, but double-checking doesn't hurt
-                 if self.is_enabled(&id) {
-                    // Call the public method which sets up cycle detection
-                    self.initialize_plugin(&id, app)?;
+                 // initialize_plugin already checks for enabled status, but we know it's enabled here.
+                 println!("[Init] Calling initialize_plugin for: {}", id);
+                 // Call the public method which sets up its own cycle detection (as a safeguard)
+                 // and handles recursive initialization.
+                 match self.initialize_plugin(&id, app) {
+                     Ok(_) => println!("[Init] Successfully initialized plugin: {}", id),
+                     Err(e) => {
+                         // If initialization fails for one plugin, stop the whole process?
+                         // Or collect errors and report at the end? Let's stop for now.
+                         eprintln!("[Init] Failed to initialize plugin {}: {}", id, e);
+                         return Err(e);
+                     }
                  }
+            } else {
+                 println!("[Init] Plugin {} already initialized (likely by a dependency), skipping.", id);
             }
         }
+
+        println!("[Init] All enabled plugins initialized successfully.");
         Ok(())
     }
     
@@ -460,4 +620,177 @@ impl PluginRegistry {
      pub fn is_enabled(&self, id: &str) -> bool {
          self.enabled.contains(id)
      }
-}
+
+    /// Get a reference to the conflict manager
+    pub fn conflict_manager(&self) -> &ConflictManager {
+        &self.conflict_manager
+    }
+
+    /// Get a mutable reference to the conflict manager
+    pub fn conflict_manager_mut(&mut self) -> &mut ConflictManager {
+        &mut self.conflict_manager
+    }
+
+    /// Detect all conflicts between currently enabled plugins.
+    /// This clears previous conflicts and re-evaluates based on the current state.
+    ///
+    // Removed problematic line: (e.g., resource claims).
+    pub fn detect_all_conflicts(&mut self) -> Result<()> {
+        // Clear previous conflicts before re-detecting
+        self.conflict_manager = ConflictManager::new();
+
+        let enabled_plugin_ids: Vec<String> = self.enabled.iter().cloned().collect();
+        let mut plugins_to_check: Vec<Arc<dyn Plugin>> = enabled_plugin_ids // Make mutable
+            .iter()
+            .filter_map(|id| self.plugins.get(id).cloned())
+            .collect();
+
+        // Sort plugins by ID for deterministic conflict checking order
+        plugins_to_check.sort_by(|a, b| a.name().cmp(b.name()));
+
+        if plugins_to_check.len() < 2 {
+            return Ok(()); // No conflicts possible with less than 2 enabled plugins
+        }
+
+        for i in 0..plugins_to_check.len() {
+            for j in (i + 1)..plugins_to_check.len() {
+                let plugin_a = &plugins_to_check[i];
+                let plugin_b = &plugins_to_check[j];
+                let id_a = plugin_a.name();
+                let id_b = plugin_b.name();
+
+                // --- Specific Conflict Checks ---
+
+                // 1. Check for Declared Mutual Exclusion (conflicts_with)
+                if plugin_a.conflicts_with().contains(&id_b.to_string()) ||
+                   plugin_b.conflicts_with().contains(&id_a.to_string()) {
+                    self.conflict_manager.add_conflict(
+                        PluginConflict::new(
+                            id_a,
+                            id_b,
+                            ConflictType::MutuallyExclusive,
+                            "Plugins are explicitly declared as conflicting.",
+                        ),
+                    );
+                    // Continue to next pair if mutually exclusive, as incompatibility is implied
+                    continue;
+                }
+
+                // 2. Check for Declared Incompatibilities (incompatible_with)
+                // Check if A declares incompatibility with B
+                for incompatibility in plugin_a.incompatible_with() {
+                    if incompatibility.plugin_name == id_b { // Use plugin_name
+                        let version_match = match &incompatibility.version_range {
+                            Some(range) => {
+                                match Version::parse(plugin_b.version()) {
+                                    Ok(ver_b) => range.includes(&ver_b),
+                                    Err(e) => {
+                                        // Log error but potentially still flag as incompatible if version unknown/unparsable?
+                                        // For now, let's log and skip the version check for this rule.
+                                        eprintln!("Warning: Could not parse version '{}' for plugin '{}' during incompatibility check: {}", plugin_b.version(), id_b, e);
+                                        false // Treat as non-matching if version parse fails
+                                    }
+                                }
+                            },
+                            None => true, // No version range means incompatible with *any* version
+                        };
+
+                        if version_match {
+                            let description = match &incompatibility.version_range {
+                                Some(range) => format!(
+                                    "Plugin '{}' is explicitly incompatible with '{}' version '{}' (found version '{}').",
+                                    id_a, id_b, range.constraint_string(), plugin_b.version()
+                                ),
+                                None => format!(
+                                    "Plugin '{}' is explicitly incompatible with any version of plugin '{}'.",
+                                    id_a, id_b
+                                ),
+                            };
+                            self.conflict_manager.add_conflict(
+                                PluginConflict::new(
+                                    id_a,
+                                    id_b,
+                                    ConflictType::ExplicitlyIncompatible,
+                                    &description,
+                                ),
+                            );
+                            // Found incompatibility, no need to check B vs A for this specific rule type
+                            // But we might still find other conflict types, so don't 'continue' outer loop yet.
+                            break; // Move to next incompatibility rule for plugin_a
+                        }
+                    }
+                }
+
+                // Check if B declares incompatibility with A (avoid adding duplicate conflict entry if A already declared it)
+                if !self.conflict_manager.has_conflict_between(id_a, id_b) {
+                    for incompatibility in plugin_b.incompatible_with() {
+                        if incompatibility.plugin_name == id_a { // Use plugin_name
+                            let version_match = match &incompatibility.version_range {
+                                Some(range) => {
+                                    match Version::parse(plugin_a.version()) {
+                                        Ok(ver_a) => range.includes(&ver_a),
+                                        Err(e) => {
+                                            eprintln!("Warning: Could not parse version '{}' for plugin '{}' during incompatibility check: {}", plugin_a.version(), id_a, e);
+                                            false
+                                        }
+                                    }
+                                },
+                                None => true,
+                            };
+
+                            if version_match {
+                                let description = match &incompatibility.version_range {
+                                    Some(range) => format!(
+                                        "Plugin '{}' is explicitly incompatible with '{}' version '{}' (found version '{}').",
+                                        id_b, id_a, range.constraint_string(), plugin_a.version()
+                                    ),
+                                    None => format!(
+                                        "Plugin '{}' is explicitly incompatible with any version of plugin '{}'.",
+                                        id_b, id_a
+                                    ),
+                                };
+                                self.conflict_manager.add_conflict(
+                                    PluginConflict::new(
+                                        id_a, // Keep order consistent (A, B)
+                                        id_b,
+                                        ConflictType::ExplicitlyIncompatible,
+                                        &description,
+                                    ),
+                                );
+                                break; // Move to next incompatibility rule for plugin_b
+                            }
+                        }
+                    }
+                }
+
+                // 3. Placeholder: Resource Conflict (Keep for now, needs trait extension)
+                //    This would ideally check a `resources()` method on the Plugin trait.
+                //    Simulating based on common resource names in plugin IDs.
+                if (id_a.contains("database") && id_b.contains("database")) ||
+                   (id_a.contains("logger") && id_b.contains("logger")) {
+                     // Avoid flagging the *exact* same plugin
+                     if id_a != id_b && !self.conflict_manager.has_conflict_between(id_a, id_b) { // Avoid double-flagging
+                        self.conflict_manager.add_conflict(
+                            PluginConflict::new(
+                                id_a,
+                                id_b,
+                                ConflictType::ResourceConflict, // Assuming this type exists
+                                "Plugins might claim the same resource type (placeholder check).",
+                            ),
+                        );
+                     }
+                }
+
+                // --- End Specific Conflict Checks ---
+
+                // TODO: Add checks for DependencyVersion conflicts (e.g., A requires Dep X v1, B requires Dep X v2) - requires dependency graph analysis
+                // TODO: Add checks for PartialOverlap conflicts (if applicable)
+                // TODO: Add checks for Resource conflicts based on a future `resources()` trait method
+            }
+        }
+
+        Ok(())
+    }
+} // Close impl PluginRegistry
+
+

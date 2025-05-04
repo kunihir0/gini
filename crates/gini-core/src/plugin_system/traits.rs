@@ -194,6 +194,14 @@ pub trait Plugin: Send + Sync {
     
     /// Stage requirements
     fn required_stages(&self) -> Vec<StageRequirement>;
+
+    /// List of plugin IDs this plugin conflicts with (cannot run together)
+    /// Typically sourced from the manifest.
+    fn conflicts_with(&self) -> Vec<String>;
+
+    /// List of plugins/versions this plugin is incompatible with.
+    /// Typically sourced from the manifest.
+    fn incompatible_with(&self) -> Vec<PluginDependency>; // Use PluginDependency from dependency.rs
     
     /// Initialize the plugin
     fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> Result<()>;

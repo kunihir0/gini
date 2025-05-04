@@ -88,6 +88,15 @@ impl Plugin for CompatCheckPlugin {
         println!("CompatCheckPlugin shut down (placeholder).");
         Ok(())
     }
+
+    // Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> {
+        vec![] // Default: no conflicts
+    }
+
+    fn incompatible_with(&self) -> Vec<PluginDependency> {
+        vec![] // Default: no incompatibilities
+    }
 }
 
 /// The entry point function for the plugin loader.

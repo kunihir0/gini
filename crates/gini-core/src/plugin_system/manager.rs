@@ -1,14 +1,18 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex; // Use Tokio Mutex for async safety if needed
 use std::fs; // Added for directory scanning
 use libloading::{Library, Symbol}; // Added for dynamic loading
 use std::panic; // Added for safe FFI calls
 
 use crate::kernel::component::KernelComponent;
+use crate::storage::config::{ConfigManager, ConfigScope, PluginConfigScope, ConfigData}; // Import ConfigManager related items
+use crate::storage::StorageProvider; // Import StorageProvider
 use crate::kernel::error::{Error, Result};
 use crate::plugin_system::{Plugin, PluginManifest, ApiVersion, PluginPriority, PluginRegistry}; // Import PluginRegistry
 use crate::kernel::constants; // Import constants
@@ -54,24 +58,40 @@ pub trait PluginManager: KernelComponent {
 }
 
 /// Default implementation of plugin manager
-#[derive(Clone)] // Add Clone derive
-pub struct DefaultPluginManager {
+// Removed Clone derive as ConfigManager might not be Clone easily depending on P
+// Add generic parameter P for the StorageProvider used by ConfigManager
+pub struct DefaultPluginManager<P: StorageProvider + ?Sized + 'static> {
     name: &'static str,
     // Use Tokio Mutex for async safety with the registry
     registry: Arc<Mutex<PluginRegistry>>,
+    // Add ConfigManager to handle state persistence
+    config_manager: Arc<ConfigManager<P>>,
 }
 
-impl DefaultPluginManager {
+// Define the structure for persisting plugin states
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct PluginStates {
+    #[serde(default)] // Ensure it defaults to an empty map if missing
+    enabled_map: HashMap<String, bool>,
+}
+
+// Constants for configuration
+const PLUGIN_STATES_CONFIG_NAME: &str = "plugin_states";
+const PLUGIN_STATES_CONFIG_KEY: &str = "enabled_map";
+const PLUGIN_STATES_SCOPE: ConfigScope = ConfigScope::Plugin(PluginConfigScope::User);
+
+impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
     /// Create a new default plugin manager
-    pub fn new() -> Result<Self> { // Return Result for parsing
+    // Constructor now requires a ConfigManager instance
+    pub fn new(config_manager: Arc<ConfigManager<P>>) -> Result<Self> { // Return Result for parsing
         // Parse the API version from constants
         let api_version = ApiVersion::from_str(constants::API_VERSION)
             .map_err(|e| Error::Init(format!("Failed to parse API_VERSION constant: {}", e)))?;
 
         Ok(Self {
             name: "DefaultPluginManager",
-            // Create PluginRegistry with the parsed ApiVersion
             registry: Arc::new(Mutex::new(PluginRegistry::new(api_version))),
+            config_manager, // Store the provided ConfigManager
         })
     }
 
@@ -128,24 +148,70 @@ impl DefaultPluginManager {
     }
 }
 
-impl Debug for DefaultPluginManager {
+// Update Debug impl for generic parameter
+impl<P: StorageProvider + ?Sized + 'static> Debug for DefaultPluginManager<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Avoid locking in Debug if possible, or show minimal info
         f.debug_struct("DefaultPluginManager")
             .field("name", &self.name)
+            // Omit registry and config_manager for simplicity and to avoid locking/trait bounds
             .finish_non_exhaustive() // Indicate registry state is omitted
     }
 }
 
 #[async_trait]
-impl KernelComponent for DefaultPluginManager {
+// Update KernelComponent impl for generic parameter
+impl<P: StorageProvider + ?Sized + 'static> KernelComponent for DefaultPluginManager<P> {
     fn name(&self) -> &'static str {
         self.name
     }
 
     async fn initialize(&self) -> Result<()> {
-        // Potentially load core plugins here
         println!("Initializing Plugin Manager...");
+
+        // --- Load Persisted Plugin States ---
+        let loaded_states = match self.load_plugin_states() { // Remove .await
+            Ok(states) => {
+                println!("Successfully loaded plugin states.");
+                states
+            }
+            Err(e) => {
+                // Log error but continue, defaulting to empty state
+                eprintln!("Warning: Failed to load plugin states: {}. Proceeding with defaults.", e);
+                // Explicitly type the HashMap to potentially help type inference
+                HashMap::<String, bool>::new()
+            }
+        };
+
+        // --- Apply Loaded States to Registry ---
+        if !loaded_states.is_empty() {
+            let mut registry = self.registry.lock().await;
+            for (plugin_id, should_be_enabled) in loaded_states.iter() {
+                if registry.has_plugin(plugin_id) { // Check if plugin exists before trying to modify state
+                    if *should_be_enabled {
+                        // Ensure it's in the enabled set if state says true
+                        if !registry.is_enabled(plugin_id) {
+                            // Use to_string() to ensure we insert a String
+                            registry.enabled.insert(plugin_id.to_string());
+                            println!("Applied loaded state: Enabled plugin '{}'", plugin_id);
+                        }
+                    } else {
+                        // Ensure it's NOT in the enabled set if state says false
+                        if registry.is_enabled(plugin_id) {
+                            // plugin_id is &String, remove takes &Q where String: Borrow<Q>
+                            // Passing &String directly should work.
+                            registry.enabled.remove(plugin_id);
+                            println!("Applied loaded state: Disabled plugin '{}'", plugin_id);
+                        }
+                    }
+                } else {
+                    // Plugin from state file not found during initial load, maybe removed? Log it.
+                    println!("Plugin '{}' found in state file but not currently registered. State ignored.", plugin_id);
+                }
+            }
+        }
+        // --- End State Application ---
+
         // Load plugins from the default directory (e.g., target/debug for development)
         // TODO: Make this configurable or use a more standard location like ./plugins
         let plugin_dir = PathBuf::from("./target/debug"); // Or constants::PLUGINS_DIR
@@ -188,7 +254,8 @@ impl KernelComponent for DefaultPluginManager {
 }
 
 #[async_trait]
-impl PluginManager for DefaultPluginManager {
+// Update PluginManager impl for generic parameter
+impl<P: StorageProvider + ?Sized + 'static> PluginManager for DefaultPluginManager<P> {
     async fn load_plugin(&self, path: &Path) -> Result<()> {
         println!("Attempting to load plugin from {:?}", path);
         match self.load_so_plugin(path) {
@@ -198,6 +265,8 @@ impl PluginManager for DefaultPluginManager {
                 match registry.register_plugin(plugin) {
                     Ok(_) => {
                         println!("Successfully loaded and registered plugin: {}", name);
+                        // Note: State application happens during initialize, not here.
+                        // Newly registered plugins default to enabled in memory until state is loaded/applied.
                         Ok(())
                     }
                     Err(e) => {
@@ -323,25 +392,43 @@ impl PluginManager for DefaultPluginManager {
     }
 
     async fn enable_plugin(&self, id: &str) -> Result<()> {
-        let mut registry = self.registry.lock().await;
-        registry.enable_plugin(id) // Delegate to registry
+        // 1. Enable in registry
+        { // Scope for registry lock
+            let mut registry = self.registry.lock().await;
+            registry.enable_plugin(id)?; // Propagate registry error immediately
+        } // Release lock
+
+        // 2. Load and save state (synchronously)
+        let mut states = self.load_plugin_states()?;
+        states.insert(id.to_string(), true);
+        self.save_plugin_states(&states)?; // Propagate save error
+
+        Ok(())
     }
 
     async fn disable_plugin(&self, id: &str) -> Result<()> {
-        // First check if plugin is a core plugin
+        // 1. Check if core plugin (existing logic)
         let plugin_opt = self.get_plugin(id).await?;
-        
         if let Some(plugin) = plugin_opt {
-            // Don't allow disabling core plugins
             if plugin.is_core() {
                 return Err(Error::Plugin(format!(
                     "Cannot disable core plugin '{}'", id
                 )));
             }
         }
-        
-        let mut registry = self.registry.lock().await;
-        registry.disable_plugin(id) // Delegate to registry
+
+        // 2. Disable in registry
+        { // Scope for registry lock
+            let mut registry = self.registry.lock().await;
+            registry.disable_plugin(id)?; // Propagate registry error immediately
+        } // Release lock
+
+        // 3. Load and save state (synchronously)
+        let mut states = self.load_plugin_states()?;
+        states.insert(id.to_string(), false);
+        self.save_plugin_states(&states)?; // Propagate save error
+
+        Ok(())
     }
 
     async fn is_plugin_enabled(&self, id: &str) -> Result<bool> {
@@ -361,14 +448,8 @@ impl PluginManager for DefaultPluginManager {
                     name: plugin_ref.name().to_string(),
                     version: plugin_ref.version().to_string(),
                     api_versions: plugin_ref.compatible_api_versions(),
-                    dependencies: plugin_ref.dependencies().iter().map(|dep| {
-                        // Convert PluginDependency to manifest's DependencyInfo
-                        crate::plugin_system::manifest::DependencyInfo {
-                            id: dep.plugin_name.clone(),
-                            version_range: dep.version_range.clone(),
-                            required: dep.required,
-                        }
-                    }).collect(),
+                    // dependencies field in manifest now expects Vec<PluginDependency>
+                    dependencies: plugin_ref.dependencies(), // Directly use the result
                     is_core: plugin_ref.is_core(),
                     priority: Some(plugin_ref.priority().to_string()), // Convert enum to string
 
@@ -381,6 +462,9 @@ impl PluginManager for DefaultPluginManager {
                     files: vec![], // Placeholder
                     config_schema: None, // Placeholder
                     tags: vec![], // Placeholder
+                    // Add new fields from Plugin trait
+                    conflicts_with: plugin_ref.conflicts_with(),
+                    incompatible_with: plugin_ref.incompatible_with(),
                 };
                 Ok(Some(manifest))
             }
@@ -389,4 +473,56 @@ impl PluginManager for DefaultPluginManager {
     }
 }
 
-// Removed Default implementation as Self::new() now returns Result
+// Helper methods for loading/saving state
+impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
+    /// Load the plugin enabled/disabled states from config (synchronous)
+    fn load_plugin_states(&self) -> Result<HashMap<String, bool>> {
+        match self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE) {
+            Ok(config_data) => {
+                // Try to deserialize the HashMap directly from the config data key
+                let states_map: HashMap<String, bool> = config_data.get(PLUGIN_STATES_CONFIG_KEY)
+                    .unwrap_or_else(|| {
+                        println!("No existing plugin states found under key '{}', using defaults.", PLUGIN_STATES_CONFIG_KEY);
+                        HashMap::new() // Default to empty map if key not found
+                    });
+                Ok(states_map)
+            }
+            Err(Error::Storage(msg)) if msg.contains("Unknown config format") || msg.contains("Failed to read") => {
+                // Handle file not found or format error gracefully by returning default empty state
+                println!("Plugin state file '{}' not found or invalid format, using defaults.", PLUGIN_STATES_CONFIG_NAME);
+                Ok(HashMap::new())
+            }
+            Err(e) => {
+                // Propagate other errors (e.g., permission issues)
+                Err(Error::Storage(format!("Failed to load plugin states config: {}", e)))
+            }
+        }
+    }
+
+    /// Save the plugin enabled/disabled states to config (synchronous)
+    fn save_plugin_states(&self, states: &HashMap<String, bool>) -> Result<()> {
+        // Load existing config data to avoid overwriting other potential settings in the file
+        let mut config_data = self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE)?;
+
+        // Set/update the plugin states HashMap directly within the config data
+        config_data.set(PLUGIN_STATES_CONFIG_KEY, states)?; // Store the HashMap directly
+
+        // Save the updated config data back to the file
+        self.config_manager.save_config(PLUGIN_STATES_CONFIG_NAME, &config_data, PLUGIN_STATES_SCOPE)?;
+        println!("Successfully saved plugin states.");
+        Ok(())
+    }
+}
+
+// Manual Clone implementation needed because of the generic parameter P
+impl<P: StorageProvider + ?Sized + 'static> Clone for DefaultPluginManager<P> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name,
+            registry: Arc::clone(&self.registry),
+            config_manager: Arc::clone(&self.config_manager),
+        }
+    }
+}
+
+// Removed Default implementation as Self::new() now returns Result and requires config_manager

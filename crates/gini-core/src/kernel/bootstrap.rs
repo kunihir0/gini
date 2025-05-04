@@ -12,7 +12,7 @@ use crate::kernel::component::{KernelComponent, DependencyRegistry};
 use crate::event::{EventManager, DefaultEventManager};
 use crate::stage_manager::manager::{StageManager, DefaultStageManager};
 use crate::plugin_system::{PluginManager, DefaultPluginManager};
-use crate::storage::{StorageManager, DefaultStorageManager};
+use crate::storage::{StorageManager, DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
 
 /// Main application struct coordinating components via dependency injection
 pub struct Application {
@@ -46,19 +46,23 @@ impl Application {
 
         // Register default components using their concrete types
         let storage_manager = Arc::new(DefaultStorageManager::new(config_dir.clone()));
-        registry.register_instance(storage_manager); // Register Arc<DefaultStorageManager>
+        registry.register_instance(storage_manager.clone()); // Register Arc<DefaultStorageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStorageManager>()); // Store concrete TypeId
 
         let event_manager = Arc::new(DefaultEventManager::new());
-        registry.register_instance(event_manager); // Register Arc<DefaultEventManager>
+        registry.register_instance(event_manager.clone()); // Register Arc<DefaultEventManager>, clone Arc
         init_order.push(TypeId::of::<DefaultEventManager>()); // Store concrete TypeId
 
-        let plugin_manager = Arc::new(DefaultPluginManager::new()?);
-        registry.register_instance(plugin_manager); // Register Arc<DefaultPluginManager>
-        init_order.push(TypeId::of::<DefaultPluginManager>()); // Store concrete TypeId
+        // Get the ConfigManager from the StorageManager to pass to PluginManager
+        // Use the renamed public accessor method to get the ConfigManager Arc
+        let config_manager_for_plugin = storage_manager.get_config_manager().clone();
+        let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager_for_plugin)?);
+        registry.register_instance(plugin_manager.clone()); // Register Arc<DefaultPluginManager<LocalStorageProvider>>, clone Arc
+        // Specify the generic parameter for TypeId
+        init_order.push(TypeId::of::<DefaultPluginManager<LocalStorageProvider>>());
 
         let stage_manager = Arc::new(DefaultStageManager::new());
-        registry.register_instance(stage_manager); // Register Arc<DefaultStageManager>
+        registry.register_instance(stage_manager.clone()); // Register Arc<DefaultStageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStageManager>()); // Store concrete TypeId
 
         Ok(Application {

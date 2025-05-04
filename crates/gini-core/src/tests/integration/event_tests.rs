@@ -9,6 +9,8 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::{VecDeque, HashSet};
 use std::path::PathBuf; // Added for StageContext::new_live
+use std::fs; // Added for test setup
+use tempfile::tempdir; // Added for test setup
 
 // Use fully qualified path for BoxFuture
 use crate::event::dispatcher::BoxFuture;
@@ -23,6 +25,8 @@ use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::manager::{PluginManager, DefaultPluginManager};
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::version::VersionRange;
+use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
+use crate::storage::local::LocalStorageProvider; // Added for test setup
 use crate::kernel::bootstrap::Application;
 use crate::kernel::error::Result as KernelResult; // Corrected import path
 use crate::kernel::component::KernelComponent;
@@ -304,8 +308,24 @@ async fn test_stage_dispatches_event() {
     // Setup managers
     let event_manager = Arc::new(DefaultEventManager::new());
     let stage_manager = Arc::new(DefaultStageManager::new());
-    let storage_manager = Arc::new(DefaultStorageManager::new(std::env::temp_dir().join("gini_test_stage_event"))); // Dummy storage
-    let plugin_manager = Arc::new(DefaultPluginManager::new().unwrap()); // Dummy plugin manager
+    // Break down storage_manager creation
+    let storage_base_path = std::env::temp_dir().join("gini_test_stage_event");
+    let storage_manager = Arc::new(DefaultStorageManager::new(storage_base_path)); // Dummy storage
+
+    // Setup ConfigManager for PluginManager
+    let tmp_dir = tempdir().unwrap();
+    let app_config_path = tmp_dir.path().join("app_config");
+    let plugin_config_path = tmp_dir.path().join("plugin_config");
+    fs::create_dir_all(&app_config_path).unwrap();
+    fs::create_dir_all(&plugin_config_path).unwrap();
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        provider,
+        app_config_path,
+        plugin_config_path,
+        ConfigFormat::Json,
+    ));
+    let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager).unwrap()); // Pass ConfigManager
 
     // Register the stage
     let stage = EventDispatchingStage::new("dispatch_stage");
@@ -382,21 +402,18 @@ impl Plugin for EventDispatchingPlugin {
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    // NOTE: The standard init signature takes `app: &mut Application`.
-    // For this isolated test, we'll simulate the dispatch directly.
-    // A full Application setup would be needed for true integration.
-    // We'll call a separate method `simulate_init_dispatch` for the test.
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
-        // In a real scenario, access event manager via app.event_manager()
         println!("Plugin {} init called (dispatch simulated separately)", self.name());
         Ok(())
     }
 
-    // Removed simulate_init_dispatch from impl Plugin block
-
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> { Ok(()) }
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+
+    // Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 

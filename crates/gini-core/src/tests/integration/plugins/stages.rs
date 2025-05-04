@@ -19,20 +19,22 @@ use crate::storage::manager::DefaultStorageManager;
 use crate::plugin_system::manager::DefaultPluginManager;
 use std::path::PathBuf;
 
+// Destructure all trackers from setup
+// Destructure all trackers from setup
 use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior};
 
 #[tokio::test]
 async fn test_plugin_loading_and_stage_execution() {
-    // Destructure the new shutdown_order tracker, even if unused here
-    let (plugin_manager, stage_manager, _storage_manager, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, stage_manager, _storage_manager, stages_executed, execution_order, _shutdown_order) = setup_test_environment().await;
 
     // Initialize components manually (they'd normally be initialized by the kernel)
     KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
 
-    // Register test plugins
-    let plugin1 = TestPlugin::new("Plugin1", stages_executed.clone());
-    let plugin2 = TestPlugin::new("Plugin2", stages_executed.clone());
+    // Register test plugins, passing execution_order
+    let plugin1 = TestPlugin::new("Plugin1", stages_executed.clone(), execution_order.clone());
+    let plugin2 = TestPlugin::new("Plugin2", stages_executed.clone(), execution_order.clone());
 
     // Test plugin versions - this will call the version() method to address code coverage
     assert_eq!(plugin1.version(), "1.0.0", "TestPlugin should have version 1.0.0");
@@ -93,15 +95,15 @@ async fn test_plugin_loading_and_stage_execution() {
 
 #[tokio::test]
 async fn test_plugin_stage_registration() {
-    // Destructure the new shutdown_order tracker, even if unused here
-    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, stage_manager, _, stages_executed, execution_order, _shutdown_order) = setup_test_environment().await;
 
     // Initialize components
     KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
 
-    // Create a plugin that provides stages
-    let plugin = TestPlugin::new("StageRegistrationPlugin", stages_executed.clone());
+    // Create a plugin that provides stages, passing execution_order
+    let plugin = TestPlugin::new("StageRegistrationPlugin", stages_executed.clone(), execution_order.clone());
 
     // Register the plugin
     {
@@ -140,16 +142,16 @@ async fn test_plugin_stage_registration() {
 
 #[tokio::test]
 async fn test_plugin_stage_execution() {
-    // Destructure the new shutdown_order tracker, even if unused here
-    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, stage_manager, _, stages_executed, execution_order, _shutdown_order) = setup_test_environment().await;
 
     // Initialize components
     KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
 
-    // Create plugins that provide stages
-    let plugin_a = TestPlugin::new("StageExecPluginA", stages_executed.clone());
-    let plugin_b = TestPlugin::new("StageExecPluginB", stages_executed.clone());
+    // Create plugins that provide stages, passing execution_order
+    let plugin_a = TestPlugin::new("StageExecPluginA", stages_executed.clone(), execution_order.clone());
+    let plugin_b = TestPlugin::new("StageExecPluginB", stages_executed.clone(), execution_order.clone());
 
     // Register the plugins
     {
@@ -198,15 +200,15 @@ async fn test_plugin_stage_execution() {
 
 #[tokio::test]
 async fn test_plugin_system_stage_manager_integration() {
-    // Destructure the new shutdown_order tracker, even if unused here
-    let (plugin_manager, stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, stage_manager, _, stages_executed, execution_order, _shutdown_order) = setup_test_environment().await;
 
     // Initialize components
     KernelComponent::initialize(&*stage_manager).await.expect("Failed to initialize stage manager");
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
 
-    // Create a test plugin that will register its own stages
-    let test_plugin = TestPlugin::new("IntegrationPlugin", stages_executed.clone());
+    // Create a test plugin that will register its own stages, passing execution_order
+    let test_plugin = TestPlugin::new("IntegrationPlugin", stages_executed.clone(), execution_order.clone());
 
     // Register the plugin
     {

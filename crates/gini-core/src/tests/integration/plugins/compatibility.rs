@@ -61,6 +61,9 @@ impl Plugin for IncompatiblePlugin {
     async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), TraitsPluginError> { Ok(()) } // Use aliased error
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] } // Correct return type
     fn shutdown(&self) -> crate::kernel::error::Result<()> { Ok(()) } // Use kernel::error::Result
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 #[tokio::test]

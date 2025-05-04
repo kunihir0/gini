@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::traits::PluginPriority;
 // Removed: use serde::Deserialize;
+use crate::plugin_system::dependency::PluginDependency; // Import PluginDependency
 use std::str::FromStr; // Keep for PluginPriority::from_str
 
 /// Represents a plugin manifest that describes a plugin
@@ -32,7 +33,7 @@ pub struct PluginManifest {
     pub api_versions: Vec<VersionRange>, // Changed back to Vec<VersionRange>
 
     /// Plugin dependencies
-    pub dependencies: Vec<DependencyInfo>, // Changed back to Vec<DependencyInfo>
+    pub dependencies: Vec<PluginDependency>, // Use PluginDependency
 
     /// Whether this is a core plugin
     pub is_core: bool, // Removed serde attribute
@@ -51,20 +52,15 @@ pub struct PluginManifest {
 
     /// Tags for categorization
     pub tags: Vec<String>, // Removed serde attribute
+
+    /// List of plugin IDs this plugin conflicts with (cannot run together)
+    pub conflicts_with: Vec<String>, // Added for conflict detection
+
+    /// List of plugins/versions this plugin is incompatible with
+    pub incompatible_with: Vec<PluginDependency>, // Use PluginDependency
 }
 
-/// Represents a dependency on another plugin
-#[derive(Debug, Clone)] // Removed Deserialize
-pub struct DependencyInfo {
-    /// Plugin ID
-    pub id: String,
-
-    /// Required version range (optional)
-    pub version_range: Option<VersionRange>, // Changed back to Option<VersionRange>
-
-    /// Whether this dependency is required
-    pub required: bool, // Removed serde attribute
-}
+// Removed DependencyInfo struct definition
 
 impl PluginManifest {
     /// Create a new plugin manifest
@@ -78,13 +74,15 @@ impl PluginManifest {
             website: None,
             license: None,
             api_versions: Vec::new(), // Expects VersionRange now
-            dependencies: Vec::new(), // Expects DependencyInfo with VersionRange
+            dependencies: Vec::new(), // Expects PluginDependency
             is_core: false,
             priority: None,
             entry_point: format!("lib{}.so", id), // Back to String
             files: Vec::new(),
             config_schema: None,
             tags: Vec::new(),
+            conflicts_with: Vec::new(), // Initialize new field
+            incompatible_with: Vec::new(), // Initialize new field (Vec<PluginDependency>)
         }
     }
 
@@ -96,9 +94,9 @@ impl PluginManifest {
 
     /// Add a dependency
     pub fn add_dependency(&mut self, id: &str, version_range: Option<VersionRange>, required: bool) -> &mut Self { // Changed param type
-        self.dependencies.push(DependencyInfo {
-            id: id.to_string(),
-            version_range, // Use VersionRange directly
+        self.dependencies.push(PluginDependency { // Use PluginDependency struct literal
+            plugin_name: id.to_string(), // Field name is plugin_name
+            version_range,
             required,
         });
         self
@@ -122,6 +120,25 @@ impl PluginManifest {
         self
     }
 
+    /// Add a plugin ID that this plugin conflicts with
+    pub fn add_conflict(&mut self, id: &str) -> &mut Self {
+        self.conflicts_with.push(id.to_string());
+        self
+    }
+
+    /// Add an incompatibility rule
+    pub fn add_incompatibility(&mut self, id: &str, version_range: Option<VersionRange>) -> &mut Self {
+        // Incompatibility implies it's required for the check to matter, but the 'required' field
+        // in PluginDependency isn't strictly necessary here, maybe default to true or ignore?
+        // Let's store it like a dependency for structure reuse.
+        self.incompatible_with.push(PluginDependency { // Use PluginDependency struct literal
+            plugin_name: id.to_string(), // Field name is plugin_name
+            version_range,
+            required: true, // Mark as true conceptually for the check (or maybe false?)
+        });
+        self
+    }
+
     /// Get the plugin priority
     pub fn get_priority(&self) -> Option<PluginPriority> {
         self.priority.as_ref().and_then(|p| PluginPriority::from_str(p)) // from_str already returns Option
@@ -129,7 +146,7 @@ impl PluginManifest {
 
     // Removed get_entry_point as entry_point is String again
     // Removed get_api_versions as api_versions is Vec<VersionRange> again
-    // Removed get_dependencies as dependencies is Vec<DependencyInfo> again
+    // Removed get_dependencies as dependencies is Vec<PluginDependency> again
 }
 
 /// Builder for creating a plugin manifest
@@ -184,6 +201,18 @@ impl ManifestBuilder {
     /// Add a dependency
     pub fn dependency(mut self, id: &str, version_range: Option<VersionRange>, required: bool) -> Self { // Changed param type
         self.manifest.add_dependency(id, version_range, required);
+        self
+    }
+
+    /// Add a conflict rule (plugin ID this one conflicts with)
+    pub fn conflict(mut self, id: &str) -> Self {
+        self.manifest.add_conflict(id);
+        self
+    }
+
+    /// Add an incompatibility rule (plugin ID and optional version range)
+    pub fn incompatibility(mut self, id: &str, version_range: Option<VersionRange>) -> Self {
+        self.manifest.add_incompatibility(id, version_range);
         self
     }
 

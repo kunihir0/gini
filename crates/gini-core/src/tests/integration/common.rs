@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 use async_trait::async_trait;
+use std::fs; // Added for test setup
+use tempfile::tempdir; // Added for test setup
 // Use fully qualified paths instead of aliases
 // use tokio::sync::Mutex as TokioMutex;
 // use std::sync::Mutex as StdMutex;
@@ -17,6 +19,8 @@ use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::manager::DefaultPluginManager;
+use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
+use crate::storage::local::LocalStorageProvider; // Added for test setup
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::manager::{StageManager, DefaultStageManager};
 use crate::stage_manager::requirement::StageRequirement;
@@ -29,13 +33,20 @@ use crate::storage::provider::StorageProvider;
 pub struct TestPlugin {
     name: String,
     stages_executed: Arc<tokio::sync::Mutex<HashSet<String>>>, // Use full path
+    execution_order: Arc<std::sync::Mutex<Vec<String>>>, // Add execution order tracker
 }
 
 impl TestPlugin {
-    pub fn new(name: &str, stages_executed: Arc<tokio::sync::Mutex<HashSet<String>>>) -> Self { // Use full path
+    // Update constructor to accept execution_order
+    pub fn new(
+        name: &str,
+        stages_executed: Arc<tokio::sync::Mutex<HashSet<String>>>,
+        execution_order: Arc<std::sync::Mutex<Vec<String>>> // Add parameter
+    ) -> Self {
         Self {
             name: name.to_string(),
             stages_executed,
+            execution_order, // Store it
         }
     }
 }
@@ -63,6 +74,10 @@ impl Plugin for TestPlugin {
 
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
         println!("{}::init called", self.name());
+        // Record initialization order
+        let name_clone = self.name.clone();
+        let order_tracker = self.execution_order.clone();
+        order_tracker.lock().unwrap().push(name_clone);
         Ok(())
     }
 
@@ -78,6 +93,9 @@ impl Plugin for TestPlugin {
     }
 
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 // ===== MOCK PLUGINS WITH DEPENDENCIES =====
@@ -194,6 +212,9 @@ impl Plugin for DependentPlugin {
             ))),
         }
     }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 // ===== PLUGIN WITH API VERSION COMPATIBILITY =====
@@ -254,6 +275,9 @@ impl Plugin for VersionedPlugin {
     }
 
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 // ===== TEST STAGE =====
@@ -464,7 +488,8 @@ impl StorageProvider for TestStorageProvider {
 // ===== TEST HELPER FUNCTIONS =====
 
 pub async fn setup_test_environment() -> (
-    Arc<DefaultPluginManager>,
+    // Update return type to include generic parameter
+    Arc<DefaultPluginManager<LocalStorageProvider>>,
     Arc<DefaultStageManager>,
     Arc<DefaultStorageManager>,
     Arc<tokio::sync::Mutex<HashSet<String>>>, // stages_executed (tokio)
@@ -472,14 +497,28 @@ pub async fn setup_test_environment() -> (
     Arc<std::sync::Mutex<Vec<String>>> // shutdown_order (std)
 ) {
     // Create storage manager with a test directory path
-    let temp_path = std::env::temp_dir().join("gini_test");
+    let temp_path = std::env::temp_dir().join("gini_test_common"); // Use unique name
     let storage_manager = Arc::new(DefaultStorageManager::new(temp_path));
 
     // Create stage manager
     let stage_manager = Arc::new(DefaultStageManager::new());
 
-    // Create plugin manager
-    let plugin_manager = match DefaultPluginManager::new() {
+    // Create ConfigManager for PluginManager
+    let tmp_dir_config = tempdir().unwrap(); // Separate temp dir for config
+    let app_config_path = tmp_dir_config.path().join("app_config");
+    let plugin_config_path = tmp_dir_config.path().join("plugin_config");
+    fs::create_dir_all(&app_config_path).unwrap();
+    fs::create_dir_all(&plugin_config_path).unwrap();
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir_config.path().to_path_buf()));
+    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        provider,
+        app_config_path,
+        plugin_config_path,
+        ConfigFormat::Json,
+    ));
+
+    // Create plugin manager, passing the ConfigManager
+    let plugin_manager = match DefaultPluginManager::new(config_manager) { // Pass config_manager
         Ok(pm) => Arc::new(pm),
         Err(e) => panic!("Failed to create plugin manager: {}", e),
     };

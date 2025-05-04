@@ -72,6 +72,9 @@ impl Plugin for SuccessPlugin {
         println!("SuccessPlugin preflight check: OK");
         Ok(())
     }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 struct FailPlugin;
@@ -82,7 +85,6 @@ impl Plugin for FailPlugin {
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(151) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> {
-        // Declare compatibility with the test API version using parse()
         vec![">=0.1.0".parse().unwrap()]
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
@@ -92,15 +94,17 @@ impl Plugin for FailPlugin {
 
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
         println!("FailPlugin::init called (SHOULD NOT HAPPEN)");
-        // Panic if called, as preflight should prevent it
         panic!("FailPlugin init should not be called after failed preflight!");
-        // Ok(())
     }
 
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
         println!("FailPlugin preflight check: FAIL");
         Err(PluginError::PreflightCheckError("Simulated preflight failure".to_string()))
     }
+
+    // Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 struct DefaultPlugin;
@@ -111,7 +115,6 @@ impl Plugin for DefaultPlugin {
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(152) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> {
-        // Declare compatibility with the test API version using parse()
         vec![">=0.1.0".parse().unwrap()]
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
@@ -124,6 +127,10 @@ impl Plugin for DefaultPlugin {
         Ok(())
     }
     // Uses default preflight_check implementation (always Ok)
+
+    // Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 

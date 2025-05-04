@@ -24,7 +24,7 @@ async fn test_common_plugin_helpers_coverage() {
     // Instantiate common plugins just to call uncovered methods for coverage
     let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
 
-    let test_plugin = TestPlugin::new("CoverageTestPlugin", stages_executed.clone());
+    let test_plugin = TestPlugin::new("CoverageTestPlugin", stages_executed.clone(), execution_order.clone()); // Pass execution_order
     assert!(!test_plugin.is_core()); // Cover is_core
     assert_eq!(test_plugin.priority(), PluginPriority::ThirdParty(150)); // Cover priority
     assert!(!test_plugin.compatible_api_versions().is_empty()); // Cover compatible_api_versions

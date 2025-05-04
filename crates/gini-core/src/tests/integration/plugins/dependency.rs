@@ -35,6 +35,9 @@ impl Plugin for UnparsableVersionPlugin {
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 #[tokio::test]
@@ -79,7 +82,11 @@ async fn test_plugin_dependency_no_version() {
     let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
     KernelComponent::initialize(&*plugin_manager).await.expect("Init PluginManager");
 
-    let dep_plugin = TestPlugin::new("NoVersionDep", stages_executed.clone()); // Standard plugin
+    // Destructure execution_order as well
+    let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
+    KernelComponent::initialize(&*plugin_manager).await.expect("Init PluginManager");
+
+    let dep_plugin = TestPlugin::new("NoVersionDep", stages_executed.clone(), execution_order.clone()); // Pass execution_order
     let main_plugin = DependentPlugin::new(
         "MainNoVersionTest", "1.0.0",
         vec![PluginDependency::required_any("NoVersionDep")], // Use required_any for no version check
@@ -124,6 +131,9 @@ impl Plugin for CyclePluginA {
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(100) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
@@ -138,6 +148,9 @@ impl Plugin for CyclePluginB {
     fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
     // Other trait methods omitted...
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(100) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
@@ -152,6 +165,9 @@ impl Plugin for CyclePluginC {
     fn name(&self) -> &'static str { "CycleC" }
     fn version(&self) -> &str { "1.0.0" }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![PluginDependency::required_any("CycleB")] } // C -> B (Use required_any)
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
     fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
     // Other trait methods omitted...
@@ -193,9 +209,16 @@ async fn test_plugin_shutdown_cycle() {
     // Verify the specific error
     match init_result.err().unwrap() {
         Error::Plugin(msg) => {
-            assert!(msg.contains("Cyclic dependency detected during initialization"), "Expected cycle detection error message, got: {}", msg);
-            // Check if it mentions one of the cycle members
-            assert!(msg.contains("CycleA") || msg.contains("CycleB") || msg.contains("CycleC"), "Error should mention a plugin in the cycle");
+            // Updated assertion to match the new error format from topological sort
+            assert!(
+                msg.contains("Dependency resolution failed: Circular dependency detected"),
+                "Expected cycle detection error message, got: {}", msg
+            );
+            // Check if it mentions one of the cycle members (the specific nodes might vary based on map iteration order)
+            assert!(
+                msg.contains("CycleA") || msg.contains("CycleB") || msg.contains("CycleC"),
+                "Error should mention a plugin in the cycle"
+            );
         }
         e => panic!("Expected Plugin error for initialization cycle, got {:?}", e),
     }
@@ -252,4 +275,80 @@ async fn test_register_all_plugins_dep_resolution_fail_via_manager() -> KernelRe
     assert!(!registry.initialized.contains(&plugin_a_name));
 
     Ok(())
+}
+#[tokio::test]
+async fn test_initialize_all_diamond_dependency_order() {
+    // Test diamond: A -> B, A -> C, B -> D, C -> D
+    // Expected init order: D, then B/C (any order), then A
+    let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
+    KernelComponent::initialize(&*plugin_manager).await.expect("Init PluginManager");
+
+    let plugin_d = TestPlugin::new("DiamondD", stages_executed.clone(), execution_order.clone()); // Pass execution_order
+    let plugin_b = DependentPlugin::new(
+        "DiamondB", "1.0.0", vec![PluginDependency::required_any("DiamondD")],
+        ShutdownBehavior::Success, PreflightBehavior::Success,
+        stages_executed.clone(), execution_order.clone(), shutdown_order.clone()
+    );
+    let plugin_c = DependentPlugin::new(
+        "DiamondC", "1.0.0", vec![PluginDependency::required_any("DiamondD")],
+        ShutdownBehavior::Success, PreflightBehavior::Success,
+        stages_executed.clone(), execution_order.clone(), shutdown_order.clone()
+    );
+    let plugin_a = DependentPlugin::new(
+        "DiamondA", "1.0.0", vec![PluginDependency::required_any("DiamondB"), PluginDependency::required_any("DiamondC")],
+        ShutdownBehavior::Success, PreflightBehavior::Success,
+        stages_executed.clone(), execution_order.clone(), shutdown_order.clone()
+    );
+
+    // Register in a non-initialization order
+    {
+        let mut registry = plugin_manager.registry().lock().await;
+        registry.register_plugin(Box::new(plugin_a)).expect("Register A");
+        registry.register_plugin(Box::new(plugin_c)).expect("Register C");
+        registry.register_plugin(Box::new(plugin_d)).expect("Register D");
+        registry.register_plugin(Box::new(plugin_b)).expect("Register B");
+    }
+
+    // Initialize all
+    let mut app = Application::new(None).unwrap();
+    let init_result = {
+        let mut registry = plugin_manager.registry().lock().await;
+        registry.initialize_all(&mut app)
+    };
+
+    assert!(init_result.is_ok(), "Initialization should succeed for diamond dependency. Error: {:?}", init_result.err());
+
+    // Verify all were initialized
+    {
+        let registry = plugin_manager.registry().lock().await;
+        assert!(registry.initialized.contains("DiamondA"));
+        assert!(registry.initialized.contains("DiamondB"));
+        assert!(registry.initialized.contains("DiamondC"));
+        assert!(registry.initialized.contains("DiamondD"));
+        assert_eq!(registry.initialized_count(), 4);
+    }
+
+    // Verify initialization order (D before B/C, B/C before A)
+    let order = execution_order.lock().unwrap();
+    println!("Execution order: {:?}", *order); // Debug log
+
+    let pos_d = order.iter().position(|name| name == "DiamondD");
+    let pos_b = order.iter().position(|name| name == "DiamondB");
+    let pos_c = order.iter().position(|name| name == "DiamondC");
+    let pos_a = order.iter().position(|name| name == "DiamondA");
+
+    assert!(pos_d.is_some(), "D should be in execution order");
+    assert!(pos_b.is_some(), "B should be in execution order");
+    assert!(pos_c.is_some(), "C should be in execution order");
+    assert!(pos_a.is_some(), "A should be in execution order");
+
+    let pos_d = pos_d.unwrap();
+    let pos_b = pos_b.unwrap();
+    let pos_c = pos_c.unwrap();
+    let pos_a = pos_a.unwrap();
+
+    assert!(pos_d < pos_b, "D should be initialized before B (D={}, B={})", pos_d, pos_b);
+    assert!(pos_d < pos_c, "D should be initialized before C (D={}, C={})", pos_d, pos_c);
+    assert!(pos_b < pos_a, "B should be initialized before A (B={}, A={})", pos_b, pos_a);
+    assert!(pos_c < pos_a, "C should be initialized before A (C={}, A={})", pos_c, pos_a);
 }

@@ -152,6 +152,84 @@ fn test_app_config_operations() -> Result<()> {
     
     Ok(())
 }
+#[test]
+#[cfg(feature = "toml-config")] // Only run if toml-config feature is enabled
+fn test_toml_config_operations() -> Result<()> {
+    let (mut config_manager, _root_path) = create_test_config_manager();
+    
+    // Set default format to TOML for this test
+    config_manager.set_default_format(ConfigFormat::Toml);
+
+    // Create configuration
+    let mut app_config = ConfigData::new();
+    app_config.set("app_name", "Test App TOML")?;
+    app_config.set("version", "1.0.0-toml")?;
+    app_config.set("max_connections", 15)?; // Use a different value
+
+    // Save the configuration (should save as settings.toml due to default format)
+    config_manager.save_app_config("settings", &app_config)?;
+
+    // Invalidate cache to force reload from disk
+    config_manager.invalidate_cache("settings", ConfigScope::Application);
+
+    // Load the configuration (should load settings.toml)
+    let loaded_config = config_manager.get_app_config("settings")?;
+
+    // Verify loaded values
+    assert_eq!(loaded_config.get::<String>("app_name").unwrap(), "Test App TOML");
+    assert_eq!(loaded_config.get::<String>("version").unwrap(), "1.0.0-toml");
+    assert_eq!(loaded_config.get::<i32>("max_connections").unwrap(), 15);
+
+    // Test loading explicitly with .toml extension
+    let loaded_explicit = config_manager.get_app_config("settings.toml")?;
+    assert_eq!(loaded_explicit.get::<String>("app_name").unwrap(), "Test App TOML");
+
+    // Test saving explicitly with .toml extension
+    let mut updated_config = loaded_config;
+    updated_config.set("max_connections", 25)?;
+    config_manager.save_app_config("settings.toml", &updated_config)?;
+
+    // Invalidate and reload to check explicit save
+    config_manager.invalidate_cache("settings.toml", ConfigScope::Application); // Use full name for cache key
+    let reloaded_config = config_manager.get_app_config("settings.toml")?;
+    assert_eq!(reloaded_config.get::<i32>("max_connections").unwrap(), 25);
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "toml-config")]
+fn test_toml_malformed_load() -> Result<()> {
+    let (config_manager, root_path) = create_test_config_manager();
+    
+    // Create a malformed TOML file
+    let config_path = config_manager.resolve_config_path("malformed", ConfigScope::Application)
+                                    .with_extension("toml"); // Ensure .toml extension
+    let malformed_content = r#"
+        app_name = "Malformed"
+        version = "1.0"
+        invalid-syntax =
+    "#;
+    // Ensure parent directory exists before writing
+    if let Some(parent_dir) = config_path.parent() {
+        std::fs::create_dir_all(parent_dir).expect("Failed to create parent directory for malformed TOML");
+    }
+    std::fs::write(&config_path, malformed_content).expect("Failed to write malformed TOML");
+
+    // Attempt to load the malformed config
+    let result = config_manager.load_config("malformed.toml", ConfigScope::Application);
+
+    // Verify that loading failed with a storage error (indicating parsing failure)
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(matches!(e, crate::kernel::error::Error::Storage(_)));
+        assert!(e.to_string().contains("Failed to deserialize from TOML"));
+    } else {
+        panic!("Expected an error but got Ok");
+    }
+
+    Ok(())
+}
 
 #[test]
 fn test_plugin_config_with_overrides() -> Result<()> {

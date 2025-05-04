@@ -13,7 +13,7 @@ use serde_json; // Added serde_json import
 use crate::kernel::error::{Error as KernelError, Result}; // Renamed Error to KernelError
 use crate::plugin_system::traits::Plugin;
 // Import the final manifest structs
-use crate::plugin_system::manifest::{PluginManifest, DependencyInfo};
+use crate::plugin_system::manifest::{PluginManifest};
 use crate::plugin_system::registry::PluginRegistry;
 use crate::plugin_system::version::{ApiVersion, VersionRange}; // Added VersionRange
 
@@ -285,6 +285,9 @@ impl PluginLoader {
             files: raw_manifest.files,
             config_schema: raw_manifest.config_schema,
             tags: raw_manifest.tags,
+            // Add default empty values for new fields
+            conflicts_with: Vec::new(),
+            incompatible_with: Vec::new(),
         };
 
         // Parse API version strings
@@ -312,8 +315,9 @@ impl PluginLoader {
                 }
                 None => None,
             };
-            final_manifest.dependencies.push(DependencyInfo {
-                id: raw_dep.id,
+            // Use PluginDependency struct literal directly
+            final_manifest.dependencies.push(crate::plugin_system::dependency::PluginDependency {
+                plugin_name: raw_dep.id, // Use plugin_name field
                 version_range,
                 required: raw_dep.required,
             });
@@ -365,7 +369,7 @@ impl PluginLoader {
                     // Get the dependency ID as &str from the manifests map keys if possible
                     // This avoids cloning the String just for the check.
                     let dep_id_str = manifests.keys()
-                        .find(|k| **k == dep.id) // Use dep.id directly
+                        .find(|k| **k == dep.plugin_name) // Use dep.plugin_name
                         .map(|s| s.as_str());
 
                     if let Some(dep_id) = dep_id_str {
@@ -431,7 +435,7 @@ impl PluginLoader {
                     continue; // Skip optional dependencies for now
                 }
 
-                let dep_id = &dep.id;
+                let dep_id = &dep.plugin_name; // Use plugin_name field
 
                 // 1. Check if dependency exists
                 let dep_manifest = manifests.get(dep_id).ok_or_else(|| {

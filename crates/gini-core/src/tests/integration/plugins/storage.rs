@@ -72,6 +72,9 @@ impl Plugin for StorageInteractingPlugin {
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) } // Imports added at top
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 #[tokio::test]

@@ -21,16 +21,16 @@ use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, 
 
 #[tokio::test]
 async fn test_plugin_enabling_disabling() {
-    // Destructure the new shutdown_order tracker, even if unused here
-    let (plugin_manager, _stage_manager, _, stages_executed, _, _shutdown_order) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, _stage_manager, _, stages_executed, execution_order, _shutdown_order) = setup_test_environment().await;
 
     // Initialize components
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
 
-    // Create test plugins
-    let plugin1 = TestPlugin::new("EnableDisablePlugin1", stages_executed.clone());
-    let plugin2 = TestPlugin::new("EnableDisablePlugin2", stages_executed.clone());
-    let plugin3 = TestPlugin::new("EnableDisablePlugin3", stages_executed.clone());
+    // Create test plugins, passing execution_order
+    let plugin1 = TestPlugin::new("EnableDisablePlugin1", stages_executed.clone(), execution_order.clone());
+    let plugin2 = TestPlugin::new("EnableDisablePlugin2", stages_executed.clone(), execution_order.clone());
+    let plugin3 = TestPlugin::new("EnableDisablePlugin3", stages_executed.clone(), execution_order.clone());
 
     // Register plugins
     {
@@ -119,6 +119,9 @@ impl Plugin for ConflictingPlugin {
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 #[tokio::test]
@@ -172,7 +175,8 @@ async fn test_plugin_conflict_detection_and_resolution() {
 
 #[tokio::test]
 async fn test_plugin_get_plugin_ids() {
-    let (plugin_manager, _, _, stages_executed, _, _) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, _, _, stages_executed, execution_order, _) = setup_test_environment().await;
     KernelComponent::initialize(&*plugin_manager).await.expect("Init PluginManager");
 
     // Get the initial number of plugins (if any)
@@ -181,8 +185,8 @@ async fn test_plugin_get_plugin_ids() {
         registry.plugin_count()
     };
 
-    let plugin1 = TestPlugin::new("GetIdsPlugin1", stages_executed.clone());
-    let plugin2 = TestPlugin::new("GetIdsPlugin2", stages_executed.clone());
+    let plugin1 = TestPlugin::new("GetIdsPlugin1", stages_executed.clone(), execution_order.clone());
+    let plugin2 = TestPlugin::new("GetIdsPlugin2", stages_executed.clone(), execution_order.clone());
 
     // Register plugins
     {

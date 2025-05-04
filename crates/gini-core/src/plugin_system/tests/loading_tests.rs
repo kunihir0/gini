@@ -5,8 +5,10 @@ use crate::plugin_system::manager::{DefaultPluginManager, PluginManager};
 use std::fs;
 use std::path::PathBuf;
 use std::env; // Added for current_dir
-use tempfile::tempdir; // Using tempfile crate for temporary directories
-
+use tempfile::{tempdir, TempDir}; // Using tempfile crate for temporary directories
+use crate::storage::config::{ConfigManager, ConfigFormat}; // Added
+use crate::storage::local::LocalStorageProvider; // Added
+use std::sync::Arc; // Added
 // Helper function to find the path to the compiled example plugin
 fn get_example_plugin_path() -> Option<PathBuf> {
     // Try to find the plugin in various possible locations
@@ -33,6 +35,24 @@ fn get_example_plugin_path() -> Option<PathBuf> {
     None
 }
 
+// Helper function to create a manager with a temporary config directory for loading tests
+fn create_test_manager_for_loading() -> (DefaultPluginManager<LocalStorageProvider>, TempDir) {
+    let tmp_dir = tempdir().unwrap();
+    let app_config_path = tmp_dir.path().join("app_config_loading");
+    let plugin_config_path = tmp_dir.path().join("plugin_config_loading");
+    fs::create_dir_all(&app_config_path).unwrap();
+    fs::create_dir_all(&plugin_config_path).unwrap();
+
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        provider,
+        app_config_path,
+        plugin_config_path,
+        ConfigFormat::Json,
+    ));
+    (DefaultPluginManager::new(config_manager).unwrap(), tmp_dir)
+}
+
 #[tokio::test]
 async fn test_load_valid_so_plugin_from_directory() -> Result<()> {
     // 1. Setup: Create temp dir and copy the valid .so file
@@ -52,8 +72,8 @@ async fn test_load_valid_so_plugin_from_directory() -> Result<()> {
     let plugin_dest = plugin_dir.join("libcompat_check_example.so");
     fs::copy(&example_plugin_src, &plugin_dest).expect("Failed to copy plugin to temp dir");
 
-    // 2. Create Plugin Manager
-    let manager = DefaultPluginManager::new()?;
+    // 2. Create Plugin Manager using helper
+    let (manager, _tmp_dir_manager) = create_test_manager_for_loading();
 
     // 3. Load plugins from the temp directory
     let loaded_count = manager.load_plugins_from_directory(plugin_dir).await?;
@@ -75,8 +95,8 @@ async fn test_ignore_non_so_files() -> Result<()> {
     let plugin_dir = tmp_dir.path();
     fs::write(plugin_dir.join("not_a_plugin.txt"), "hello").expect("Failed to write dummy file");
 
-    // 2. Create Plugin Manager
-    let manager = DefaultPluginManager::new()?;
+    // 2. Create Plugin Manager using helper
+    let (manager, _tmp_dir_manager) = create_test_manager_for_loading();
 
     // 3. Load plugins
     let loaded_count = manager.load_plugins_from_directory(plugin_dir).await?;
@@ -97,8 +117,8 @@ async fn test_load_from_non_existent_directory() -> Result<()> {
         fs::remove_dir_all(&plugin_dir).expect("Failed to remove pre-existing test directory");
     }
 
-    // 2. Create Plugin Manager
-    let manager = DefaultPluginManager::new()?;
+    // 2. Create Plugin Manager using helper
+    let (manager, _tmp_dir_manager) = create_test_manager_for_loading();
 
     // 3. Attempt to load plugins
     let result = manager.load_plugins_from_directory(&plugin_dir).await;
@@ -118,7 +138,7 @@ async fn test_load_from_non_existent_directory() -> Result<()> {
 // --- Unit Tests for PluginLoader ---
 
 use crate::plugin_system::loader::{PluginLoader, ResolutionError};
-use crate::plugin_system::manifest::{DependencyInfo, ManifestBuilder, PluginManifest};
+use crate::plugin_system::manifest::{ManifestBuilder, PluginManifest}; // Removed DependencyInfo
 use crate::plugin_system::version::VersionRange;
 use std::collections::HashMap;
 // Removed duplicate PathBuf import
@@ -126,17 +146,17 @@ use std::str::FromStr;
 use tokio::fs as tokio_fs; // Use alias for clarity
 
 // Helper to create a basic manifest for dependency tests
-fn create_test_manifest(id: &str, version: &str, deps: Vec<DependencyInfo>) -> PluginManifest {
+fn create_test_manifest(id: &str, version: &str, deps: Vec<crate::plugin_system::PluginDependency>) -> PluginManifest { // Use re-exported path
     let mut manifest = PluginManifest::new(id, id, version, "Desc", "Auth");
     manifest.dependencies = deps;
     manifest
 }
 
-// Helper to create a DependencyInfo
-fn create_dep(id: &str, version_req: Option<&str>, required: bool) -> DependencyInfo {
+// Helper to create a PluginDependency
+fn create_dep(id: &str, version_req: Option<&str>, required: bool) -> crate::plugin_system::PluginDependency { // Return re-exported path
     let version_range = version_req.map(|vr| VersionRange::from_str(vr).unwrap());
-    DependencyInfo {
-        id: id.to_string(),
+    crate::plugin_system::PluginDependency { // Use re-exported path struct literal
+        plugin_name: id.to_string(), // Use plugin_name field
         version_range,
         required,
     }

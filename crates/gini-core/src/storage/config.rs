@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::cell::RefCell;
+use std::sync::{Arc, RwLock}; // Replace RefCell with RwLock
 
 use serde::{Serialize, Deserialize};
 use serde_json;
@@ -184,7 +183,7 @@ pub enum PluginConfigScope {
 }
 
 /// Configuration manager that handles loading, saving, and caching configurations
-#[derive(Debug, Clone)]
+#[derive(Debug)] // Remove Clone from derive
 pub struct ConfigManager<P: StorageProvider + ?Sized> {
     /// Storage provider for reading/writing configs
     provider: Arc<P>,
@@ -193,9 +192,9 @@ pub struct ConfigManager<P: StorageProvider + ?Sized> {
     /// Base path for plugin configurations
     plugin_config_path: PathBuf,
     /// Default format for new configurations
-    default_format: ConfigFormat,
-    /// In-memory cache of loaded configurations
-    cache: RefCell<HashMap<String, ConfigData>>,
+    default_format: Arc<RwLock<ConfigFormat>>, // Use Arc<RwLock> for shared mutability
+    /// In-memory cache of loaded configurations (Thread-safe and Cloneable via Arc)
+    cache: Arc<RwLock<HashMap<String, ConfigData>>>,
 }
 
 impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
@@ -210,8 +209,8 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
             provider,
             app_config_path,
             plugin_config_path,
-            default_format,
-            cache: RefCell::new(HashMap::new()),
+            default_format: Arc::new(RwLock::new(default_format)), // Wrap in Arc<RwLock>
+            cache: Arc::new(RwLock::new(HashMap::new())), // Wrap RwLock in Arc
         }
     }
     
@@ -227,12 +226,12 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
     
     /// Get the default format
     pub fn default_format(&self) -> ConfigFormat {
-        self.default_format
+        *self.default_format.read().unwrap() // Read from RwLock
     }
     
     /// Set the default format
-    pub fn set_default_format(&mut self, format: ConfigFormat) {
-        self.default_format = format;
+    pub fn set_default_format(&self, format: ConfigFormat) { // Takes &self now
+        *self.default_format.write().unwrap() = format; // Write to RwLock
     }
     
     /// Resolve the complete path for a configuration file
@@ -246,7 +245,7 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
         let file_name = if Path::new(name).extension().is_some() {
             name.to_string()
         } else {
-            format!("{}.{}", name, self.default_format.extension())
+            format!("{}.{}", name, self.default_format().extension()) // Use method to read lock
         };
         
         match scope {
@@ -269,9 +268,9 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
             ConfigScope::Plugin(PluginConfigScope::User) => format!("plugin:user:{}", name),
         };
         
-        // Check if we have this config in cache
+        // Check if we have this config in cache (read lock)
         {
-            let cache = self.cache.borrow();
+            let cache = self.cache.read().unwrap(); // Use read lock
             if let Some(config) = cache.get(&cache_key) {
                 return Ok(config.clone());
             }
@@ -284,9 +283,9 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
         if !self.provider.exists(&path) {
             let empty_config = ConfigData::new();
             
-            // Cache the empty config
-            self.cache.borrow_mut().insert(cache_key, empty_config.clone());
-            
+            // Cache the empty config (write lock)
+            self.cache.write().unwrap().insert(cache_key, empty_config.clone()); // Use write lock
+
             return Ok(empty_config);
         }
         
@@ -300,9 +299,9 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
         // Parse based on format
         let config = ConfigData::deserialize(&content, format)?;
         
-        // Cache the loaded config
-        self.cache.borrow_mut().insert(cache_key, config.clone());
-        
+        // Cache the loaded config (write lock)
+        self.cache.write().unwrap().insert(cache_key, config.clone()); // Use write lock
+
         Ok(config)
     }
     
@@ -316,7 +315,7 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
         }
         
         // Determine format from file extension or use default
-        let format = ConfigFormat::from_path(&path).unwrap_or(self.default_format);
+        let format = ConfigFormat::from_path(&path).unwrap_or(self.default_format()); // Use method to read lock
         
         // Serialize based on format
         let content = config.serialize(format)?;
@@ -330,9 +329,9 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
             ConfigScope::Plugin(PluginConfigScope::Default) => format!("plugin:default:{}", name),
             ConfigScope::Plugin(PluginConfigScope::User) => format!("plugin:user:{}", name),
         };
-        
-        self.cache.borrow_mut().insert(cache_key, config.clone());
-        
+
+        self.cache.write().unwrap().insert(cache_key, config.clone()); // Use write lock
+
         Ok(())
     }
     
@@ -379,15 +378,15 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
             ConfigScope::Plugin(PluginConfigScope::Default) => format!("plugin:default:{}", name),
             ConfigScope::Plugin(PluginConfigScope::User) => format!("plugin:user:{}", name),
         };
-        
-        self.cache.borrow_mut().remove(&cache_key);
+
+        self.cache.write().unwrap().remove(&cache_key); // Use write lock
     }
-    
+
     /// Clear the entire configuration cache
     pub fn clear_cache(&self) {
-        self.cache.borrow_mut().clear();
+        self.cache.write().unwrap().clear(); // Use write lock
     }
-    
+
     /// List available configuration files
     pub fn list_configs(&self, scope: ConfigScope) -> Result<Vec<String>> {
         // Get the appropriate directory path
@@ -433,4 +432,17 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
 pub trait ConfigStorageExt: StorageProvider where Self: 'static {
     /// Get the configuration manager
     fn config_manager<P: StorageProvider + ?Sized>(&self) -> &ConfigManager<P>;
+}
+
+// Manual Clone implementation for ConfigManager
+impl<P: StorageProvider + ?Sized> Clone for ConfigManager<P> {
+    fn clone(&self) -> Self {
+        Self {
+            provider: Arc::clone(&self.provider), // Clone the Arc
+            app_config_path: self.app_config_path.clone(),
+            plugin_config_path: self.plugin_config_path.clone(),
+            default_format: Arc::clone(&self.default_format), // Clone the Arc<RwLock>
+            cache: Arc::clone(&self.cache),       // Clone the Arc for the cache
+        }
+    }
 }

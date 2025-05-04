@@ -145,6 +145,13 @@ impl ConflictManager {
             .filter(|c| !c.resolved && c.is_critical())
             .collect()
     }
+/// Check if a conflict already exists between two specific plugins (order doesn't matter).
+    pub fn has_conflict_between(&self, id1: &str, id2: &str) -> bool {
+        self.conflicts.iter().any(|c|
+            (c.first_plugin == id1 && c.second_plugin == id2) ||
+            (c.first_plugin == id2 && c.second_plugin == id1)
+        )
+    }
     
     /// Resolve a conflict
     pub fn resolve_conflict(&mut self, index: usize, strategy: ResolutionStrategy) -> Result<()> {

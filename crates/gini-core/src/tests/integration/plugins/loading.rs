@@ -73,11 +73,12 @@ async fn test_static_plugin_initialization_succeeds() -> KernelResult<()> {
     // This test verifies that initializing a statically registered plugin succeeds
     // and does not incorrectly trigger the dynamic loading logic (which is currently stubbed).
 
-    let (plugin_manager, _, _, stages_executed, _, _) = setup_test_environment().await;
+    // Destructure all trackers
+    let (plugin_manager, _, _, stages_executed, execution_order, _) = setup_test_environment().await;
     KernelComponent::initialize(&*plugin_manager).await?;
 
     // Create a basic, compatible plugin (statically defined, doesn't need actual loading)
-    let plugin = TestPlugin::new("LoadFailTestPlugin", stages_executed.clone());
+    let plugin = TestPlugin::new("LoadFailTestPlugin", stages_executed.clone(), execution_order.clone()); // Pass execution_order
     let plugin_name = plugin.name().to_string();
 
     // Register the plugin

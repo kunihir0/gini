@@ -66,6 +66,9 @@ impl Plugin for MockRegistryPlugin {
          Ok(())
     }
     async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 fn create_test_registry() -> PluginRegistry {
@@ -381,4 +384,161 @@ mod tests {
          // Now check_dependencies should pass again, because the main plugin is no longer enabled
          assert!(registry.check_dependencies().is_ok());
      }
+// --- New Tests for Dependency Resolution ---
+
+    #[test]
+    fn test_initialize_all_linear_dependency() {
+        // A -> B -> C
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_b = Box::new(MockRegistryPlugin::new("B", "1.0.0", vec![PluginDependency::required_any("C")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_c = Box::new(MockRegistryPlugin::default("C")); // No deps
+
+        let init_a = plugin_a.init_called.clone();
+        let init_b = plugin_b.init_called.clone();
+        let init_c = plugin_c.init_called.clone();
+
+        registry.register_plugin(plugin_a).unwrap();
+        registry.register_plugin(plugin_b).unwrap();
+        registry.register_plugin(plugin_c).unwrap();
+
+        let result = registry.initialize_all(&mut app);
+        assert!(result.is_ok(), "Initialization should succeed. Error: {:?}", result.err());
+
+        assert!(init_a.load(Ordering::SeqCst), "A should be initialized");
+        assert!(init_b.load(Ordering::SeqCst), "B should be initialized");
+        assert!(init_c.load(Ordering::SeqCst), "C should be initialized");
+        assert_eq!(registry.initialized_count(), 3);
+        // Although we don't directly check the order here, success implies a valid order was found.
+    }
+
+    #[test]
+    fn test_initialize_all_diamond_dependency() {
+        //   -> B --
+        // A        -> D
+        //   -> C --
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B"), PluginDependency::required_any("C")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_b = Box::new(MockRegistryPlugin::new("B", "1.0.0", vec![PluginDependency::required_any("D")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_c = Box::new(MockRegistryPlugin::new("C", "1.0.0", vec![PluginDependency::required_any("D")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_d = Box::new(MockRegistryPlugin::default("D")); // No deps
+
+        let init_a = plugin_a.init_called.clone();
+        let init_b = plugin_b.init_called.clone();
+        let init_c = plugin_c.init_called.clone();
+        let init_d = plugin_d.init_called.clone();
+
+        registry.register_plugin(plugin_a).unwrap();
+        registry.register_plugin(plugin_b).unwrap();
+        registry.register_plugin(plugin_c).unwrap();
+        registry.register_plugin(plugin_d).unwrap();
+
+        let result = registry.initialize_all(&mut app);
+        assert!(result.is_ok(), "Initialization should succeed. Error: {:?}", result.err());
+
+        assert!(init_a.load(Ordering::SeqCst), "A should be initialized");
+        assert!(init_b.load(Ordering::SeqCst), "B should be initialized");
+        assert!(init_c.load(Ordering::SeqCst), "C should be initialized");
+        assert!(init_d.load(Ordering::SeqCst), "D should be initialized");
+        assert_eq!(registry.initialized_count(), 4);
+    }
+
+    #[test]
+    fn test_initialize_all_simple_cycle() {
+        // A -> B -> A
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+        let plugin_b = Box::new(MockRegistryPlugin::new("B", "1.0.0", vec![PluginDependency::required_any("A")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+
+        registry.register_plugin(plugin_a).unwrap();
+        registry.register_plugin(plugin_b).unwrap();
+
+        let result = registry.initialize_all(&mut app);
+        assert!(result.is_err(), "Initialization should fail due to cycle");
+        if let Err(Error::Plugin(msg)) = result {
+            println!("Cycle error message: {}", msg); // Log for debugging
+            assert!(msg.contains("Dependency resolution failed") && msg.contains("Circular dependency detected"), "Error message should indicate a cyclic dependency");
+        } else {
+            panic!("Expected Plugin error indicating a cycle");
+        }
+        assert_eq!(registry.initialized_count(), 0);
+    }
+
+     #[test]
+     fn test_initialize_all_complex_cycle() {
+         // A -> B -> C -> A
+         let mut registry = create_test_registry();
+         let mut app = create_mock_app();
+         let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+         let plugin_b = Box::new(MockRegistryPlugin::new("B", "1.0.0", vec![PluginDependency::required_any("C")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+         let plugin_c = Box::new(MockRegistryPlugin::new("C", "1.0.0", vec![PluginDependency::required_any("A")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+
+         registry.register_plugin(plugin_a).unwrap();
+         registry.register_plugin(plugin_b).unwrap();
+         registry.register_plugin(plugin_c).unwrap();
+
+         let result = registry.initialize_all(&mut app);
+         assert!(result.is_err(), "Initialization should fail due to cycle");
+         if let Err(Error::Plugin(msg)) = result {
+             println!("Cycle error message: {}", msg); // Log for debugging
+             assert!(msg.contains("Dependency resolution failed") && msg.contains("Circular dependency detected"), "Error message should indicate a cyclic dependency");
+         } else {
+             panic!("Expected Plugin error indicating a cycle");
+         }
+         assert_eq!(registry.initialized_count(), 0);
+     }
+
+     #[test]
+     fn test_initialize_all_missing_dependency() {
+         // A -> B (B is missing)
+         let mut registry = create_test_registry();
+         let mut app = create_mock_app();
+         let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+
+         registry.register_plugin(plugin_a).unwrap();
+
+         // Note: The topological sort itself might succeed if B isn't in the 'enabled' set.
+         // The error should occur during the recursive initialize_plugin call.
+         let result = registry.initialize_all(&mut app);
+         assert!(result.is_err(), "Initialization should fail due to missing dependency B");
+         if let Err(Error::Plugin(msg)) = result {
+             println!("Missing dependency error: {}", msg);
+             assert!(msg.contains("requires enabled dependency 'B', which is missing or disabled"), "Error message should indicate missing dependency B");
+         } else {
+             panic!("Expected Plugin error indicating missing dependency");
+         }
+         assert_eq!(registry.initialized_count(), 0);
+     }
+
+     #[test]
+     fn test_initialize_all_disabled_dependency() {
+         // A -> B (B is registered but disabled)
+         let mut registry = create_test_registry();
+         let mut app = create_mock_app();
+         let plugin_a = Box::new(MockRegistryPlugin::new("A", "1.0.0", vec![PluginDependency::required_any("B")], vec![VersionRange::from_str(">=0.1.0").unwrap()]));
+         let plugin_b = Box::new(MockRegistryPlugin::default("B"));
+         let init_b = plugin_b.init_called.clone();
+
+
+         registry.register_plugin(plugin_a).unwrap();
+         registry.register_plugin(plugin_b).unwrap();
+
+         registry.disable_plugin("B").unwrap(); // Disable B
+
+         let result = registry.initialize_all(&mut app);
+         assert!(result.is_err(), "Initialization should fail due to disabled dependency B");
+         if let Err(Error::Plugin(msg)) = result {
+             println!("Disabled dependency error: {}", msg);
+             assert!(msg.contains("requires enabled dependency 'B', which is missing or disabled"), "Error message should indicate disabled dependency B");
+         } else {
+             panic!("Expected Plugin error indicating disabled dependency");
+         }
+         assert!(!init_b.load(Ordering::SeqCst), "Disabled plugin B should not be initialized");
+         assert_eq!(registry.initialized_count(), 0);
+     }
+
+    // --- End New Tests ---
 }

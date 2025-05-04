@@ -2,6 +2,15 @@
 #![cfg(test)]
 
 use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict, ResolutionStrategy};
+use crate::plugin_system::{Plugin, PluginDependency, ApiVersion, VersionRange, PluginPriority, PluginRegistry};
+use crate::stage_manager::{StageRequirement, Stage}; // Added for Plugin trait (StageId not needed directly)
+use crate::stage_manager::context::StageContext; // Added for preflight_check
+    use crate::plugin_system::traits::PluginError; // Added for preflight_check
+use crate::kernel::error::{Error, Result};
+use crate::kernel::bootstrap::Application; // Needed for Plugin trait
+use std::sync::Arc;
+use std::str::FromStr; // Needed for VersionRange::from_str
+use semver::Version; // Need this for ApiVersion parsing
 // No longer need PluginManifest here directly, but keep HashSet if needed later
 // use std::collections::HashSet;
 
@@ -249,3 +258,286 @@ fn test_conflict_manager_detect_conflicts_stub() {
     // Ensure no conflicts were added by the stub
     assert!(manager.get_conflicts().is_empty());
 }
+
+// --- Tests for PluginRegistry::detect_all_conflicts ---
+mod registry_conflict_tests {
+    use super::*; // Import items from the parent module
+
+    // Mock Plugin Implementation for testing registry conflict detection
+    #[derive(Debug, Clone)] // Added Clone
+    struct MockPlugin {
+    id: String,
+    version: String,
+    dependencies: Vec<PluginDependency>,
+    api_versions: Vec<VersionRange>, // Added for compatibility check
+    priority: PluginPriority, // Added for sorting
+    is_core: bool, // Added
+    // Fields for explicit conflict/incompatibility declarations
+    conflicts_with_ids: Vec<String>,
+    incompatible_with_deps: Vec<PluginDependency>, // Use PluginDependency for consistency
+}
+
+impl MockPlugin {
+    // Helper constructor
+    fn new(id: &str, version: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            version: version.to_string(),
+            dependencies: vec![],
+            // Assume compatible with current API for simplicity in tests
+            // Use VersionRange::from_str
+            api_versions: vec![<VersionRange as FromStr>::from_str(">=0.1.0").unwrap()],
+            priority: PluginPriority::ThirdPartyLow(100),
+            is_core: false,
+            conflicts_with_ids: vec![], // Initialize new fields
+            incompatible_with_deps: vec![], // Initialize new fields
+        }
+    }
+
+    // Builder-style methods to set conflicts/incompatibilities for tests
+    fn conflicts_with(mut self, ids: &[&str]) -> Self {
+        self.conflicts_with_ids = ids.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    fn incompatible_with(mut self, deps: Vec<PluginDependency>) -> Self {
+        self.incompatible_with_deps = deps;
+        self
+    }
+}
+
+#[async_trait::async_trait] // Add async_trait because preflight_check is async
+impl Plugin for MockPlugin {
+    // name returns &'static str
+    fn name(&self) -> &'static str {
+        // Leak the string to get a 'static reference for testing.
+        // WARNING: Leaks memory.
+        Box::leak(self.id.clone().into_boxed_str())
+    }
+    // version returns &str (NOT &'static str as per trait)
+    fn version(&self) -> &str { &self.version }
+
+    // Return owned Vecs as required by the trait
+    fn dependencies(&self) -> Vec<PluginDependency> { self.dependencies.clone() }
+    fn compatible_api_versions(&self) -> Vec<VersionRange> { self.api_versions.clone() }
+
+    // Clone priority as it doesn't implement Copy
+    fn priority(&self) -> PluginPriority { self.priority.clone() }
+    fn is_core(&self) -> bool { self.is_core }
+
+    // Add missing stage methods with dummy implementations
+    fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
+    // Corrected return type for stages (no StageId needed)
+    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
+
+    // Add missing async preflight_check
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> {
+        Ok(())
+    }
+
+    // Dummy implementations for init/shutdown
+    fn init(&self, _app: &mut Application) -> Result<()> { Ok(()) }
+    fn shutdown(&self) -> Result<()> { Ok(()) }
+
+// Implement new trait methods
+    fn conflicts_with(&self) -> Vec<String> { self.conflicts_with_ids.clone() }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { self.incompatible_with_deps.clone() }
+}
+
+// Helper to create a registry with mock plugins
+fn create_registry_with_plugins(plugins: Vec<MockPlugin>) -> PluginRegistry {
+    // Use a realistic API version for registry creation
+    let api_version = ApiVersion::from_str("0.1.0").unwrap();
+    let mut registry = PluginRegistry::new(api_version);
+    for plugin in plugins {
+        let plugin_id = plugin.id.clone(); // Clone ID before moving plugin
+        registry.register_plugin(Box::new(plugin)).unwrap();
+        // Ensure all plugins are marked as enabled for conflict detection
+        // Use the cloned ID here to avoid borrow checker issue
+        registry.enable_plugin(&plugin_id).unwrap();
+    }
+    registry
+}
+
+// --- New Tests for Specific Conflict Logic ---
+
+#[test]
+fn test_registry_detect_declared_mutual_exclusion() {
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0").conflicts_with(&["plugin-b"]);
+    let plugin_b = MockPlugin::new("plugin-b", "1.0.0"); // Doesn't need to declare back
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a.clone(), plugin_b.clone(), plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert_eq!(conflicts.len(), 1, "Expected exactly one conflict");
+    assert_eq!(conflicts[0].first_plugin, plugin_a.id);
+    assert_eq!(conflicts[0].second_plugin, plugin_b.id);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::MutuallyExclusive);
+    assert_eq!(conflicts[0].description, "Plugins are explicitly declared as conflicting.");
+}
+
+#[test]
+fn test_registry_detect_declared_incompatibility_any_version() {
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0")
+        .incompatible_with(vec![PluginDependency::required_any("plugin-b")]); // Incompatible with any version of B
+    let plugin_b = MockPlugin::new("plugin-b", "2.5.0");
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a.clone(), plugin_b.clone(), plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert_eq!(conflicts.len(), 1, "Expected exactly one conflict");
+    assert_eq!(conflicts[0].first_plugin, plugin_a.id);
+    assert_eq!(conflicts[0].second_plugin, plugin_b.id);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ExplicitlyIncompatible);
+    assert!(conflicts[0].description.contains("any version"));
+}
+
+#[test]
+fn test_registry_detect_declared_incompatibility_version_range_match() {
+    let range = VersionRange::from_str("<1.0.0").unwrap();
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0")
+        .incompatible_with(vec![PluginDependency::required("plugin-b", range.clone())]); // Incompatible with B < 1.0.0
+    let plugin_b = MockPlugin::new("plugin-b", "0.9.0"); // Matches incompatibility range
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a.clone(), plugin_b.clone(), plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert_eq!(conflicts.len(), 1, "Expected exactly one conflict");
+    assert_eq!(conflicts[0].first_plugin, plugin_a.id);
+    assert_eq!(conflicts[0].second_plugin, plugin_b.id);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ExplicitlyIncompatible);
+    assert!(conflicts[0].description.contains(&format!("version '{}'", range.constraint_string())));
+    assert!(conflicts[0].description.contains(&format!("found version '{}'", plugin_b.version)));
+}
+
+#[test]
+fn test_registry_detect_declared_incompatibility_version_range_no_match() {
+    let range = VersionRange::from_str("<1.0.0").unwrap();
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0")
+        .incompatible_with(vec![PluginDependency::required("plugin-b", range)]); // Incompatible with B < 1.0.0
+    let plugin_b = MockPlugin::new("plugin-b", "1.1.0"); // Does NOT match incompatibility range
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a, plugin_b, plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert!(conflicts.is_empty(), "Expected no conflicts");
+}
+
+#[test]
+fn test_registry_detect_declared_incompatibility_bidirectional() {
+    // A incompatible with B < 1.0, B incompatible with A >= 2.0
+    let range_a_incompat = VersionRange::from_str("<1.0.0").unwrap();
+    let range_b_incompat = VersionRange::from_str(">=2.0.0").unwrap();
+
+    let plugin_a = MockPlugin::new("plugin-a", "2.1.0") // Version matches B's incompatibility rule
+        .incompatible_with(vec![PluginDependency::required("plugin-b", range_a_incompat.clone())]);
+    let plugin_b = MockPlugin::new("plugin-b", "0.8.0") // Version matches A's incompatibility rule
+        .incompatible_with(vec![PluginDependency::required("plugin-a", range_b_incompat.clone())]);
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a.clone(), plugin_b.clone(), plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    // Should detect *both* incompatibilities as separate checks, but only add *one* conflict entry
+    assert_eq!(conflicts.len(), 1, "Expected exactly one conflict entry");
+    assert_eq!(conflicts[0].first_plugin, plugin_a.id);
+    assert_eq!(conflicts[0].second_plugin, plugin_b.id);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ExplicitlyIncompatible);
+    // The description might come from either rule, check for key parts
+    assert!(conflicts[0].description.contains("explicitly incompatible"));
+}
+
+#[test]
+fn test_registry_detect_mutual_exclusion_and_incompatibility() {
+    let range = VersionRange::from_str(">=1.0.0").unwrap();
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0")
+        .conflicts_with(&["plugin-b"]); // A conflicts with B
+    let plugin_b = MockPlugin::new("plugin-b", "1.0.0");
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0")
+        .incompatible_with(vec![PluginDependency::required("plugin-d", range)]); // C incompatible with D >= 1.0
+    let plugin_d = MockPlugin::new("plugin-d", "1.1.0"); // Matches C's incompatibility
+
+    let mut registry = create_registry_with_plugins(vec![
+        plugin_a.clone(),
+        plugin_b.clone(),
+        plugin_c.clone(),
+        plugin_d.clone(),
+    ]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert_eq!(conflicts.len(), 2, "Expected two conflicts");
+
+    let conflict_exists = |p1: &str, p2: &str, ctype: ConflictType| {
+        conflicts.iter().any(|c|
+            ((c.first_plugin == p1 && c.second_plugin == p2) || (c.first_plugin == p2 && c.second_plugin == p1))
+            && c.conflict_type == ctype
+        )
+    };
+
+    assert!(conflict_exists(&plugin_a.id, &plugin_b.id, ConflictType::MutuallyExclusive), "Missing A vs B (Mutual)");
+    assert!(conflict_exists(&plugin_c.id, &plugin_d.id, ConflictType::ExplicitlyIncompatible), "Missing C vs D (Incompatible)");
+}
+
+// --- Updated Tests (Previously relied on placeholder logic) ---
+
+#[test]
+fn test_registry_detect_resource_conflict_placeholder() {
+    // This test remains valid as it tests the placeholder logic which hasn't been removed yet.
+    let plugin_a = MockPlugin::new("main-database-connector", "1.0.0");
+    let plugin_b = MockPlugin::new("alt-database-logger", "1.0.0");
+    let plugin_c = MockPlugin::new("utility-plugin", "1.0.0"); // Non-conflicting
+
+    let mut registry = create_registry_with_plugins(vec![plugin_a.clone(), plugin_b.clone(), plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert_eq!(conflicts.len(), 1);
+     // Check that the correct plugins are involved, regardless of order
+    assert!(
+        (conflicts[0].first_plugin == plugin_a.id && conflicts[0].second_plugin == plugin_b.id) ||
+        (conflicts[0].first_plugin == plugin_b.id && conflicts[0].second_plugin == plugin_a.id)
+    );
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ResourceConflict);
+}
+
+#[test]
+fn test_registry_detect_no_conflicts_declared() {
+    // Renamed from test_registry_detect_no_conflicts to be clearer
+    let plugin_a = MockPlugin::new("plugin-a", "1.0.0");
+    let plugin_b = MockPlugin::new("plugin-b", "1.0.0");
+    let plugin_c = MockPlugin::new("plugin-c", "1.0.0");
+
+    // Ensure no conflicts/incompatibilities are declared
+    let mut registry = create_registry_with_plugins(vec![plugin_a, plugin_b, plugin_c]);
+
+    registry.detect_all_conflicts().unwrap();
+    let conflicts = registry.conflict_manager().get_conflicts();
+
+    assert!(conflicts.is_empty());
+}
+
+// Note: The old `test_registry_detect_mutually_exclusive` and
+// `test_registry_detect_explicitly_incompatible` tests relied on placeholder
+// name matching. They are superseded by the new tests above that use explicit declarations.
+// The old `test_registry_detect_multiple_conflict_types` is also removed as it
+// tested combinations of placeholder logic. The new test
+// `test_registry_detect_mutual_exclusion_and_incompatibility` covers multiple *real* types.
+
+} // Close mod registry_conflict_tests

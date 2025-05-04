@@ -119,6 +119,9 @@ impl Plugin for MockTraitPlugin {
     // Default preflight_check is used
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 #[tokio::test]

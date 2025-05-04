@@ -1,8 +1,10 @@
 #![cfg(test)] // Add this line
 
-use crate::plugin_system::manager::{DefaultPluginManager, PluginManager};
+use crate::plugin_system::manager::{DefaultPluginManager, PluginManager}; // Keep this line
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::dependency::PluginDependency;
+use crate::storage::config::{ConfigManager, ConfigFormat}; // Added
+use crate::storage::local::LocalStorageProvider; // Added
 use crate::plugin_system::version::VersionRange;
 use crate::kernel::bootstrap::Application; // For Plugin::init signature
 use crate::kernel::error::{Result as KernelResult, Error};
@@ -13,7 +15,7 @@ use crate::stage_manager::Stage; // Import Stage trait
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir}; // Added TempDir
 use std::path::PathBuf;
 use std::path::Path;
 use std::str::FromStr; // Import FromStr for parsing VersionRange
@@ -215,6 +217,9 @@ impl Plugin for MockManagerPlugin {
     }
     
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> { Ok(()) }
+// Add default implementations for new trait methods
+    fn conflicts_with(&self) -> Vec<String> { vec![] }
+    fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
 struct MockStage {
@@ -244,16 +249,39 @@ impl Stage for MockStage {
     }
 }
 
+// Helper function to create a manager with a temporary config directory
+fn create_test_manager() -> (DefaultPluginManager<LocalStorageProvider>, TempDir) {
+    let tmp_dir = tempdir().unwrap();
+    let app_config_path = tmp_dir.path().join("app_config");
+    let plugin_config_path = tmp_dir.path().join("plugin_config");
+    fs::create_dir_all(&app_config_path).unwrap();
+    fs::create_dir_all(&plugin_config_path).unwrap();
+
+    // Pass the tmp_dir path to the LocalStorageProvider
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+    // Explicitly type the Arc<ConfigManager>
+    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        provider,
+        app_config_path,
+        plugin_config_path,
+        ConfigFormat::Json, // Default to JSON for tests
+    ));
+    (DefaultPluginManager::new(config_manager).unwrap(), tmp_dir)
+}
+
+
 #[tokio::test]
 async fn test_manager_new() {
-    let manager_result = DefaultPluginManager::new();
-    assert!(manager_result.is_ok());
+    // Test that the constructor with ConfigManager works
+    let (manager, _tmp_dir) = create_test_manager();
+    // If create_test_manager succeeded, new() worked.
+    assert_eq!(manager.name(), "DefaultPluginManager");
 }
 
 #[tokio::test]
 async fn test_manager_initialize_no_dir() {
     // Test initialization when the default plugin dir doesn't exist
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     // Ensure the default dir doesn't exist for this test run
     let plugin_dir = PathBuf::from("./target/debug_nonexistent_for_test"); // Use a unique name
     if plugin_dir.exists() {
@@ -266,7 +294,7 @@ async fn test_manager_initialize_no_dir() {
 
 #[tokio::test]
 async fn test_is_plugin_loaded() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin = Box::new(MockManagerPlugin::new("test_plugin", vec![]));
     let plugin_name = plugin.name().to_string(); // Get name before moving
 
@@ -289,7 +317,7 @@ async fn test_is_plugin_loaded() {
 
 #[tokio::test]
 async fn test_get_plugin_dependencies() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     // Use helper constructors for dependencies
     let dep1 = PluginDependency::required("dep_a", VersionRange::from_str(">=1.0").unwrap());
     let dep2 = PluginDependency::required("dep_b", VersionRange::from_str("~2.1").unwrap());
@@ -322,7 +350,7 @@ async fn test_get_plugin_dependencies() {
 
 #[tokio::test]
 async fn test_get_dependent_plugins() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
 
     // Use helper constructors
     let dep_base = PluginDependency::required_any("base_plugin"); // Any version required
@@ -360,7 +388,7 @@ async fn test_get_dependent_plugins() {
 
 #[tokio::test]
 async fn test_enable_disable_plugin() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id = "test_enable_disable";
     let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
 
@@ -401,7 +429,7 @@ async fn test_enable_disable_plugin() {
 
 #[tokio::test]
 async fn test_get_plugin_arc() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id = "test_get_arc";
     let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
 
@@ -424,7 +452,7 @@ async fn test_get_plugin_arc() {
 
 #[tokio::test]
 async fn test_get_plugins_arc() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id1 = "test_get_all_1";
     let plugin_id2 = "test_get_all_2";
     let plugin1 = Box::new(MockManagerPlugin::new(plugin_id1, vec![]));
@@ -449,7 +477,7 @@ async fn test_get_plugins_arc() {
 
 #[tokio::test]
 async fn test_get_enabled_plugins_arc() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id1 = "enabled_1";
     let plugin_id2 = "enabled_2";
     let plugin_id3 = "disabled_1";
@@ -481,7 +509,7 @@ async fn test_get_enabled_plugins_arc() {
 
 #[tokio::test]
 async fn test_get_plugin_manifest() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id = "test_manifest";
     let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
 
@@ -511,9 +539,9 @@ async fn test_get_plugin_manifest() {
 
 #[tokio::test]
 async fn test_load_plugins_from_directory_with_errors() {
-    let manager = DefaultPluginManager::new().unwrap();
-    let tmp_dir = tempdir().unwrap();
-    let plugin_dir = tmp_dir.path();
+    let (manager, _tmp_dir) = create_test_manager();
+    let plugin_dir_holder = tempdir().unwrap(); // Keep separate tmpdir for plugins
+    let plugin_dir = plugin_dir_holder.path();
 
     // 1. Valid plugin (using the compiled example)
     let example_plugin_src = match get_example_plugin_path() {
@@ -561,9 +589,9 @@ async fn test_load_plugins_from_directory_with_errors() {
 async fn test_load_plugins_from_directory_read_dir_error() {
      // This test is hard to reliably trigger without manipulating permissions in a complex way.
      // We'll simulate it by trying to load from a file path instead of a directory.
-     let manager = DefaultPluginManager::new().unwrap();
-     let tmp_dir = tempdir().unwrap();
-     let file_path = tmp_dir.path().join("im_a_file_not_a_dir");
+     let (manager, _tmp_dir) = create_test_manager();
+     let file_dir_holder = tempdir().unwrap(); // Keep separate tmpdir
+     let file_path = file_dir_holder.path().join("im_a_file_not_a_dir");
      fs::write(&file_path, "hello").unwrap();
 
      let result = manager.load_plugins_from_directory(&file_path).await;
@@ -578,7 +606,7 @@ async fn test_load_plugins_from_directory_read_dir_error() {
 
 #[tokio::test]
 async fn test_get_plugin_dependencies_not_found() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let result = manager.get_plugin_dependencies("non_existent_plugin").await;
     assert!(result.is_err());
     if let Err(Error::Plugin(msg)) = result {
@@ -590,7 +618,7 @@ async fn test_get_plugin_dependencies_not_found() {
 
 #[tokio::test]
 async fn test_get_dependent_plugins_not_found() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     // No error expected, just an empty vec if the target plugin doesn't exist or has no dependents
     let result = manager.get_dependent_plugins("non_existent_plugin").await;
     assert!(result.is_ok());
@@ -599,7 +627,7 @@ async fn test_get_dependent_plugins_not_found() {
 
 #[tokio::test]
 async fn test_get_plugin_manifest_not_found() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let result = manager.get_plugin_manifest("non_existent_plugin").await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
@@ -609,7 +637,7 @@ async fn test_get_plugin_manifest_not_found() {
 async fn test_manager_initialize_with_plugin_dir() {
     // Test initialization when the default plugin dir *does* exist
     // This requires the example plugin to be compiled in target/debug
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_dir = PathBuf::from("./target/debug");
 
     if !plugin_dir.exists() {
@@ -633,7 +661,7 @@ async fn test_manager_initialize_with_plugin_dir() {
 
 #[tokio::test]
 async fn test_manager_stop() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let plugin_id = "test_stop_plugin";
     let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
 
@@ -658,7 +686,7 @@ async fn test_manager_stop() {
 
 #[tokio::test]
 async fn test_load_plugin_success() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let example_plugin_path = match get_example_plugin_path() {
         Some(path) => path,
         None => {
@@ -676,7 +704,7 @@ async fn test_load_plugin_success() {
 
 #[tokio::test]
 async fn test_load_plugin_file_not_found() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let non_existent_path = PathBuf::from("./non_existent_plugin.so");
 
     let result = manager.load_plugin(&non_existent_path).await;
@@ -692,7 +720,7 @@ async fn test_load_plugin_file_not_found() {
 
 #[tokio::test]
 async fn test_start_method() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let result = manager.start().await;
     assert!(result.is_ok(), "Start method should succeed as it's mostly a placeholder");
 }
@@ -700,7 +728,7 @@ async fn test_start_method() {
 // Test for the manager's debug implementation
 #[test]
 fn test_manager_debug_impl() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let debug_str = format!("{:?}", manager);
     assert!(debug_str.contains("DefaultPluginManager"), "Debug output should contain struct name");
     assert!(debug_str.contains("name: \"DefaultPluginManager\""), "Debug output should contain name field");
@@ -709,9 +737,9 @@ fn test_manager_debug_impl() {
 // Test registry() accessor method
 #[tokio::test]
 async fn test_registry_accessor() {
-    let manager = DefaultPluginManager::new().unwrap();
+    let (manager, _tmp_dir) = create_test_manager();
     let registry_arc = manager.registry();
-    
+
     // Verify we can acquire a lock
     let _registry_guard = registry_arc.lock().await;
     
@@ -724,8 +752,8 @@ async fn test_registry_accessor() {
 // Test initializing plugins with dependencies - make sure initialization order is correct
 #[tokio::test]
 async fn test_initialize_plugins_with_dependencies() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create plugins with dependencies
     let base_plugin = MockManagerPlugin::new("base_plugin", vec![]);
     
@@ -760,8 +788,8 @@ async fn test_initialize_plugins_with_dependencies() {
 // Test plugin initialization failure
 #[tokio::test]
 async fn test_plugin_initialization_failure() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a plugin that will fail to initialize
     let failing_plugin = MockManagerPlugin::new("failing_plugin", vec![])
         .with_init_error("Simulated initialization failure");
@@ -783,8 +811,8 @@ async fn test_plugin_initialization_failure() {
 // Test shutdown with plugin that fails during shutdown
 #[tokio::test]
 async fn test_plugin_shutdown_error() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a plugin that will fail during shutdown
     let failing_shutdown_plugin = MockManagerPlugin::new("failing_shutdown", vec![])
         .with_shutdown_error("Simulated shutdown failure");
@@ -813,8 +841,8 @@ async fn test_plugin_shutdown_error() {
 // Test complex shutdown ordering
 #[tokio::test]
 async fn test_complex_shutdown_ordering() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Set up a graph of plugins with dependencies
     // P3 depends on P2 depends on P1
     // P4 depends on P2
@@ -855,10 +883,10 @@ async fn test_complex_shutdown_ordering() {
 // Test loading plugins from empty directory
 #[tokio::test]
 async fn test_load_plugins_from_empty_directory() {
-    let manager = DefaultPluginManager::new().unwrap();
-    let tmp_dir = tempdir().unwrap();
-    
-    let result = manager.load_plugins_from_directory(tmp_dir.path()).await;
+    let (manager, _tmp_dir) = create_test_manager();
+    let plugin_dir_holder = tempdir().unwrap(); // Keep separate tmpdir for plugins
+
+    let result = manager.load_plugins_from_directory(plugin_dir_holder.path()).await;
     assert!(result.is_ok(), "Loading from empty directory should succeed with 0 plugins");
     assert_eq!(result.unwrap(), 0, "Should have loaded 0 plugins");
 }
@@ -866,9 +894,9 @@ async fn test_load_plugins_from_empty_directory() {
 // Test multiple plugin loaders using the same file
 #[tokio::test]
 async fn test_multiple_managers_loading_same_plugin() {
-    let manager1 = DefaultPluginManager::new().unwrap();
-    let manager2 = DefaultPluginManager::new().unwrap();
-    
+    let (manager1, _tmp_dir1) = create_test_manager();
+    let (manager2, _tmp_dir2) = create_test_manager();
+
     let example_plugin_path = match get_example_plugin_path() {
         Some(path) => path,
         None => {
@@ -896,20 +924,20 @@ async fn test_multiple_managers_loading_same_plugin() {
 // Test plugin file extension filtering
 #[tokio::test]
 async fn test_file_extension_filtering() {
-    let manager = DefaultPluginManager::new().unwrap();
-    let tmp_dir = tempdir().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+    let plugin_dir_holder = tempdir().unwrap(); // Keep separate tmpdir for plugins
+
     // Create different types of files with extensions to test filtering
     for ext in &[".dll", ".dylib", ".txt", ".so.old", ".not-so"] {
         let filename = format!("test_plugin{}", ext);
-        fs::write(tmp_dir.path().join(filename), "dummy content").unwrap();
+        fs::write(plugin_dir_holder.path().join(filename), "dummy content").unwrap();
     }
-    
+
     // Create a proper .so file (but invalid content)
-    fs::write(tmp_dir.path().join("proper.so"), "invalid plugin content").unwrap();
-    
-    let result = manager.load_plugins_from_directory(tmp_dir.path()).await;
-    
+    fs::write(plugin_dir_holder.path().join("proper.so"), "invalid plugin content").unwrap();
+
+    let result = manager.load_plugins_from_directory(plugin_dir_holder.path()).await;
+
     // Should try to load the .so file but fail due to invalid content
     assert!(result.is_err());
     if let Err(Error::Plugin(msg)) = &result {
@@ -926,8 +954,8 @@ async fn test_file_extension_filtering() {
 // NEW TESTS ADDED FOR ADDITIONAL COVERAGE
 #[tokio::test]
 async fn test_plugin_with_custom_priority_and_version() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create plugin with custom priority and version
     let plugin = Box::new(MockManagerPlugin::new("custom_plugin", vec![])
         .with_priority(PluginPriority::Core(50))
@@ -949,8 +977,8 @@ async fn test_plugin_with_custom_priority_and_version() {
 
 #[tokio::test]
 async fn test_plugin_with_stages() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a plugin that provides stages
     let mock_stage = Box::new(MockStage::new("test_stage"));
     let plugin = Box::new(MockManagerPlugin::new("stage_plugin", vec![])
@@ -981,8 +1009,8 @@ async fn test_plugin_with_stages() {
 
 #[tokio::test]
 async fn test_plugin_with_required_stages() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a plugin that requires stages
     let required_stage1 = StageRequirement::require("required_stage1");
     let required_stage2 = StageRequirement::optional("required_stage2");
@@ -1019,8 +1047,8 @@ async fn test_plugin_with_required_stages() {
 
 #[tokio::test]
 async fn test_plugin_with_specific_api_version_compatibility() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a plugin with specific API version requirements
     let plugin = Box::new(MockManagerPlugin::new("versioned_plugin", vec![])
         .with_compatible_api_versions(vec![">=1.2.0", "<2.0.0"]));
@@ -1046,8 +1074,8 @@ async fn test_plugin_with_specific_api_version_compatibility() {
 
 #[tokio::test]
 async fn test_plugin_with_long_running_operations() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create plugins with timeout behaviors
     let init_timeout_plugin = MockManagerPlugin::new("init_timeout", vec![])
         .with_init_timeout();
@@ -1077,8 +1105,8 @@ async fn test_plugin_with_long_running_operations() {
 
 #[tokio::test]
 async fn test_disabling_core_plugin() {
-    let manager = DefaultPluginManager::new().unwrap();
-    
+    let (manager, _tmp_dir) = create_test_manager();
+
     // Create a core plugin
     let core_plugin = Box::new(MockManagerPlugin::new("core_plugin", vec![])
         .with_core_status(true));
@@ -1107,3 +1135,172 @@ async fn test_disabling_core_plugin() {
 
 // TODO: Add tests for load_so_plugin error paths (missing symbol, init panic)
 // This requires creating dummy .so files, potentially in build.rs or separate test crates.
+
+// --- Tests for Plugin State Persistence ---
+
+// Remove incorrect import of private constants
+use std::collections::HashMap; // For deserializing state
+use serde_json::Value; // For deserializing state
+
+// Redefine constants if not easily importable (adjust if needed based on manager.rs visibility)
+const TEST_PLUGIN_STATES_CONFIG_NAME: &str = "plugin_states";
+const TEST_PLUGIN_STATES_CONFIG_KEY: &str = "enabled_map";
+
+#[tokio::test]
+async fn test_state_save_on_disable() {
+    let (manager, tmp_dir) = create_test_manager();
+    let plugin_id = "persist_disable_test";
+    let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+
+    // Register plugin
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin).unwrap();
+    }
+
+    // Initially enabled
+    assert!(manager.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be initially enabled");
+
+    // Disable the plugin - this should trigger saving state
+    manager.disable_plugin(plugin_id).await.unwrap();
+    assert!(!manager.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be disabled");
+
+    // Verify the state file content
+    let config_path = tmp_dir.path()
+        .join("plugin_config") // Matches ConfigManager setup
+        .join("user")          // Matches PLUGIN_STATES_SCOPE
+        .join(format!("{}.json", TEST_PLUGIN_STATES_CONFIG_NAME)); // Matches name and default format
+
+    assert!(config_path.exists(), "Config file should have been created at {:?}", config_path);
+
+    let content = fs::read_to_string(&config_path).expect("Failed to read config file");
+    let json_value: Value = serde_json::from_str(&content).expect("Failed to parse config JSON");
+
+    let enabled_map = json_value
+        .get(TEST_PLUGIN_STATES_CONFIG_KEY)
+        .and_then(|v| v.as_object())
+        .expect("JSON should contain enabled_map object");
+
+    assert_eq!(
+        enabled_map.get(plugin_id).and_then(|v| v.as_bool()),
+        Some(false),
+        "Plugin state should be saved as false in the config file"
+    );
+}
+
+#[tokio::test]
+async fn test_state_save_on_enable() {
+    let (manager, tmp_dir) = create_test_manager();
+    let plugin_id = "persist_enable_test";
+    let plugin = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+
+    // Register plugin
+    {
+        let mut registry = manager.registry().lock().await;
+        registry.register_plugin(plugin).unwrap();
+    }
+
+    // Disable first to ensure state is false
+    manager.disable_plugin(plugin_id).await.unwrap();
+    assert!(!manager.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be disabled");
+
+    // Enable the plugin - this should update the saved state
+    manager.enable_plugin(plugin_id).await.unwrap();
+    assert!(manager.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be enabled");
+
+    // Verify the state file content
+    let config_path = tmp_dir.path()
+        .join("plugin_config")
+        .join("user")
+        .join(format!("{}.json", TEST_PLUGIN_STATES_CONFIG_NAME));
+
+    assert!(config_path.exists(), "Config file should exist at {:?}", config_path);
+
+    let content = fs::read_to_string(&config_path).expect("Failed to read config file");
+    let json_value: Value = serde_json::from_str(&content).expect("Failed to parse config JSON");
+
+    let enabled_map = json_value
+        .get(TEST_PLUGIN_STATES_CONFIG_KEY)
+        .and_then(|v| v.as_object())
+        .expect("JSON should contain enabled_map object");
+
+    assert_eq!(
+        enabled_map.get(plugin_id).and_then(|v| v.as_bool()),
+        Some(true),
+        "Plugin state should be saved as true in the config file after enabling"
+    );
+}
+
+
+#[tokio::test]
+async fn test_state_load_on_initialize() {
+    let tmp_dir = tempdir().unwrap(); // Create temp dir once
+    let plugin_id = "persist_load_test";
+
+    // --- Manager 1: Register and Disable Plugin ---
+    {
+        let app_config_path = tmp_dir.path().join("app_config");
+        let plugin_config_path = tmp_dir.path().join("plugin_config");
+        fs::create_dir_all(&app_config_path).unwrap();
+        fs::create_dir_all(&plugin_config_path.join("user")).unwrap(); // Ensure user dir exists
+
+        let provider1 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+        let config_manager1: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+            provider1,
+            app_config_path.clone(),
+            plugin_config_path.clone(),
+            ConfigFormat::Json,
+        ));
+        let manager1 = DefaultPluginManager::new(config_manager1).unwrap();
+
+        // Register plugin
+        let plugin1 = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+        {
+            let mut registry = manager1.registry().lock().await;
+            registry.register_plugin(plugin1).unwrap();
+        }
+        assert!(manager1.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be enabled initially in manager1");
+
+        // Disable plugin (this saves state)
+        manager1.disable_plugin(plugin_id).await.unwrap();
+        assert!(!manager1.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be disabled in manager1");
+    } // Manager 1 goes out of scope
+
+    // --- Manager 2: Initialize and Check Loaded State ---
+    {
+        let app_config_path = tmp_dir.path().join("app_config"); // Use same paths
+        let plugin_config_path = tmp_dir.path().join("plugin_config");
+
+        let provider2 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+        let config_manager2: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+            provider2,
+            app_config_path,
+            plugin_config_path,
+            ConfigFormat::Json,
+        ));
+        let manager2 = DefaultPluginManager::new(config_manager2).unwrap();
+
+        // IMPORTANT: Register the *same* plugin ID *before* initializing manager2
+        // This simulates plugin discovery happening before state is applied.
+        let plugin2 = Box::new(MockManagerPlugin::new(plugin_id, vec![]));
+        {
+            let mut registry = manager2.registry().lock().await;
+            registry.register_plugin(plugin2).unwrap();
+            // At this point, the plugin is enabled *in memory* in manager2's registry
+            assert!(registry.is_enabled(plugin_id), "Plugin should be enabled in registry before initialize");
+        }
+
+
+        // Initialize manager2 - this should load the state from the file saved by manager1
+        KernelComponent::initialize(&manager2).await.unwrap();
+
+        // Verify that the loaded state (disabled) was applied
+        assert!(!manager2.is_plugin_enabled(plugin_id).await.unwrap(), "Plugin should be disabled in manager2 after initialization due to loaded state");
+
+        // Double-check the registry directly
+         {
+            let registry = manager2.registry().lock().await;
+            assert!(!registry.is_enabled(plugin_id), "Plugin should be disabled in registry after initialize");
+         }
+    }
+}

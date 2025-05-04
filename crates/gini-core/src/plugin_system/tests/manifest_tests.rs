@@ -2,7 +2,7 @@
 #![cfg(test)]
 
 use crate::plugin_system::{
-    manifest::{DependencyInfo, ManifestBuilder, PluginManifest},
+    manifest::{ManifestBuilder, PluginManifest}, // Removed DependencyInfo
     traits::PluginPriority,
     version::VersionRange,
 };
@@ -56,7 +56,7 @@ fn test_manifest_builder_methods() {
     assert_eq!(manifest.description, "A test plugin built with the builder."); // String
     assert_eq!(manifest.author, "Test Author"); // String
     assert_eq!(manifest.dependencies.len(), 1);
-    assert_eq!(manifest.dependencies[0].id, "core"); // Check id field
+    assert_eq!(manifest.dependencies[0].plugin_name, "core"); // Check plugin_name field
     // Compare Option<VersionRange> via string representation
     assert_eq!(manifest.dependencies[0].version_range.as_ref().map(|vr| vr.to_string()), Some(version_range.to_string()));
     assert!(manifest.dependencies[0].required);
@@ -136,14 +136,14 @@ fn test_manifest_builder_defaults() {
 #[test]
 fn test_dependency_info_creation() {
     let version_range = VersionRange::from_str(">=1.0, <2.0").unwrap();
-    // Use id field
-    let dep_info = DependencyInfo {
-        id: "another_plugin".to_string(),
+    // Use PluginDependency struct literal and plugin_name field
+    let dep_info = crate::plugin_system::dependency::PluginDependency { // Use full path for clarity
+        plugin_name: "another_plugin".to_string(),
         version_range: Some(version_range.clone()),
         required: false,
     };
 
-    assert_eq!(dep_info.id, "another_plugin");
+    assert_eq!(dep_info.plugin_name, "another_plugin"); // Use plugin_name field
     // VersionRange doesn't implement PartialEq, compare Option<String> representations
     assert_eq!(dep_info.version_range.map(|vr| vr.to_string()), Some(version_range.to_string()));
     assert!(!dep_info.required);
@@ -168,11 +168,11 @@ fn test_manifest_add_multiple_items() {
 
     assert_eq!(manifest.dependencies.len(), 2);
     // Check dependency details using find or iteration
-    let dep1 = manifest.dependencies.iter().find(|d| d.id == "dep1").unwrap();
+    let dep1 = manifest.dependencies.iter().find(|d| d.plugin_name == "dep1").unwrap(); // Use plugin_name
     assert!(dep1.required);
     assert!(dep1.version_range.is_none());
 
-    let dep2 = manifest.dependencies.iter().find(|d| d.id == "dep2").unwrap();
+    let dep2 = manifest.dependencies.iter().find(|d| d.plugin_name == "dep2").unwrap(); // Use plugin_name
     assert!(!dep2.required);
     assert_eq!(dep2.version_range.as_ref().map(|v| v.to_string()), Some(vr1.to_string()));
 
