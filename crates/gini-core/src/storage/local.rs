@@ -5,6 +5,7 @@ use crate::kernel::error::{Error, Result};
 use crate::storage::provider::StorageProvider;
 
 /// Local filesystem storage provider
+#[derive(Clone)]
 pub struct LocalStorageProvider {
     base_path: PathBuf,
 }

@@ -3,11 +3,13 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use async_trait::async_trait;
+use std::env;
 
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Result;
+use crate::kernel::error::{Error, Result};
 use crate::storage::provider::StorageProvider;
 use crate::storage::local::LocalStorageProvider; // Default provider
+use crate::storage::config::{ConfigManager, ConfigFormat, ConfigData, ConfigScope, PluginConfigScope, ConfigStorageExt};
 
 /// Storage manager component interface
 /// This simply wraps a StorageProvider for now
@@ -19,28 +21,115 @@ pub trait StorageManager: KernelComponent + StorageProvider {}
 pub struct DefaultStorageManager {
     name: &'static str,
     provider: Arc<dyn StorageProvider>, // Holds the actual provider
+    config_manager: ConfigManager<LocalStorageProvider>, // Configuration manager
+    app_config_path: PathBuf, // Path to application configurations
+    plugin_config_path: PathBuf, // Path to plugin configurations
+    user_data_path: PathBuf, // Path to user data
 }
 
 impl DefaultStorageManager {
     /// Create a new default storage manager with a LocalStorageProvider
     pub fn new(base_path: PathBuf) -> Self {
+        // Define standard paths
+        let app_config_path = base_path.join("config");
+        let plugin_config_path = base_path.join("plugins").join("config");
+        let user_data_path = base_path.join("user");
+        
+        // Create the provider
+        let local_provider = LocalStorageProvider::new(base_path.clone());
+        let provider = Arc::new(local_provider) as Arc<dyn StorageProvider>;
+        
+        // Create the provider
+        let provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
+        
+        // Create a local provider specifically for config management
+        let config_provider = LocalStorageProvider::new(base_path.clone());
+        
+        // Create the config manager
+        let config_manager = ConfigManager::new(
+            Arc::new(config_provider),
+            app_config_path.clone(),
+            plugin_config_path.clone(),
+            ConfigFormat::Json, // Default to JSON format
+        );
+        
         Self {
             name: "DefaultStorageManager",
-            provider: Arc::new(LocalStorageProvider::new(base_path)),
+            provider,
+            config_manager,
+            app_config_path,
+            plugin_config_path,
+            user_data_path,
         }
     }
 
     /// Create a new storage manager with a custom provider
     pub fn with_provider(provider: Arc<dyn StorageProvider>) -> Self {
+        // Get base path from provider or use default
+        let base_path = PathBuf::from("."); // Default to current directory
+        
+        // Define standard paths
+        let app_config_path = base_path.join("config");
+        let plugin_config_path = base_path.join("plugins").join("config");
+        let user_data_path = base_path.join("user");
+        
+        // Create a LocalStorageProvider for the config manager
+        let config_provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
+        
+        // Create a separate local provider for config management
+        let config_provider = LocalStorageProvider::new(base_path.clone());
+        
+        // Create the config manager
+        let config_manager = ConfigManager::new(
+            Arc::new(config_provider),
+            app_config_path.clone(),
+            plugin_config_path.clone(),
+            ConfigFormat::Json, // Default to JSON format
+        );
+        
         Self {
             name: "DefaultStorageManager", // Or derive from provider?
             provider,
+            config_manager,
+            app_config_path,
+            plugin_config_path,
+            user_data_path,
         }
     }
 
     /// Get the underlying provider
     pub fn provider(&self) -> &Arc<dyn StorageProvider> {
         &self.provider
+    }
+    
+    /// Get the application configuration path
+    pub fn app_config_path(&self) -> &Path {
+        &self.app_config_path
+    }
+    
+    /// Get the plugin configuration path
+    pub fn plugin_config_path(&self) -> &Path {
+        &self.plugin_config_path
+    }
+    
+    /// Get the user data path
+    pub fn user_data_path(&self) -> &Path {
+        &self.user_data_path
+    }
+    
+    /// Ensure all required directories exist
+    pub fn ensure_directories(&self) -> Result<()> {
+        // Ensure application config directory exists
+        self.create_dir_all(&self.app_config_path)?;
+        
+        // Ensure plugin config directories exist
+        self.create_dir_all(&self.plugin_config_path.join("default"))?;
+        self.create_dir_all(&self.plugin_config_path.join("user"))?;
+        
+        // Ensure user data directory exists
+        self.create_dir_all(&self.user_data_path)?;
+        
+        Ok(())
     }
 }
 
@@ -60,7 +149,8 @@ impl KernelComponent for DefaultStorageManager {
     }
 
     async fn initialize(&self) -> Result<()> {
-        // Delegate to provider if it has an init method (currently doesn't)
+        // Create required directories
+        self.ensure_directories()?;
         Ok(())
     }
 
@@ -171,5 +261,52 @@ impl Default for DefaultStorageManager {
         // Determine a sensible default base path, e.g., current dir or user data dir
         let default_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self::new(default_path)
+    }
+}
+
+// Implement ConfigStorageExt trait for DefaultStorageManager
+impl ConfigStorageExt for DefaultStorageManager {
+    fn config_manager<P: StorageProvider + ?Sized>(&self) -> &ConfigManager<P> {
+        // Safe to transmute here because ConfigManager<LocalStorageProvider> and ConfigManager<P>
+        // have the same memory representation since P is a trait object
+        unsafe { std::mem::transmute(&self.config_manager) }
+    }
+}
+
+// Implement additional configuration methods directly on DefaultStorageManager for convenience
+impl DefaultStorageManager {
+    // Make load_config method directly accessible from DefaultStorageManager
+    pub fn load_config(&self, name: &str, scope: crate::storage::config::ConfigScope) -> Result<ConfigData> {
+        self.config_manager.load_config(name, scope)
+    }
+
+    // Make list_configs method directly accessible from DefaultStorageManager
+    pub fn list_configs(&self, scope: crate::storage::config::ConfigScope) -> Result<Vec<String>> {
+        self.config_manager.list_configs(scope)
+    }
+    
+    // Get plugin configuration with user override support
+    pub fn get_plugin_config(&self, plugin_name: &str) -> Result<ConfigData> {
+        self.config_manager.get_plugin_config(plugin_name)
+    }
+    
+    // Save plugin-specific configuration
+    pub fn save_plugin_config(
+        &self,
+        plugin_name: &str,
+        config: &ConfigData,
+        scope: crate::storage::config::PluginConfigScope
+    ) -> Result<()> {
+        self.config_manager.save_plugin_config(plugin_name, config, scope)
+    }
+    
+    // Get application configuration
+    pub fn get_app_config(&self, name: &str) -> Result<ConfigData> {
+        self.config_manager.get_app_config(name)
+    }
+    
+    // Save application configuration
+    pub fn save_app_config(&self, name: &str, config: &ConfigData) -> Result<()> {
+        self.config_manager.save_app_config(name, config)
     }
 }

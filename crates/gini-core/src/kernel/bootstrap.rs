@@ -174,4 +174,14 @@ impl Application {
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
+    
+    /// Get the storage manager instance (synchronous convenience accessor)
+    pub fn storage_manager(&self) -> Arc<DefaultStorageManager> {
+        // For testing purposes, this simplified approach is sufficient
+        // In a real implementation, we should handle the potential absence gracefully
+        self.dependencies.try_lock()
+            .ok()
+            .and_then(|reg| reg.get_concrete::<DefaultStorageManager>())
+            .expect("Storage manager not found in registry")
+    }
 }

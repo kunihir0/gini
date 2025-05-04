@@ -11,6 +11,11 @@ authors.workspace = true # Inherit from workspace
 name = "gini_core"
 path = "src/lib.rs"
 
+[features]
+default = []
+yaml-config = ["serde_yaml"]
+toml-config = ["toml"]
+
 [dependencies]
 # Dependencies moved from the original gini crate
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "sync"] }
@@ -27,6 +32,10 @@ tempfile = "3.10"
 # Or use workspace dependency: thiserror = { workspace = true }
 serde = { version = "1.0", features = ["derive"] } # For manifest parsing
 serde_json = "1.0" # For manifest parsing
+
+# Optional dependencies for configuration formats
+serde_yaml = { version = "0.9", optional = true }
+toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
 # Tests moved here require tempfile

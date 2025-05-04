@@ -1,6 +1,7 @@
 pub mod provider;
 pub mod local;
 pub mod manager; // Add manager module
+pub mod config; // Add configuration module
 
 use std::path::{Path, PathBuf};
 use crate::kernel::error::{Error, Result};
@@ -9,6 +10,10 @@ use crate::kernel::error::{Error, Result};
 pub use provider::StorageProvider;
 pub use local::LocalStorageProvider;
 pub use manager::{StorageManager, DefaultStorageManager}; // Export manager types
+pub use config::{
+    ConfigManager, ConfigFormat, ConfigData, ConfigScope,
+    PluginConfigScope, ConfigStorageExt,
+}; // Export config types
 
 // Keep the old StorageManager struct for now if needed for compatibility,
 // or remove it if the new component replaces it entirely.
