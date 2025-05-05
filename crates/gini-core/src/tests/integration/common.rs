@@ -10,10 +10,8 @@ use tempfile::tempdir; // Added for test setup
 // Use fully qualified paths instead of aliases
 // use tokio::sync::Mutex as TokioMutex;
 // use std::sync::Mutex as StdMutex;
-use std::time::SystemTime;
 
 use crate::kernel::bootstrap::Application;
-use crate::kernel::component::KernelComponent;
 use crate::kernel::error::{Error, Result as KernelResult};
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
@@ -21,8 +19,8 @@ use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::manager::DefaultPluginManager;
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
 use crate::storage::local::LocalStorageProvider; // Added for test setup
-use crate::stage_manager::{Stage, StageContext, StageResult};
-use crate::stage_manager::manager::{StageManager, DefaultStageManager};
+use crate::stage_manager::{Stage, StageContext};
+use crate::stage_manager::manager::DefaultStageManager;
 use crate::stage_manager::requirement::StageRequirement;
 use crate::storage::manager::DefaultStorageManager;
 use crate::storage::provider::StorageProvider;
@@ -320,6 +318,7 @@ impl Stage for TestStage {
 
 // ===== DEPENDENCY STAGES =====
 
+#[allow(dead_code)] // Allow dead code for test helper struct
 pub struct DependentStage {
     id: String,
     execution_order: Arc<std::sync::Mutex<Vec<String>>>, // Use full path

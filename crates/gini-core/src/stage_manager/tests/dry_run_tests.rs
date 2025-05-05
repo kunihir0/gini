@@ -1,10 +1,9 @@
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::StagePipeline;
-use crate::stage_manager::registry::{StageRegistry, SharedStageRegistry};
-use crate::kernel::error::{Result, Error};
+use crate::stage_manager::registry::SharedStageRegistry;
+use crate::kernel::error::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex;
 use std::path::PathBuf;
 

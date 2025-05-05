@@ -4,12 +4,12 @@
 // Import macro from crate root, and other items from the adapter module
 use crate::define_adapter; // Use the macro from the crate root
 use crate::plugin_system::adapter::{Adapter, AdapterRegistry};
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 
 // --- Mock Setup ---
 
 // 1. Define a mock trait
-trait MockAdapterTrait: Send + Sync {
+pub trait MockAdapterTrait: Send + Sync {
     fn greet(&self) -> String;
     fn set_greeting(&mut self, new_greeting: &str);
 }
@@ -40,13 +40,12 @@ impl MockAdapterTrait for MockAdapterImpl {
 define_adapter!(MockAdapterImplAdapter, MockAdapterImpl, MockAdapterTrait);
 
 // Another mock for testing duplicates/different types
-trait AnotherMockTrait: Send + Sync {
-    fn value(&self) -> i32;
+pub trait AnotherMockTrait: Send + Sync {
 }
 #[derive(Clone)]
-struct AnotherMockImpl { value: i32 }
+struct AnotherMockImpl { } // Removed unused value field
 impl AnotherMockTrait for AnotherMockImpl {
-    fn value(&self) -> i32 { self.value }
+    // Removed unused value method implementation
 }
 // Use define_adapter! macro (without crate:: prefix)
 define_adapter!(AnotherMockImplAdapter, AnotherMockImpl, AnotherMockTrait);
@@ -96,7 +95,7 @@ fn test_adapter_registry_register_duplicate() {
     let impl3 = MockAdapterImpl::new("Impl3", "Yo");
     let adapter3 = MockAdapterImplAdapter::new("Adapter3", impl3); // Different name, same type as adapter1
 
-    let another_impl = AnotherMockImpl { value: 100 };
+    let another_impl = AnotherMockImpl {};
     let adapter4 = AnotherMockImplAdapter::new("Adapter4", another_impl.clone()); // Different name, different type
 
     // Register first one successfully
@@ -124,7 +123,7 @@ fn test_adapter_registry_register_duplicate() {
     assert_eq!(registry.count(), 2);
 
     // Attempt duplicate name with different TypeId (adapter5 has name "Adapter4")
-    let another_impl_2 = AnotherMockImpl { value: 200 };
+    let another_impl_2 = AnotherMockImpl {};
     let adapter5 = AnotherMockImplAdapter::new("Adapter4", another_impl_2); // Same name as adapter4
     let result_dup_name_diff_type = registry.register(adapter5); // adapter5 has name "Adapter4"
     assert!(result_dup_name_diff_type.is_err());
@@ -219,7 +218,7 @@ fn test_adapter_registry_remove() {
     let mut registry = AdapterRegistry::new();
     let impl1 = MockAdapterImpl::new("Remover1Impl", "R1");
     let adapter1 = MockAdapterImplAdapter::new("Remover1", impl1);
-    let impl2 = AnotherMockImpl { value: 1 };
+    let impl2 = AnotherMockImpl {};
     let adapter2 = AnotherMockImplAdapter::new("Remover2", impl2);
 
     let adapter1_name = adapter1.name().to_string();
@@ -268,7 +267,7 @@ fn test_adapter_registry_count() {
     registry.register(adapter1).unwrap();
     assert_eq!(registry.count(), 1);
 
-    let impl2 = AnotherMockImpl { value: 2 };
+    let impl2 = AnotherMockImpl {};
     let adapter2 = AnotherMockImplAdapter::new("c2", impl2);
     registry.register(adapter2).unwrap();
     assert_eq!(registry.count(), 2);
@@ -288,7 +287,7 @@ fn test_adapter_registry_names() {
 
     let impl1 = MockAdapterImpl::new("Name1Impl", "N1");
     let adapter1 = MockAdapterImplAdapter::new("Name1", impl1);
-    let impl2 = AnotherMockImpl { value: 1 };
+    let impl2 = AnotherMockImpl {};
     let adapter2 = AnotherMockImplAdapter::new("Name2", impl2);
 
     let name1 = adapter1.name().to_string();

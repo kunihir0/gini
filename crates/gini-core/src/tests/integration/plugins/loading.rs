@@ -1,26 +1,16 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
-use async_trait::async_trait;
 use tempfile::tempdir;
 use tokio::fs as tokio_fs;
 use serde_json::json; // Use serde_json for better manifest creation
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
-use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
-use crate::plugin_system::version::{VersionRange, ApiVersion}; // Added ApiVersion
-use crate::stage_manager::{Stage, StageContext, StageResult};
-use crate::stage_manager::requirement::StageRequirement;
-use crate::storage::manager::DefaultStorageManager;
+use crate::kernel::error::Result as KernelResult;
+use crate::plugin_system::traits::Plugin;
+ // Added ApiVersion
 use crate::plugin_system::loader::PluginLoader; // Import PluginLoader
-use crate::plugin_system::manager::DefaultPluginManager;
-use std::path::PathBuf;
-use std::str::FromStr; // For VersionRange::from_str
+ // For VersionRange::from_str
 
 use super::super::common::{setup_test_environment, TestPlugin};
 
@@ -110,10 +100,7 @@ async fn test_static_plugin_initialization_succeeds() -> KernelResult<()> {
 }
 // --- Integration Tests from plugin_system_coverage_plan.md ---
 
-use crate::plugin_system::manifest::ManifestBuilder;
 // Use the actual PluginRegistry struct
-use crate::plugin_system::registry::PluginRegistry;
-use crate::plugin_system::loader::ResolutionError;
 use crate::kernel::error::Error as KernelError; // Alias to avoid conflict
 
 // Helper to create a simple manifest JSON string using serde_json

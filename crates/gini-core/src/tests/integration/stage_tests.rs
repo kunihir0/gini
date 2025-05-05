@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex; // Alias for Tokio Mutex
 use std::sync::Mutex as StdMutex; // Use std mutex for order trackers
-use std::collections::HashMap; // Needed for context data
+ // Needed for context data
 use std::path::PathBuf; // Added import
 
 use crate::kernel::component::KernelComponent;
@@ -234,7 +234,7 @@ async fn test_complex_pipeline_creation() {
     StageManager::register_stage(&*stage_manager, Box::new(stage_e)).await.expect("Register E");
 
     // Build pipeline (order doesn't matter here, dependencies define execution)
-    let mut builder = PipelineBuilder::new("Complex Pipeline", "Test complex dependencies")
+    let builder = PipelineBuilder::new("Complex Pipeline", "Test complex dependencies")
         .add_stage("complex_a")
         .add_stage("complex_b")
         .add_stage("complex_c")
@@ -830,7 +830,7 @@ async fn test_pipeline_optional_dependency_handling() {
 
     // Stages A, B, C
     let stage_a = OptionalDepStage::new("opt_A", execution_order.clone());
-    let stage_b = OptionalDepStage::new("opt_B", execution_order.clone()); // The "optional" stage
+    let _stage_b = OptionalDepStage::new("opt_B", execution_order.clone()); // The "optional" stage
     let stage_c = OptionalDepStage::new("opt_C", execution_order.clone());
 
     // Register A and C initially

@@ -143,6 +143,7 @@ macro_rules! define_adapter {
         pub struct $adapter_name<$impl_type: $trait_name + Send + Sync + 'static> {
             name: String,
             // The implementation field holds the concrete type $impl_type
+            #[allow(dead_code)] // Allow dead code for tests that don't use the impl directly
             implementation: $impl_type, // Use $impl_type here
         }
         
@@ -157,11 +158,13 @@ macro_rules! define_adapter {
             }
             
             // Return a reference to the concrete implementation
+            #[allow(dead_code)] // Allow dead code for tests that don't use the impl directly
             pub fn implementation(&self) -> &$impl_type {
                 &self.implementation
             }
 
             // Return a mutable reference to the concrete implementation
+            #[allow(dead_code)] // Allow dead code for tests that don't use the impl directly
             pub fn implementation_mut(&mut self) -> &mut $impl_type {
                 &mut self.implementation
             }

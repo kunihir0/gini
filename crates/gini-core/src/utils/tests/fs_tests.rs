@@ -2,7 +2,6 @@
 use crate::utils::create_dir_all;
 // Keep std::fs for file operations within the test
 use std::fs::{self, File};
-use std::path::Path;
 use tempfile::tempdir;
 // Commented out unused fs submodule import
 // use crate::utils::fs::find_files_with_extension;

@@ -14,15 +14,11 @@ use crate::stage_manager::requirement::StageRequirement;
 use crate::stage_manager::Stage; // Import Stage trait
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::{tempdir, TempDir}; // Added TempDir
 use std::path::PathBuf;
-use std::path::Path;
 use std::str::FromStr; // Import FromStr for parsing VersionRange
 use std::env; // Added for helper function
 use std::fs; // Added for helper function
-use std::io;
-use std::collections::HashSet;
 use std::fmt;
 use std::time::Duration;
 
@@ -984,7 +980,7 @@ async fn test_plugin_with_stages() {
     let (manager, _tmp_dir) = create_test_manager();
 
     // Create a plugin that provides stages
-    let mock_stage = Box::new(MockStage::new("test_stage"));
+    let _mock_stage = Box::new(MockStage::new("test_stage"));
     let plugin = Box::new(MockManagerPlugin::new("stage_plugin", vec![])
         .add_stage(Box::new(MockStage::new("stage1")))
         .add_stage(Box::new(MockStage::new("stage2")))
@@ -1143,7 +1139,7 @@ async fn test_disabling_core_plugin() {
 // --- Tests for Plugin State Persistence ---
 
 // Remove incorrect import of private constants
-use std::collections::HashMap; // For deserializing state
+ // For deserializing state
 use serde_json::Value; // For deserializing state
 
 // Redefine constants if not easily importable (adjust if needed based on manager.rs visibility)

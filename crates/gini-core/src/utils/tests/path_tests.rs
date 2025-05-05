@@ -2,7 +2,6 @@ use crate::utils::{
     path_exists, is_file, is_dir, file_name, file_stem, file_extension,
     create_dir_all, write_string, remove_file, remove_dir_all,
 };
-use std::path::Path;
 use tempfile::tempdir;
 
 #[test]

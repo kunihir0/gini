@@ -1,9 +1,8 @@
 // src/plugin_system/tests/preflight_tests.rs
 #![cfg(test)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use std::str::FromStr; // Import FromStr trait
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -19,27 +18,6 @@ use crate::stage_manager::core_stages::{
     PLUGIN_REGISTRY_KEY, PREFLIGHT_FAILURES_KEY, APPLICATION_KEY,
 };
 use crate::stage_manager::Stage; // Import the Stage trait
-
-// --- Mock Application ---
-// Minimal struct to satisfy Plugin::init signature for testing
-#[derive(Default)]
-struct MockApplication {
-    initialized_plugins: Mutex<HashSet<String>>,
-}
-
-impl MockApplication {
-    // Method to simulate initialization tracking
-    async fn track_init(&self, plugin_id: &str) {
-        let mut lock = self.initialized_plugins.lock().await;
-        lock.insert(plugin_id.to_string());
-    }
-
-    async fn was_initialized(&self, plugin_id: &str) -> bool {
-        let lock = self.initialized_plugins.lock().await;
-        lock.contains(plugin_id)
-    }
-}
-
 
 // --- Mock Plugins ---
 
@@ -60,7 +38,7 @@ impl Plugin for SuccessPlugin {
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
 
     // Mock init - tracks initialization
-    fn init(&self, app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> KernelResult<()> {
         // This cast is tricky in tests. We'll use a simpler tracking mechanism.
         // For the real implementation, the context needs the actual Application.
         // For tests, we'll rely on the MockApplication tracking via context data.
@@ -136,7 +114,7 @@ impl Plugin for DefaultPlugin {
 
 // --- Test Setup ---
 
-async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>, Arc<MockApplication>) {
+async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>) {
     // Create registry and add plugins
     let api_version = ApiVersion::from_str("0.1.0").unwrap(); // Use imported ApiVersion
     let registry = Arc::new(Mutex::new(PluginRegistry::new(api_version)));
@@ -148,22 +126,16 @@ async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>, 
         reg.register_plugin(Box::new(DefaultPlugin)).expect("Failed to register DefaultPlugin");
     }
 
-    // Create mock application for tracking init calls
-    let mock_app = Arc::new(MockApplication::default());
-
-    // Create context and add registry and mock app
+    // Create context and add registry
     let mut context = StageContext::new_live(std::env::temp_dir()); // Use temp dir for config
     context.set_data(PLUGIN_REGISTRY_KEY, registry.clone());
-    // Store the Arc<MockApplication> for tracking init calls within the test
-    context.set_data("mock_app_tracker", mock_app.clone());
-    // We need *something* for the Application type expected by init, even if unused directly
-    // Let's put a placeholder value or handle this differently if possible.
-    // For now, let's assume the test won't actually need to *use* the Application reference
-    // passed to init, relying on the mock_app_tracker instead.
-    // If init *must* interact with Application, we need a more complex mock.
-    // context.set_data(APPLICATION_KEY, ???); // How to put a mock Application here?
 
-    (context, registry, mock_app)
+    // Add a placeholder Application to context for init stage signature
+    // This is a simplification for the test. A real scenario needs the actual Application.
+    let placeholder_app = Application::new(None).expect("Failed to create placeholder app"); // Create a dummy app
+    context.set_data(APPLICATION_KEY, placeholder_app); // Add it to context
+
+    (context, registry)
 }
 
 
@@ -171,7 +143,7 @@ async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>, 
 
 #[tokio::test]
 async fn test_preflight_check_stage_execution() {
-    let (mut context, _registry, _mock_app) = setup_test_environment().await;
+    let (mut context, _registry) = setup_test_environment().await;
     let stage = PluginPreflightCheckStage;
 
     // Execute the preflight stage
@@ -203,7 +175,7 @@ async fn test_preflight_check_stage_execution() {
 
 #[tokio::test]
 async fn test_initialization_stage_skips_failed_preflight() {
-    let (mut context, _registry, mock_app) = setup_test_environment().await;
+    let (mut context, _registry) = setup_test_environment().await;
     let preflight_stage = PluginPreflightCheckStage;
     let init_stage = PluginInitializationStage;
 
@@ -211,12 +183,6 @@ async fn test_initialization_stage_skips_failed_preflight() {
     // Run preflight first to populate the failures in the context
     let _preflight_result = preflight_stage.execute(&mut context).await;
     // We expect an error from preflight, but proceed to test init stage behavior
-
-    // Add a placeholder Application to context for init stage signature
-    // This is a simplification for the test. A real scenario needs the actual Application.
-    let mut placeholder_app = Application::new(None).expect("Failed to create placeholder app"); // Create a dummy app
-    context.set_data(APPLICATION_KEY, placeholder_app); // Add it to context
-
 
     // --- Execute Initialization Stage ---
     // Execute the init stage

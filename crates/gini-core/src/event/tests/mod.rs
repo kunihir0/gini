@@ -34,7 +34,7 @@ mod tests {
         let called = Arc::new(Mutex::new(false));
         let called_clone = called.clone();
 
-        let handler = move |event: &dyn Event| {
+        let handler = move |_event: &dyn Event| {
             let mut called = called_clone.lock().unwrap();
             *called = true;
             async move { EventResult::Continue }

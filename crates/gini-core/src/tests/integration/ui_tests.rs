@@ -39,6 +39,7 @@ struct MockUiProvider {
     messages_received: Arc<Mutex<VecDeque<UiMessage>>>, // Use VecDeque to check order easily
 }
 
+#[allow(dead_code)] // Allow dead code for test helper methods
 impl MockUiProvider {
     fn new(name: &'static str) -> Self {
         Self {

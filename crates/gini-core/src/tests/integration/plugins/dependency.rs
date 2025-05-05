@@ -1,8 +1,6 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
@@ -11,11 +9,9 @@ use crate::kernel::error::{Error, Result as KernelResult};
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
 use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::requirement::StageRequirement;
 use crate::storage::manager::DefaultStorageManager;
-use crate::plugin_system::manager::DefaultPluginManager;
-use std::path::PathBuf;
 
 use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior};
 
@@ -52,7 +48,7 @@ async fn test_plugin_dependency_unparsable_version() {
         ShutdownBehavior::Success, PreflightBehavior::Success,
         stages_executed.clone(), execution_order.clone(), shutdown_order.clone()
     );
-    let main_plugin_name = main_plugin.name().to_string();
+    let _main_plugin_name = main_plugin.name().to_string();
 
     // Register both
     {
@@ -79,7 +75,7 @@ async fn test_plugin_dependency_unparsable_version() {
 
 #[tokio::test]
 async fn test_plugin_dependency_no_version() {
-    let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
+    let (plugin_manager, _, _, _stages_executed, _execution_order, _shutdown_order) = setup_test_environment().await;
     KernelComponent::initialize(&*plugin_manager).await.expect("Init PluginManager");
 
     // Destructure execution_order as well
@@ -119,6 +115,7 @@ async fn test_plugin_dependency_no_version() {
 }
 
 // Helper plugins for cycle test
+#[allow(dead_code)] // Allow dead code for test helper struct
 struct CyclePluginA { storage: Arc<DefaultStorageManager> } // Need storage for init
 #[async_trait]
 impl Plugin for CyclePluginA {
@@ -139,6 +136,7 @@ impl Plugin for CyclePluginA {
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
 }
 
+#[allow(dead_code)] // Allow dead code for test helper struct
 struct CyclePluginB { storage: Arc<DefaultStorageManager> }
 #[async_trait]
 impl Plugin for CyclePluginB {
@@ -159,6 +157,7 @@ impl Plugin for CyclePluginB {
     fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
 }
 
+#[allow(dead_code)] // Allow dead code for test helper struct
 struct CyclePluginC { storage: Arc<DefaultStorageManager> }
 #[async_trait]
 impl Plugin for CyclePluginC {

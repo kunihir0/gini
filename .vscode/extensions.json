@@ -1,0 +1,12 @@
+{
+    "recommendations": [
+        "markis.code-coverage",
+        "vadimcn.vscode-lldb",
+        "EditorConfig.EditorConfig",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "bierner.markdown-preview-github-styles",
+        "RooVeterinaryInc.roo-cline",
+        "rust-lang.rust-analyzer"
+    ]
+}

@@ -1,21 +1,18 @@
 #![cfg(test)]
 
 use tokio::test;
-use std::path::PathBuf;
-use std::sync::Arc;
 use async_trait::async_trait;
 use std::time::SystemTime;
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
 use crate::kernel::error::{Error, Result as KernelResult};
-use crate::storage::DefaultStorageManager;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError};
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::requirement::StageRequirement;
-use crate::storage::config::{ConfigData, PluginConfigScope, ConfigStorageExt};
+use crate::storage::config::{ConfigData, PluginConfigScope};
 
 use super::common::setup_test_environment;
 

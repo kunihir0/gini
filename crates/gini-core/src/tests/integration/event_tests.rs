@@ -3,33 +3,28 @@
 use std::sync::{Arc, Mutex};
 use tokio::test;
 use std::any::Any;
-use std::future::Future;
-use std::pin::Pin;
-use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::collections::{VecDeque, HashSet};
+use std::collections::VecDeque;
 use std::path::PathBuf; // Added for StageContext::new_live
 use std::fs; // Added for test setup
 use tempfile::tempdir; // Added for test setup
 
 // Use fully qualified path for BoxFuture
 use crate::event::dispatcher::BoxFuture;
-use crate::event::{Event, EventResult, EventPriority, EventId}; // Added EventId
-use crate::event::dispatcher::{self, SharedEventDispatcher};
+use crate::event::{Event, EventResult}; // Added EventId
 use crate::event::manager::{EventManager, DefaultEventManager};
 use crate::event::types::TestEvent;
-use crate::stage_manager::{Stage, StageContext, StageResult, StageManager};
+use crate::stage_manager::{Stage, StageContext, StageManager};
 use crate::stage_manager::manager::DefaultStageManager; // Corrected import path
 use crate::stage_manager::requirement::StageRequirement; // Moved import higher
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
-use crate::plugin_system::manager::{PluginManager, DefaultPluginManager};
+use crate::plugin_system::manager::DefaultPluginManager;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::version::VersionRange;
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
 use crate::storage::local::LocalStorageProvider; // Added for test setup
 use crate::kernel::bootstrap::Application;
 use crate::kernel::error::Result as KernelResult; // Corrected import path
-use crate::kernel::component::KernelComponent;
 use crate::storage::manager::DefaultStorageManager;
 #[test]
 async fn test_event_system_integration() {
@@ -310,7 +305,7 @@ async fn test_stage_dispatches_event() {
     let stage_manager = Arc::new(DefaultStageManager::new());
     // Break down storage_manager creation
     let storage_base_path = std::env::temp_dir().join("gini_test_stage_event");
-    let storage_manager = Arc::new(DefaultStorageManager::new(storage_base_path)); // Dummy storage
+    let _storage_manager = Arc::new(DefaultStorageManager::new(storage_base_path)); // Dummy storage
 
     // Setup ConfigManager for PluginManager
     let tmp_dir = tempdir().unwrap();
@@ -325,7 +320,7 @@ async fn test_stage_dispatches_event() {
         plugin_config_path,
         ConfigFormat::Json,
     ));
-    let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager).unwrap()); // Pass ConfigManager
+    let _plugin_manager = Arc::new(DefaultPluginManager::new(config_manager).unwrap()); // Pass ConfigManager
 
     // Register the stage
     let stage = EventDispatchingStage::new("dispatch_stage");

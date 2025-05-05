@@ -1,8 +1,5 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
 use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
@@ -12,15 +9,13 @@ use crate::kernel::error::{Error, Result as KernelResult};
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
 use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::requirement::StageRequirement;
-use crate::storage::manager::DefaultStorageManager;
-use crate::plugin_system::manager::DefaultPluginManager;
-use std::path::PathBuf;
 
-use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior, VersionedPlugin};
+use super::super::common::setup_test_environment;
 
 // Define the incompatible plugin locally for this test
+#[allow(dead_code)] // Allow dead code for test helper struct
 struct IncompatiblePlugin {
     id: String, // Keep id for potential future use or if name() needs it
     incompatible_api_version_range: VersionRange,

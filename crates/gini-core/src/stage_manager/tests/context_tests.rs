@@ -1,6 +1,5 @@
 use crate::stage_manager::context::StageContext;
 use std::path::PathBuf;
-use std::any::TypeId;
 
 // Helper function to create a dummy path for tests
 fn dummy_path() -> PathBuf {

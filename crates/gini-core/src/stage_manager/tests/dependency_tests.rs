@@ -1,6 +1,6 @@
 use crate::stage_manager::pipeline::StagePipeline;
-use crate::stage_manager::registry::{StageRegistry, SharedStageRegistry};
-use crate::stage_manager::{Stage, StageContext, StageResult}; // Added StageResult
+use crate::stage_manager::registry::SharedStageRegistry;
+use crate::stage_manager::{Stage, StageContext}; // Added StageResult
 use crate::kernel::error::{Result, Error};
 use async_trait::async_trait;
 use std::sync::Arc;

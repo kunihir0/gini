@@ -1,25 +1,16 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
-use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
+use crate::kernel::error::Error;
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
-use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::plugin_system::traits::{Plugin, PluginError as TraitsPluginError};
+use crate::stage_manager::{StageContext};
 use crate::stage_manager::manager::StageManager;
 use crate::stage_manager::pipeline::PipelineBuilder;
-use crate::stage_manager::requirement::StageRequirement;
-use crate::storage::manager::DefaultStorageManager;
-use crate::plugin_system::manager::DefaultPluginManager;
-use std::path::PathBuf;
 
-use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior};
+use super::super::common::{setup_test_environment, DependentPlugin, ShutdownBehavior, PreflightBehavior};
 
 #[tokio::test]
 async fn test_lifecycle_management() {

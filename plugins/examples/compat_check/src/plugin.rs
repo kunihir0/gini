@@ -5,7 +5,7 @@ use gini_core::stage_manager::{Stage, StageContext, requirement::StageRequiremen
 use gini_core::kernel::bootstrap::Application; // For init method signature
 use gini_core::kernel::Result as KernelResult; // Removed unused KernelError import
 use async_trait::async_trait;
-use std::env; // Keep for potential other uses, or remove if truly unused later
+ // Keep for potential other uses, or remove if truly unused later
 
 // Define a key for the context data
 const COMPAT_CHECK_CONTEXT_KEY: &str = "compat_check_value";
@@ -100,7 +100,7 @@ impl Plugin for CompatCheckPlugin {
 }
 
 use gini_core::plugin_system::traits::{
-    FfiResult, FfiSlice, FfiVersionRange, FfiPluginDependency,
+    FfiSlice, FfiVersionRange, FfiPluginDependency,
     FfiStageRequirement, PluginVTable, FfiPluginPriority,
 };
 use std::os::raw::{c_char, c_void};
@@ -179,13 +179,57 @@ extern "C" fn ffi_get_priority(instance: *const c_void) -> FfiPluginPriority {
     }
 }
 
-// --- Slice Functions (Returning Empty for Simplicity) ---
+// --- Slice Functions ---
 
-extern "C" fn ffi_get_empty_version_ranges(_instance: *const c_void) -> FfiSlice<FfiVersionRange> {
-    FfiSlice { ptr: ptr::null(), len: 0 }
+// Compatible API Versions
+extern "C" fn ffi_get_compatible_api_versions(instance: *const c_void) -> FfiSlice<FfiVersionRange> {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    let ranges = plugin.compatible_api_versions();
+    let mut ffi_ranges: Vec<FfiVersionRange> = Vec::with_capacity(ranges.len());
+
+    for range in ranges {
+        // Convert the VersionRange constraint string to a CString
+        match CString::new(range.to_string()) {
+            Ok(c_str) => {
+                ffi_ranges.push(FfiVersionRange {
+                    constraint: c_str.into_raw(), // Transfer ownership
+                });
+            }
+            Err(_) => {
+                // Handle error: maybe log, skip, or return an error indicator?
+                // For now, skip this range if conversion fails.
+                eprintln!("Error converting version range constraint to CString");
+            }
+        }
+    }
+
+    // Convert Vec to FfiSlice, transferring ownership of the Vec's buffer
+    let ptr = ffi_ranges.as_mut_ptr();
+    let len = ffi_ranges.len();
+    std::mem::forget(ffi_ranges); // Prevent Vec from dropping the buffer
+
+    FfiSlice { ptr, len }
 }
-extern "C" fn ffi_free_empty_version_ranges(_slice: FfiSlice<FfiVersionRange>) {}
 
+extern "C" fn ffi_free_compatible_api_versions(slice: FfiSlice<FfiVersionRange>) {
+    if !slice.ptr.is_null() {
+        unsafe {
+            // Reconstruct the Vec to manage memory, casting ptr to mutable
+            let ffi_ranges = Vec::from_raw_parts(slice.ptr as *mut FfiVersionRange, slice.len, slice.len);
+            // Free the CString for each constraint
+            for ffi_range in ffi_ranges {
+                if !ffi_range.constraint.is_null() {
+                    // Retake ownership of the CString and drop it
+                    let _ = CString::from_raw(ffi_range.constraint as *mut c_char);
+                }
+            }
+            // The Vec itself will be dropped here, freeing the main buffer
+        }
+    }
+}
+
+
+// Dependencies (Empty)
 extern "C" fn ffi_get_empty_dependencies(_instance: *const c_void) -> FfiSlice<FfiPluginDependency> {
     FfiSlice { ptr: ptr::null(), len: 0 }
 }
@@ -225,9 +269,9 @@ pub extern "C" fn _plugin_init() -> *mut PluginVTable {
             free_version: ffi_free_version, // Add free function
             is_core: ffi_is_core,
             priority: ffi_get_priority,
-            // Use empty slice functions for now
-            compatible_api_versions: ffi_get_empty_version_ranges,
-            free_compatible_api_versions: ffi_free_empty_version_ranges,
+            // Use actual slice functions
+            compatible_api_versions: ffi_get_compatible_api_versions,
+            free_compatible_api_versions: ffi_free_compatible_api_versions,
             dependencies: ffi_get_empty_dependencies,
             free_dependencies: ffi_free_empty_dependencies,
             required_stages: ffi_get_empty_stage_requirements,

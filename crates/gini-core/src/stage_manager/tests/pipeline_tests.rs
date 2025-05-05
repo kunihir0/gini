@@ -1,12 +1,12 @@
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::StagePipeline;
-use crate::stage_manager::registry::{StageRegistry, SharedStageRegistry}; // Import SharedStageRegistry
+use crate::stage_manager::registry::SharedStageRegistry; // Import SharedStageRegistry
 use crate::kernel::error::{Result, Error};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex;
-use std::collections::HashMap; // Import HashMap
+ // Import HashMap
 
 // Test helper to track stage execution
 struct ExecutionTracker {
@@ -32,6 +32,7 @@ impl ExecutionTracker {
         self.executed_stages.lock().await.clone()
     }
 
+    #[allow(dead_code)] // Allow dead code as this helper might not be used in all tests
     fn get_execution_count(&self) -> u32 {
         self.execution_count.load(Ordering::SeqCst)
     }
@@ -224,7 +225,7 @@ async fn test_empty_pipeline() {
 
 #[tokio::test]
 async fn test_pipeline_get_stages() {
-    let tracker = Arc::new(ExecutionTracker::new()); // Keep tracker even if unused, for consistency
+    let _tracker = Arc::new(ExecutionTracker::new()); // Keep tracker even if unused, for consistency
     // Registry is not needed for just getting stage IDs from the pipeline definition
     let mut pipeline = StagePipeline::new("Get Stages Pipeline", "Tests getting stage list");
 

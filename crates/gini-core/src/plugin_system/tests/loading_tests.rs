@@ -139,30 +139,10 @@ async fn test_load_from_non_existent_directory() -> Result<()> {
 // --- Unit Tests for PluginLoader ---
 
 use crate::plugin_system::loader::{PluginLoader, ResolutionError};
-use crate::plugin_system::manifest::{ManifestBuilder, PluginManifest}; // Removed DependencyInfo
-use crate::plugin_system::version::VersionRange;
-use std::collections::HashMap;
-// Removed duplicate PathBuf import
-use std::str::FromStr;
+// Removed unused imports: PluginManifest, VersionRange, FromStr
 use tokio::fs as tokio_fs; // Use alias for clarity
 
 // Helper to create a basic manifest for dependency tests
-fn create_test_manifest(id: &str, version: &str, deps: Vec<crate::plugin_system::PluginDependency>) -> PluginManifest { // Use re-exported path
-    let mut manifest = PluginManifest::new(id, id, version, "Desc", "Auth");
-    manifest.dependencies = deps;
-    manifest
-}
-
-// Helper to create a PluginDependency
-fn create_dep(id: &str, version_req: Option<&str>, required: bool) -> crate::plugin_system::PluginDependency { // Return re-exported path
-    let version_range = version_req.map(|vr| VersionRange::from_str(vr).unwrap());
-    crate::plugin_system::PluginDependency { // Use re-exported path struct literal
-        plugin_name: id.to_string(), // Use plugin_name field
-        version_range,
-        required,
-    }
-}
-
 #[test]
 fn test_resolution_error_display() {
     let missing_dep_err = ResolutionError::MissingDependency {

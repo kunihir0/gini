@@ -97,19 +97,19 @@ impl VTablePluginWrapper {
         // The `library` variable will be dropped automatically in the Err case if we return early.
 
         // Get name, convert, and immediately free the FFI pointer
-        let name_ptr = unsafe { (vtable_ref.name)(instance_const) };
-        let name_string = unsafe { ffi_string_from_ptr(name_ptr) }
+        let name_ptr = (vtable_ref.name)(instance_const); // Removed unnecessary unsafe block
+        let name_string = unsafe { ffi_string_from_ptr(name_ptr) } // Keep unsafe for ffi_string_from_ptr
             .map_err(|e| map_ffi_error(e, "getting plugin name"))?;
-        unsafe { (vtable_ref.free_name)(name_ptr as *mut c_char) }; // Free the name string via VTable
+        (vtable_ref.free_name)(name_ptr as *mut c_char); // Removed unnecessary unsafe block
 
         // Leak the name string once to get &'static str
         let static_name: &'static str = Box::leak(name_string.into_boxed_str());
 
         // Get version, convert, and immediately free the FFI pointer
-        let version_ptr = unsafe { (vtable_ref.version)(instance_const) };
-        let version = unsafe { ffi_string_from_ptr(version_ptr) }
+        let version_ptr = (vtable_ref.version)(instance_const); // Removed unnecessary unsafe block
+        let version = unsafe { ffi_string_from_ptr(version_ptr) } // Keep unsafe for ffi_string_from_ptr
             .map_err(|e| map_ffi_error(e, "getting plugin version"))?;
-        unsafe { (vtable_ref.free_version)(version_ptr as *mut c_char) }; // Free the version string via VTable
+        (vtable_ref.free_version)(version_ptr as *mut c_char); // Removed unnecessary unsafe block
 
         let is_core = (vtable_ref.is_core)(instance_const);
         let ffi_priority = (vtable_ref.priority)(instance_const); // Unsafe block removed
@@ -339,7 +339,7 @@ impl Plugin for VTablePluginWrapper {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
-        let name_cache = self.name_cache.clone(); // Clone to move into the async block
+        let name_cache = self.name_cache; // Clone to move into the async block
         Box::pin(async move {
             println!("Warning: VTablePluginWrapper::preflight_check called for '{}', but not implemented via VTable.", name_cache);
             // The actual logic would go here if preflight_check was supported via FFI

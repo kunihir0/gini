@@ -1,20 +1,9 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
-use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
-use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
-use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
-use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext, StageResult};
-use crate::stage_manager::requirement::StageRequirement;
-use crate::storage::manager::DefaultStorageManager;
-use crate::plugin_system::manager::DefaultPluginManager;
+use crate::plugin_system::traits::{Plugin, PluginPriority};
+use crate::stage_manager::StageContext;
 use std::path::PathBuf;
 
 use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior, VersionedPlugin};
@@ -22,7 +11,7 @@ use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, 
 #[tokio::test]
 async fn test_common_plugin_helpers_coverage() {
     // Instantiate common plugins just to call uncovered methods for coverage
-    let (plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
+    let (_plugin_manager, _, _, stages_executed, execution_order, shutdown_order) = setup_test_environment().await;
 
     let test_plugin = TestPlugin::new("CoverageTestPlugin", stages_executed.clone(), execution_order.clone()); // Pass execution_order
     assert!(!test_plugin.is_core()); // Cover is_core

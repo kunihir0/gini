@@ -1,5 +1,4 @@
-use std::path::{Path, PathBuf};
-use std::fs;
+use std::path::PathBuf;
 use tempfile::tempdir;
 
 use crate::kernel::error::Result;

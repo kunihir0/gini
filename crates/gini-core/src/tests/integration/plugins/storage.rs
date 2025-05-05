@@ -1,24 +1,20 @@
 #![cfg(test)]
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
+use crate::kernel::error::Result as KernelResult;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
 use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::requirement::StageRequirement;
 use crate::storage::manager::DefaultStorageManager;
 use crate::storage::provider::StorageProvider;
-use crate::plugin_system::manager::DefaultPluginManager;
-use std::path::PathBuf;
 
-use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior};
+use super::super::common::setup_test_environment;
 
 // Define a plugin that interacts with storage
 struct StorageInteractingPlugin {
@@ -105,7 +101,7 @@ async fn test_plugin_interaction_with_storage() {
     // Create a mock Application instance containing the necessary managers
     // Note: Application::new might require more setup depending on its implementation.
     // We pass `None` for config dir assuming the plugin doesn't need it directly.
-    let mut app = Application::new(None).expect("Failed to create mock Application");
+    let _app = Application::new(None).expect("Failed to create mock Application");
     // Manually add the storage manager instance we got from setup_test_environment
     // This depends on Application having a way to set/replace managers, which might not be standard.
     // If Application::new sets up its own managers, we need to ensure the test uses the correct one.

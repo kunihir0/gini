@@ -21,6 +21,7 @@ impl MockStage {
         }
     }
 
+    #[allow(dead_code)] // Allow dead code as this helper might not be used in all tests
     fn with_dry_run(mut self, supports: bool) -> Self {
         self.supports_dry_run = supports;
         self
