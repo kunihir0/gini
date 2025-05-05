@@ -12,7 +12,7 @@ name = "gini_core"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["toml-config", "yaml-config"] # Add config features to default
 yaml-config = ["serde_yaml"]
 toml-config = ["toml"]
 

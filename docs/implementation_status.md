@@ -59,7 +59,7 @@ This document tracks the implementation status of various components and feature
 |-----------|-------------|--------|-------|
 | UI Bridge Interface | Abstract UI communication layer | ✅ | Message-based UI interface defined |
 | Message Types | Define UI message structure | ✅ | Core message types defined |
-| CLI Connector | Command-line interface connector | 🚧 | Basic implementation, needs significant improvement |
+| CLI Connector | Command-line interface connector | 📝 | Planned, requires implementation and integration. |
 | TUI Connector | Text-based UI connector | 📝 | Planned for future implementation |
 | GUI Connector | Graphical UI connector | 📝 | Planned for future implementation |
 | Web Interface Connector | Web-based UI connector | 📝 | Planned for future implementation |
@@ -152,3 +152,29 @@ gantt
 7. Begin implementing performance testing framework
 
 This status tracker will be updated regularly as implementation progresses.
+## UI Manager & CLI Connector Integration Plan (2025-05-05)
+
+Based on code review, the following integration steps are proposed:
+
+1.  **`UIManager` Definition:**
+    *   Define the `UIManager` struct in `crates/gini-core/src/ui_bridge/manager.rs`.
+    *   Implement `KernelComponent` trait for `UIManager`.
+    *   Include methods like `async fn register_connector(&self, connector: Arc&lt;dyn UiConnector&gt;)` to manage connector registration and handle incoming messages.
+
+2.  **`UIManager` Integration into `Application` (`bootstrap.rs`):**
+    *   In `crates/gini-core/src/kernel/bootstrap.rs` (`Application::new`):
+        *   Instantiate `UIManager`.
+        *   Wrap in `Arc::new()`.
+        *   Register with `DependencyRegistry` via `registry.register_instance()`.
+        *   Add `TypeId::of::&lt;UIManager&gt;()` to `component_init_order`.
+
+3.  **`CliConnector` Definition:**
+    *   Define the `CliConnector` struct in `crates/gini/src/cli_connector.rs`.
+    *   Implement the (to-be-defined) `UiConnector` trait from `gini-core` for sending messages to `UIManager`.
+
+4.  **`CliConnector` Integration into `main.rs`:**
+    *   In `crates/gini/src/main.rs` (`main` function):
+        *   Instantiate `CliConnector` after `Application` creation.
+        *   Retrieve `UIManager`: `let ui_manager = app.get_component::&lt;UIManager&gt;().await.expect("UIManager not found");`.
+        *   Register connector: `ui_manager.register_connector(Arc::new(cli_connector)).await;`.
+        *   Run the `CliConnector`'s input loop concurrently or before `app.run()`.

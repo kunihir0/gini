@@ -211,7 +211,7 @@ async fn test_app_configuration_management() {
 #[cfg(feature = "toml-config")] // Only run if toml-config feature is enabled
 async fn test_app_configuration_toml_format() {
     // Setup test environment
-    let (_, _, mut storage_manager, _, _, _) = setup_test_environment().await;
+    let (_, _, storage_manager, _, _, _) = setup_test_environment().await;
 
     // Initialize storage manager (creates necessary directories)
     KernelComponent::initialize(&*storage_manager).await.expect("Failed to initialize storage manager");
