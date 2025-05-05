@@ -3,8 +3,6 @@ pub mod local;
 pub mod manager; // Add manager module
 pub mod config; // Add configuration module
 
-use std::path::{Path, PathBuf};
-use crate::kernel::error::{Error, Result};
 
 /// Re-export key types
 pub use provider::StorageProvider;

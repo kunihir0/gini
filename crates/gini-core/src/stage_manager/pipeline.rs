@@ -1,9 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use crate::kernel::error::{Error, Result};
 use crate::stage_manager::{StageContext, StageResult};
 // Import SharedStageRegistry for execute method
 use crate::stage_manager::registry::SharedStageRegistry;
-use crate::stage_manager::requirement::StageRequirement; // Keep this if needed
 
 /// Stage execution pipeline
 pub struct StagePipeline {

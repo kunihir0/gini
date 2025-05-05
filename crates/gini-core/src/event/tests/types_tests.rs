@@ -1,6 +1,5 @@
-use std::sync::Arc;
 
-use crate::event::{Event, EventPriority, EventResult};
+use crate::event::{Event, EventPriority};
 use crate::event::types::{SystemEvent, PluginEvent, StageEvent, IssueSeverity};
 
 #[test]

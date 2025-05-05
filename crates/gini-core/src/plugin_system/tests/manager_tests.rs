@@ -538,6 +538,7 @@ async fn test_get_plugin_manifest() {
 }
 
 #[tokio::test]
+// #[ignore] // Ignore this test by default due to FFI instability causing SIGSEGV in test suite
 async fn test_load_plugins_from_directory_with_errors() {
     let (manager, _tmp_dir) = create_test_manager();
     let plugin_dir_holder = tempdir().unwrap(); // Keep separate tmpdir for plugins
@@ -634,6 +635,7 @@ async fn test_get_plugin_manifest_not_found() {
 }
 
 #[tokio::test]
+// #[ignore] // Ignore this test by default due to FFI instability causing SIGSEGV in test suite
 async fn test_manager_initialize_with_plugin_dir() {
     // Test initialization when the default plugin dir *does* exist
     // This requires the example plugin to be compiled in target/debug
@@ -685,6 +687,7 @@ async fn test_manager_stop() {
 }
 
 #[tokio::test]
+// #[ignore] // Ignore this test by default due to FFI instability causing SIGSEGV in test suite
 async fn test_load_plugin_success() {
     let (manager, _tmp_dir) = create_test_manager();
     let example_plugin_path = match get_example_plugin_path() {
@@ -893,6 +896,7 @@ async fn test_load_plugins_from_empty_directory() {
 
 // Test multiple plugin loaders using the same file
 #[tokio::test]
+// #[ignore] // Ignore this test by default due to FFI instability causing SIGSEGV in test suite
 async fn test_multiple_managers_loading_same_plugin() {
     let (manager1, _tmp_dir1) = create_test_manager();
     let (manager2, _tmp_dir2) = create_test_manager();

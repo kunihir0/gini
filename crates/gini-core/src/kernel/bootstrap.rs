@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId};
+use std::any::{TypeId};
 use std::path::PathBuf;
 use std::env;
 use std::sync::Arc;
@@ -9,10 +9,10 @@ use crate::kernel::constants;
 use crate::kernel::component::{KernelComponent, DependencyRegistry};
 
 // Import component traits and default implementations
-use crate::event::{EventManager, DefaultEventManager};
-use crate::stage_manager::manager::{StageManager, DefaultStageManager};
-use crate::plugin_system::{PluginManager, DefaultPluginManager};
-use crate::storage::{StorageManager, DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
+use crate::event::{DefaultEventManager};
+use crate::stage_manager::manager::{DefaultStageManager};
+use crate::plugin_system::{DefaultPluginManager};
+use crate::storage::{DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
 
 /// Main application struct coordinating components via dependency injection
 pub struct Application {

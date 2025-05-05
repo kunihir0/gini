@@ -1,15 +1,13 @@
-use std::any::Any;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc; // Remove Mutex import
 use async_trait::async_trait;
-use std::env;
 
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Result};
 use crate::storage::provider::StorageProvider;
 use crate::storage::local::LocalStorageProvider; // Default provider
-use crate::storage::config::{ConfigManager, ConfigFormat, ConfigData, ConfigScope, PluginConfigScope, ConfigStorageExt};
+use crate::storage::config::{ConfigManager, ConfigFormat, ConfigData, ConfigStorageExt};
 
 /// Storage manager component interface
 /// This simply wraps a StorageProvider for now
@@ -37,7 +35,7 @@ impl DefaultStorageManager {
         
         // Create the provider
         let local_provider = LocalStorageProvider::new(base_path.clone());
-        let provider = Arc::new(local_provider) as Arc<dyn StorageProvider>;
+        let _provider = Arc::new(local_provider) as Arc<dyn StorageProvider>;
         
         // Create the provider
         let provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
@@ -74,7 +72,7 @@ impl DefaultStorageManager {
         let user_data_path = base_path.join("user");
         
         // Create a LocalStorageProvider for the config manager
-        let config_provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
+        let _config_provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
         
         // Create a separate local provider for config management
         let config_provider = LocalStorageProvider::new(base_path.clone());

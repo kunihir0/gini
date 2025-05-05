@@ -99,14 +99,156 @@ impl Plugin for CompatCheckPlugin {
     }
 }
 
+use gini_core::plugin_system::traits::{
+    FfiResult, FfiSlice, FfiVersionRange, FfiPluginDependency,
+    FfiStageRequirement, PluginVTable, FfiPluginPriority,
+};
+use std::os::raw::{c_char, c_void};
+use std::ffi::CString;
+use std::ptr;
+use std::panic;
+
+// --- Static VTable Functions ---
+
+// Note: Functions themselves are not unsafe, but their bodies might contain unsafe blocks.
+// The signatures must match the VTable definition (safe extern "C").
+extern "C" fn ffi_destroy(instance: *mut c_void) {
+    if !instance.is_null() {
+        // Reconstruct the box and let it drop, freeing the memory (unsafe operation)
+        let _ = unsafe { Box::from_raw(instance as *mut CompatCheckPlugin) };
+        println!("CompatCheckPlugin instance destroyed.");
+    }
+}
+
+// Allocate and return a C string pointer. Host must free it.
+extern "C" fn ffi_get_name(instance: *const c_void) -> *const c_char {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    match CString::new(plugin.name()) {
+        Ok(s) => s.into_raw(), // Transfer ownership to host
+        Err(_) => ptr::null(),
+    }
+}
+
+// Function for the host to free the name string
+extern "C" fn ffi_free_name(name_ptr: *mut c_char) {
+    if !name_ptr.is_null() {
+        unsafe {
+            // Retake ownership and drop the CString
+            let _ = CString::from_raw(name_ptr);
+        }
+    }
+}
+
+// Allocate and return a C string pointer. Host must free it.
+extern "C" fn ffi_get_version(instance: *const c_void) -> *const c_char {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    match CString::new(plugin.version()) {
+        Ok(s) => s.into_raw(), // Transfer ownership to host
+        Err(_) => ptr::null(),
+    }
+}
+
+// Function for the host to free the version string
+extern "C" fn ffi_free_version(version_ptr: *mut c_char) {
+    if !version_ptr.is_null() {
+        unsafe {
+            // Retake ownership and drop the CString
+            let _ = CString::from_raw(version_ptr);
+        }
+    }
+}
+
+extern "C" fn ffi_is_core(instance: *const c_void) -> bool {
+    // Dereferencing the raw pointer is unsafe
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    plugin.is_core()
+}
+
+extern "C" fn ffi_get_priority(instance: *const c_void) -> FfiPluginPriority {
+    // Dereferencing the raw pointer is unsafe
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    let priority = plugin.priority();
+    // Convert PluginPriority to FfiPluginPriority
+    match priority {
+        PluginPriority::Kernel(v) => FfiPluginPriority { category: 0, value: v },
+        PluginPriority::CoreCritical(v) => FfiPluginPriority { category: 1, value: v },
+        PluginPriority::Core(v) => FfiPluginPriority { category: 2, value: v },
+        PluginPriority::ThirdPartyHigh(v) => FfiPluginPriority { category: 3, value: v },
+        PluginPriority::ThirdParty(v) => FfiPluginPriority { category: 4, value: v },
+        PluginPriority::ThirdPartyLow(v) => FfiPluginPriority { category: 5, value: v },
+    }
+}
+
+// --- Slice Functions (Returning Empty for Simplicity) ---
+
+extern "C" fn ffi_get_empty_version_ranges(_instance: *const c_void) -> FfiSlice<FfiVersionRange> {
+    FfiSlice { ptr: ptr::null(), len: 0 }
+}
+extern "C" fn ffi_free_empty_version_ranges(_slice: FfiSlice<FfiVersionRange>) {}
+
+extern "C" fn ffi_get_empty_dependencies(_instance: *const c_void) -> FfiSlice<FfiPluginDependency> {
+    FfiSlice { ptr: ptr::null(), len: 0 }
+}
+extern "C" fn ffi_free_empty_dependencies(_slice: FfiSlice<FfiPluginDependency>) {}
+
+extern "C" fn ffi_get_empty_stage_requirements(_instance: *const c_void) -> FfiSlice<FfiStageRequirement> {
+    FfiSlice { ptr: ptr::null(), len: 0 }
+}
+extern "C" fn ffi_free_empty_stage_requirements(_slice: FfiSlice<FfiStageRequirement>) {}
+
+extern "C" fn ffi_get_empty_conflicts_with(_instance: *const c_void) -> FfiSlice<*const c_char> {
+    FfiSlice { ptr: ptr::null(), len: 0 }
+}
+extern "C" fn ffi_free_empty_conflicts_with(_slice: FfiSlice<*const c_char>) {}
+
+extern "C" fn ffi_get_empty_incompatible_with(_instance: *const c_void) -> FfiSlice<FfiPluginDependency> {
+    FfiSlice { ptr: ptr::null(), len: 0 }
+}
+extern "C" fn ffi_free_empty_incompatible_with(_slice: FfiSlice<FfiPluginDependency>) {}
+
+
 /// The entry point function for the plugin loader.
 #[no_mangle]
-pub extern "C" fn _plugin_init() -> *mut dyn Plugin {
-    // Create the plugin instance boxed.
-    let plugin = Box::new(CompatCheckPlugin);
-    // Convert the Box into a raw pointer, leaking the memory.
-    // The PluginManager is now responsible for this memory.
-    Box::into_raw(plugin)
+pub extern "C" fn _plugin_init() -> *mut PluginVTable {
+     // Use catch_unwind to prevent panics from crossing FFI boundaries.
+    let result = panic::catch_unwind(|| {
+        // Create the plugin instance
+        let plugin_instance = Box::new(CompatCheckPlugin);
+
+        // Create the VTable
+        let vtable = PluginVTable {
+            instance: Box::into_raw(plugin_instance) as *mut c_void,
+            destroy: ffi_destroy,
+            name: ffi_get_name,
+            free_name: ffi_free_name, // Add free function
+            version: ffi_get_version,
+            free_version: ffi_free_version, // Add free function
+            is_core: ffi_is_core,
+            priority: ffi_get_priority,
+            // Use empty slice functions for now
+            compatible_api_versions: ffi_get_empty_version_ranges,
+            free_compatible_api_versions: ffi_free_empty_version_ranges,
+            dependencies: ffi_get_empty_dependencies,
+            free_dependencies: ffi_free_empty_dependencies,
+            required_stages: ffi_get_empty_stage_requirements,
+            free_required_stages: ffi_free_empty_stage_requirements,
+            conflicts_with: ffi_get_empty_conflicts_with,
+            free_conflicts_with: ffi_free_empty_conflicts_with,
+            incompatible_with: ffi_get_empty_incompatible_with,
+            free_incompatible_with: ffi_free_empty_incompatible_with,
+        };
+
+        // Box the VTable and return the raw pointer
+        Box::into_raw(Box::new(vtable))
+    });
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => {
+            eprintln!("Panic occurred during _plugin_init of CompatCheckPlugin!");
+            ptr::null_mut() // Return null if initialization panicked
+        }
+    }
 }
 
 // Module for tests

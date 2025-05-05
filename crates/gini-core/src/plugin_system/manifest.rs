@@ -1,9 +1,7 @@
-use std::path::PathBuf;
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::traits::PluginPriority;
 // Removed: use serde::Deserialize;
 use crate::plugin_system::dependency::PluginDependency; // Import PluginDependency
-use std::str::FromStr; // Keep for PluginPriority::from_str
 
 /// Represents a plugin manifest that describes a plugin
 #[derive(Debug, Clone)] // Removed Deserialize

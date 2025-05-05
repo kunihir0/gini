@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use crate::kernel::error::{Error, Result};
 use crate::stage_manager::requirement::StageRequirement;

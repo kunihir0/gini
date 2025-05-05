@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 /// Find files recursively in a directory that match a predicate
 pub fn find_files<P, F>(path: P, predicate: F) -> io::Result<Vec<PathBuf>>

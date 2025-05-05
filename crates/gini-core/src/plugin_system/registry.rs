@@ -2,9 +2,8 @@ use std::collections::{HashMap, HashSet, VecDeque}; // Ensure this is the only i
 use std::sync::Arc;
 
 use crate::kernel::error::{Error, Result};
-use crate::plugin_system::traits::{Plugin, PluginPriority};
+use crate::plugin_system::traits::{Plugin};
 use crate::plugin_system::version::ApiVersion;
-use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict}; // Import ConflictManager and conflict types
 use semver::Version; // Import semver::Version for incompatibility checks
 

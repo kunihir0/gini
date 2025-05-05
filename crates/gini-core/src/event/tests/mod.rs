@@ -25,7 +25,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_dispatch() {
-        use crate::event::{EventPriority, EventResult, Event};
+        use crate::event::{EventResult, Event};
         use std::sync::{Arc, Mutex};
         use crate::event::manager::{EventManager, DefaultEventManager};
         use crate::event::types::TestEvent;

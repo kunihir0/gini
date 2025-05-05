@@ -1,12 +1,10 @@
-use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
 use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::kernel::component::KernelComponent;
 use crate::kernel::error::Result;
-use crate::stage_manager::{Stage, StageContext, StageRegistry, StageResult};
+use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::{StagePipeline, PipelineBuilder};
 use crate::stage_manager::registry::SharedStageRegistry;
 use crate::stage_manager::core_stages::{ // Import core stages

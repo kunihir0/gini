@@ -1,7 +1,6 @@
 use crate::kernel::bootstrap::*;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::component::KernelComponent; // Import the trait
-use std::any::TypeId; // Import TypeId
 use async_trait::async_trait; // Import async_trait
 
 // Import concrete component types for get_component test
@@ -9,9 +8,7 @@ use crate::event::DefaultEventManager;
 use crate::stage_manager::manager::DefaultStageManager;
 use crate::plugin_system::DefaultPluginManager;
 use crate::storage::{DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
-use crate::storage::config::ConfigManager; // Added ConfigManager
 
-use std::path::PathBuf;
 use tempfile::tempdir;
 use std::fs; // Import std::fs
 

@@ -7,8 +7,8 @@ use tokio::sync::Mutex; // Use tokio's Mutex
 use std::fmt; // Import fmt
 
 use async_trait::async_trait;
-use crate::event::{Event, AsyncEventHandler, EventHandler, EventId, EventResult};
-use crate::kernel::error::{Error, Result};
+use crate::event::{Event, AsyncEventHandler, EventId, EventResult};
+use crate::kernel::error::{Result};
 
 // This type represents an owned future that returns EventResult
 pub type BoxFuture<'a> = Pin<Box<dyn Future<Output = EventResult> + Send + 'a>>;

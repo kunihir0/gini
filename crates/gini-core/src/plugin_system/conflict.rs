@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::kernel::error::{Error, Result};
 
 /// Types of plugin conflicts

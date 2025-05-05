@@ -6,11 +6,9 @@ use crate::plugin_system::{Plugin, PluginDependency, ApiVersion, VersionRange, P
 use crate::stage_manager::{StageRequirement, Stage}; // Added for Plugin trait (StageId not needed directly)
 use crate::stage_manager::context::StageContext; // Added for preflight_check
     use crate::plugin_system::traits::PluginError; // Added for preflight_check
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Result};
 use crate::kernel::bootstrap::Application; // Needed for Plugin trait
-use std::sync::Arc;
 use std::str::FromStr; // Needed for VersionRange::from_str
-use semver::Version; // Need this for ApiVersion parsing
 // No longer need PluginManifest here directly, but keep HashSet if needed later
 // use std::collections::HashSet;
 

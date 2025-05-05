@@ -54,6 +54,7 @@ fn create_test_manager_for_loading() -> (DefaultPluginManager<LocalStorageProvid
 }
 
 #[tokio::test]
+// #[ignore] // Ignore this test by default due to FFI instability causing SIGSEGV in test suite
 async fn test_load_valid_so_plugin_from_directory() -> Result<()> {
     // 1. Setup: Create temp dir and copy the valid .so file
     let tmp_dir = tempdir().expect("Failed to create temp directory");

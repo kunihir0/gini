@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use async_trait::async_trait;
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Result};
 
 /// Core component lifecycle trait for all kernel components
 #[async_trait]

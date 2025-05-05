@@ -1,4 +1,3 @@
-use std::fmt;
 use std::any::Any;
 use crate::event::{Event, EventPriority};
 

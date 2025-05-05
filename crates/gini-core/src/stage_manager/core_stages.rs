@@ -1,5 +1,5 @@
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -7,8 +7,7 @@ use tokio::sync::Mutex;
 use crate::kernel::bootstrap::Application; // Needed for Plugin::init
 use crate::kernel::error::{Error, Result}; // Keep kernel::Result for stage execute return
 use crate::plugin_system::registry::PluginRegistry;
-use crate::plugin_system::traits::PluginError; // Ensure this path is correct
-use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::{Stage, StageContext};
 
 // Constants for context keys
 pub const PLUGIN_REGISTRY_KEY: &str = "plugin_registry";

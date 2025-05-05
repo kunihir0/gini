@@ -1,11 +1,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::event::{Event, EventPriority, EventResult, AsyncEventHandler};
-use crate::event::dispatcher::{EventDispatcher, SharedEventDispatcher, create_dispatcher, sync_event_handler, sync_typed_handler};
+use crate::event::{Event, EventPriority, EventResult};
+use crate::event::dispatcher::{EventDispatcher, create_dispatcher, sync_event_handler, sync_typed_handler};
 
 // Test event implementation
 #[derive(Debug, Clone)]

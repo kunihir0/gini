@@ -6,8 +6,6 @@ use std::fmt;
 use std::any::Any;
 
 use async_trait::async_trait; // Import async_trait
-use std::future::Future; // For async trait return type
-use std::pin::Pin; // For async trait return type
 
 /// Type for event identifiers
 pub type EventId = u64;

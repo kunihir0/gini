@@ -5,7 +5,6 @@ use std::future::Future;
 use std::pin::Pin;
 use semver::{Version}; // Removed VersionReq as VersionRange handles it
 use thiserror::Error; // Added for custom error
-use tokio_stream::StreamExt; // For stream methods like next()
 use std::str::FromStr; // For VersionRange::from_str
 use serde::Deserialize; // Import Deserialize
 use serde_json; // Added serde_json import

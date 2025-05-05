@@ -32,7 +32,7 @@ pub trait Stage: Send + Sync {
     async fn execute(&self, context: &mut context::StageContext) -> Result<()>; // Make execute async
     
     /// Generate a description of what this stage would do in dry run mode
-    fn dry_run_description(&self, context: &context::StageContext) -> String {
+    fn dry_run_description(&self, _context: &context::StageContext) -> String {
         format!("Would execute stage: {}", self.name())
     }
 }
