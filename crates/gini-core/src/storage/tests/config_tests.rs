@@ -1,3 +1,4 @@
+use crate::StorageProvider; // Add this import
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -8,7 +9,7 @@ use crate::storage::config::{
     ConfigManager, ConfigData, ConfigFormat, ConfigScope, PluginConfigScope
 };
 
-fn create_test_config_manager() -> (ConfigManager<LocalStorageProvider>, PathBuf) {
+fn create_test_config_manager() -> (ConfigManager, PathBuf) { // Remove generic
     // Create temp directory for test
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let root_path = temp_dir.path().to_path_buf();
@@ -18,8 +19,8 @@ fn create_test_config_manager() -> (ConfigManager<LocalStorageProvider>, PathBuf
     let plugin_config_path = root_path.join("plugins").join("config");
     
     // Create provider and manager
-    let provider = Arc::new(LocalStorageProvider::new(root_path.clone()));
-    let manager = ConfigManager::new(
+    let provider = Arc::new(LocalStorageProvider::new(root_path.clone())) as Arc<dyn StorageProvider>; // Cast to dyn trait
+    let manager = ConfigManager::new( // Remove generic
         provider,
         app_config_path,
         plugin_config_path,

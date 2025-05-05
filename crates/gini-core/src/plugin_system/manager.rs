@@ -21,7 +21,7 @@ use crate::stage_manager::requirement::StageRequirement;
 
 use crate::kernel::component::KernelComponent;
 use crate::storage::config::{ConfigManager, ConfigScope, PluginConfigScope, ConfigData};
-use crate::storage::StorageProvider;
+// Removed unused StorageProvider import
 use crate::kernel::error::{Error, Result}; // Crate's Result alias
 use crate::plugin_system::traits::{
     FfiResult, FfiSlice, FfiVersionRange, FfiPluginDependency,
@@ -380,10 +380,10 @@ pub trait PluginManager: KernelComponent {
 }
 
 /// Default implementation of plugin manager
-pub struct DefaultPluginManager<P: StorageProvider + ?Sized + 'static> {
+pub struct DefaultPluginManager { // Remove generic <P>
     name: &'static str,
     registry: Arc<Mutex<PluginRegistry>>,
-    config_manager: Arc<ConfigManager<P>>,
+    config_manager: Arc<ConfigManager>, // Remove generic <P>
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -396,8 +396,8 @@ const PLUGIN_STATES_CONFIG_NAME: &str = "plugin_states";
 const PLUGIN_STATES_CONFIG_KEY: &str = "enabled_map";
 const PLUGIN_STATES_SCOPE: ConfigScope = ConfigScope::Plugin(PluginConfigScope::User);
 
-impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
-    pub fn new(config_manager: Arc<ConfigManager<P>>) -> Result<Self> {
+impl DefaultPluginManager { // Remove generic <P>
+    pub fn new(config_manager: Arc<ConfigManager>) -> Result<Self> {
         let api_version = ApiVersion::from_str(constants::API_VERSION)
             .map_err(|e| Error::Init(format!("Failed to parse API_VERSION constant: {}", e)))?;
         Ok(Self {
@@ -442,7 +442,7 @@ impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
     }
 }
 
-impl<P: StorageProvider + ?Sized + 'static> Debug for DefaultPluginManager<P> {
+impl Debug for DefaultPluginManager { // Remove generic <P>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DefaultPluginManager")
             .field("name", &self.name)
@@ -451,7 +451,7 @@ impl<P: StorageProvider + ?Sized + 'static> Debug for DefaultPluginManager<P> {
 }
 
 #[async_trait]
-impl<P: StorageProvider + ?Sized + 'static> KernelComponent for DefaultPluginManager<P> {
+impl KernelComponent for DefaultPluginManager { // Remove generic <P>
     fn name(&self) -> &'static str {
         self.name
     }
@@ -495,7 +495,7 @@ impl<P: StorageProvider + ?Sized + 'static> KernelComponent for DefaultPluginMan
 }
 
 #[async_trait]
-impl<P: StorageProvider + ?Sized + 'static> PluginManager for DefaultPluginManager<P> {
+impl PluginManager for DefaultPluginManager { // Remove generic <P>
     async fn load_plugin(&self, path: &Path) -> Result<()> {
         println!("Attempting to load plugin from {:?}", path);
         match self.load_so_plugin(path) {
@@ -640,7 +640,7 @@ impl<P: StorageProvider + ?Sized + 'static> PluginManager for DefaultPluginManag
 }
 
 // Helper methods for loading/saving state
-impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
+impl DefaultPluginManager { // Remove generic <P>
     fn load_plugin_states(&self) -> Result<HashMap<String, bool>> {
         match self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE) {
             Ok(config_data) => {
@@ -648,22 +648,26 @@ impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
                     .unwrap_or_else(|| { println!("No existing plugin states found under key '{}', using defaults.", PLUGIN_STATES_CONFIG_KEY); HashMap::new() });
                 Ok(states_map)
             }
-            Err(Error::Storage(msg)) if msg.contains("Unknown config format") || msg.contains("Failed to read") => {
-                println!("Plugin state file '{}' not found or invalid format, using defaults.", PLUGIN_STATES_CONFIG_NAME);
-                Ok(HashMap::new())
+            // Handle specific errors gracefully (file not found, format error, basic IO)
+            Err(Error::FileNotFound { .. }) | Err(Error::ConfigFormatError { .. }) | Err(Error::IoError { .. }) => {
+                println!("Plugin state file '{}' not found or invalid format/IO error, using defaults.", PLUGIN_STATES_CONFIG_NAME);
+                Ok(HashMap::new()) // Return Ok with empty map
             }
-            Err(e) => Err(Error::Storage(format!("Failed to load plugin states config: {}", e))),
+            // Propagate other errors
+            Err(e) => Err(Error::Plugin(format!("Failed to load plugin states config: {}", e))),
         }
     }
 
     fn save_plugin_states(&self, states: &HashMap<String, bool>) -> Result<()> {
         let mut config_data = match self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE) {
             Ok(data) => data,
-            Err(Error::Storage(msg)) if msg.contains("Unknown config format") || msg.contains("Failed to read") => {
+            // Handle specific errors gracefully when loading before save
+            Err(Error::FileNotFound { .. }) | Err(Error::ConfigFormatError { .. }) | Err(Error::IoError { .. }) => {
                  println!("Plugin state file '{}' not found or invalid, creating new one.", PLUGIN_STATES_CONFIG_NAME);
-                 ConfigData::default() // Use ConfigData::default()
+                 ConfigData::default() // Create default config data
             }
-            Err(e) => return Err(e),
+            // Propagate other errors
+            Err(e) => return Err(e), // Return other errors directly
         };
         config_data.set(PLUGIN_STATES_CONFIG_KEY, states)?;
         self.config_manager.save_config(PLUGIN_STATES_CONFIG_NAME, &config_data, PLUGIN_STATES_SCOPE)?;
@@ -672,7 +676,7 @@ impl<P: StorageProvider + ?Sized + 'static> DefaultPluginManager<P> {
     }
 }
 
-impl<P: StorageProvider + ?Sized + 'static> Clone for DefaultPluginManager<P> {
+impl Clone for DefaultPluginManager { // Remove generic <P>
     fn clone(&self) -> Self {
         Self {
             name: self.name,

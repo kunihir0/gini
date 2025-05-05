@@ -179,10 +179,7 @@ impl PluginLoader {
     async fn scan_directory_inner(&self, dir: PathBuf, manifests: &mut Vec<PluginManifest>) -> Result<()> {
         // Read directory entries asynchronously
         let mut read_dir_result = fs::read_dir(&dir).await
-            .map_err(|e| KernelError::Storage(format!( // Use KernelError
-                "Failed to read directory {}: {}",
-                dir.display(), e
-            )))?;
+            .map_err(|e| KernelError::io(e, "read_dir", Some(dir.clone())))?; // Use Error::io
 
         // Process each entry asynchronously using the ReadDir directly
         while let Some(entry) = read_dir_result.next_entry().await? {
@@ -253,10 +250,7 @@ impl PluginLoader {
 
         // Read the file content asynchronously
         let content = fs::read_to_string(path_ref).await
-            .map_err(|e| KernelError::Storage(format!(
-                "Failed to read manifest file {}: {}",
-                path_display, e
-            )))?;
+            .map_err(|e| KernelError::io(e, "read_manifest", Some(path_ref.to_path_buf())))?; // Use Error::io
 
         // Parse the JSON content into the intermediate raw struct
         // Explicitly type the variable receiving the result of from_str

@@ -1,4 +1,4 @@
-use std::any::{TypeId};
+use std::any::TypeId; // Remove braces
 use std::path::PathBuf;
 use std::env;
 use std::sync::Arc;
@@ -9,10 +9,10 @@ use crate::kernel::constants;
 use crate::kernel::component::{KernelComponent, DependencyRegistry};
 
 // Import component traits and default implementations
-use crate::event::{DefaultEventManager};
-use crate::stage_manager::manager::{DefaultStageManager};
-use crate::plugin_system::{DefaultPluginManager};
-use crate::storage::{DefaultStorageManager, local::LocalStorageProvider}; // Added LocalStorageProvider
+use crate::event::DefaultEventManager; // Remove braces
+use crate::stage_manager::manager::DefaultStageManager; // Remove braces
+use crate::plugin_system::DefaultPluginManager; // Remove braces
+use crate::storage::DefaultStorageManager; // Remove braces
 
 /// Main application struct coordinating components via dependency injection
 pub struct Application {
@@ -58,8 +58,8 @@ impl Application {
         let config_manager_for_plugin = storage_manager.get_config_manager().clone();
         let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager_for_plugin)?);
         registry.register_instance(plugin_manager.clone()); // Register Arc<DefaultPluginManager<LocalStorageProvider>>, clone Arc
-        // Specify the generic parameter for TypeId
-        init_order.push(TypeId::of::<DefaultPluginManager<LocalStorageProvider>>());
+        // Use the non-generic type for TypeId
+        init_order.push(TypeId::of::<DefaultPluginManager>()); // Remove generic
 
         let stage_manager = Arc::new(DefaultStageManager::new());
         registry.register_instance(stage_manager.clone()); // Register Arc<DefaultStageManager>, clone Arc

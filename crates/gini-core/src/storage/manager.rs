@@ -19,7 +19,7 @@ pub trait StorageManager: KernelComponent + StorageProvider {}
 pub struct DefaultStorageManager {
     name: &'static str,
     provider: Arc<dyn StorageProvider>, // Holds the actual provider
-    config_manager: Arc<ConfigManager<LocalStorageProvider>>, // Wrap ConfigManager in Arc for Clone
+    config_manager: Arc<ConfigManager>, // Use the non-generic ConfigManager
     app_config_path: PathBuf, // Path to application configurations
     plugin_config_path: PathBuf, // Path to plugin configurations
     user_data_path: PathBuf, // Path to user data
@@ -34,18 +34,11 @@ impl DefaultStorageManager {
         let user_data_path = base_path.join("user");
         
         // Create the provider
-        let local_provider = LocalStorageProvider::new(base_path.clone());
-        let _provider = Arc::new(local_provider) as Arc<dyn StorageProvider>;
+        let provider = Arc::new(LocalStorageProvider::new(base_path.clone())) as Arc<dyn StorageProvider>;
         
-        // Create the provider
-        let provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
-        
-        // Create a local provider specifically for config management
-        let config_provider = LocalStorageProvider::new(base_path.clone());
-        
-        // Create the config manager
+        // Create the config manager using the SAME provider
         let config_manager = ConfigManager::new(
-            Arc::new(config_provider),
+            Arc::clone(&provider), // Use the same provider instance
             app_config_path.clone(),
             plugin_config_path.clone(),
             ConfigFormat::Json, // Default to JSON format
@@ -71,15 +64,9 @@ impl DefaultStorageManager {
         let plugin_config_path = base_path.join("plugins").join("config");
         let user_data_path = base_path.join("user");
         
-        // Create a LocalStorageProvider for the config manager
-        let _config_provider = Arc::new(LocalStorageProvider::new(base_path.clone()));
-        
-        // Create a separate local provider for config management
-        let config_provider = LocalStorageProvider::new(base_path.clone());
-        
-        // Create the config manager
+        // Create the config manager using the provided provider
         let config_manager = ConfigManager::new(
-            Arc::new(config_provider),
+            Arc::clone(&provider), // Use the provided provider instance
             app_config_path.clone(),
             plugin_config_path.clone(),
             ConfigFormat::Json, // Default to JSON format
@@ -100,8 +87,8 @@ impl DefaultStorageManager {
         &self.provider
     }
 
-    /// Get the configuration manager instance (renamed to avoid potential conflicts)
-    pub fn get_config_manager(&self) -> &Arc<ConfigManager<LocalStorageProvider>> {
+    /// Get the configuration manager instance
+    pub fn get_config_manager(&self) -> &Arc<ConfigManager> { // Update return type
         &self.config_manager
     }
     
@@ -269,13 +256,9 @@ impl Default for DefaultStorageManager {
 
 // Implement ConfigStorageExt trait for DefaultStorageManager
 impl ConfigStorageExt for DefaultStorageManager {
-    fn config_manager<P: StorageProvider + ?Sized>(&self) -> &ConfigManager<P> {
-        // Transmute is still problematic here, especially with Arc.
-        // The type is now Arc<ConfigManager<LocalStorageProvider>>, not &ConfigManager<...>.
-        // This needs a proper redesign. For now, keeping the potentially incorrect transmute
-        // to focus on the Clone + Send + Sync fix. It will likely fail if P is not LocalStorageProvider.
-        // TODO: Redesign ConfigStorageExt trait or its usage.
-        unsafe { std::mem::transmute(&*self.config_manager) } // Deref Arc before transmute (still likely wrong)
+    fn config_manager(&self) -> &ConfigManager { // Remove generic P, return correct type
+        // Simply return a reference to the config_manager field
+        &self.config_manager
     }
 }
 

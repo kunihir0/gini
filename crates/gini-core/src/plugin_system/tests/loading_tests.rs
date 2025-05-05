@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::StorageProvider; // Add this import
 use crate::kernel::error::Result;
 use crate::plugin_system::manager::{DefaultPluginManager, PluginManager};
 use std::fs;
@@ -36,15 +37,15 @@ fn get_example_plugin_path() -> Option<PathBuf> {
 }
 
 // Helper function to create a manager with a temporary config directory for loading tests
-fn create_test_manager_for_loading() -> (DefaultPluginManager<LocalStorageProvider>, TempDir) {
+fn create_test_manager_for_loading() -> (DefaultPluginManager, TempDir) { // Remove generic
     let tmp_dir = tempdir().unwrap();
     let app_config_path = tmp_dir.path().join("app_config_loading");
     let plugin_config_path = tmp_dir.path().join("plugin_config_loading");
     fs::create_dir_all(&app_config_path).unwrap();
     fs::create_dir_all(&plugin_config_path).unwrap();
 
-    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
-    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
         provider,
         app_config_path,
         plugin_config_path,

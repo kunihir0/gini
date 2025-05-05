@@ -18,7 +18,7 @@ use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::manager::DefaultPluginManager;
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
-use crate::storage::local::LocalStorageProvider; // Added for test setup
+// Removed unused LocalStorageProvider import
 use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::manager::DefaultStageManager;
 use crate::stage_manager::requirement::StageRequirement;
@@ -366,6 +366,7 @@ impl Stage for DependentStage {
 
 // ===== MOCK STORAGE =====
 
+#[derive(Debug)] // Add derive Debug
 pub struct TestStorageProvider {
     data: Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>, // Use full path
 }
@@ -410,10 +411,13 @@ impl StorageProvider for TestStorageProvider {
         let storage = self.data.lock().unwrap(); // Use std lock
         match storage.get(&binding) {
             Some(bytes) => {
-                String::from_utf8(bytes.clone())
-                    .map_err(|e| Error::Storage(format!("UTF-8 conversion error: {}", e)))
+                String::from_utf8(bytes.clone()).map_err(|e| Error::StorageOperationFailed {
+                    operation: "read_to_string".to_string(),
+                    path: Some(path.to_path_buf()),
+                    message: format!("UTF-8 conversion error: {}", e),
+                })
             },
-            None => Err(Error::Storage(format!("File not found: {:?}", path))),
+            None => Err(Error::FileNotFound { path: path.to_path_buf() }),
         }
     }
 
@@ -422,7 +426,7 @@ impl StorageProvider for TestStorageProvider {
         let storage = self.data.lock().unwrap(); // Use std lock
         match storage.get(&binding) {
             Some(bytes) => Ok(bytes.clone()),
-            None => Err(Error::Storage(format!("File not found: {:?}", path))),
+            None => Err(Error::FileNotFound { path: path.to_path_buf() }),
         }
     }
 
@@ -467,28 +471,50 @@ impl StorageProvider for TestStorageProvider {
         Ok(vec![])
     }
 
-    fn metadata(&self, _path: &Path) -> KernelResult<std::fs::Metadata> {
-        Err(Error::Storage("Metadata not supported for TestStorageProvider".to_string()))
+    fn metadata(&self, path: &Path) -> KernelResult<std::fs::Metadata> {
+        // This is tricky to mock correctly. Return an error for now.
+        Err(Error::StorageOperationFailed {
+            operation: "metadata".to_string(),
+            path: Some(path.to_path_buf()),
+            message: "Metadata not supported for TestStorageProvider".to_string(),
+        })
     }
 
-    fn open_read(&self, _path: &Path) -> KernelResult<Box<dyn Read>> {
-        Err(Error::Storage("open_read not supported for TestStorageProvider".to_string()))
+    fn open_read(&self, path: &Path) -> KernelResult<Box<dyn Read>> {
+        // Mock reading by returning bytes from the map wrapped in a Cursor
+        let files = self.data.lock().unwrap(); // Use self.data
+        let binding = path.to_string_lossy().to_string();
+        if let Some(data) = files.get(&binding) {
+            Ok(Box::new(std::io::Cursor::new(data.clone())))
+        } else {
+            Err(Error::FileNotFound { path: path.to_path_buf() })
+        }
     }
 
-    fn open_write(&self, _path: &Path) -> KernelResult<Box<dyn Write>> {
-        Err(Error::Storage("open_write not supported for TestStorageProvider".to_string()))
+    fn open_write(&self, path: &Path) -> KernelResult<Box<dyn Write>> {
+        // Mock writing is complex. For now, return an error.
+        Err(Error::StorageOperationFailed {
+            operation: "open_write".to_string(),
+            path: Some(path.to_path_buf()),
+            message: "open_write not fully supported for TestStorageProvider".to_string(),
+        })
     }
 
-    fn open_append(&self, _path: &Path) -> KernelResult<Box<dyn Write>> {
-        Err(Error::Storage("open_append not supported for TestStorageProvider".to_string()))
+    fn open_append(&self, path: &Path) -> KernelResult<Box<dyn Write>> {
+        // Mock appending is complex. For now, return an error.
+        Err(Error::StorageOperationFailed {
+            operation: "open_append".to_string(),
+            path: Some(path.to_path_buf()),
+            message: "open_append not fully supported for TestStorageProvider".to_string(),
+        })
     }
 }
 
 // ===== TEST HELPER FUNCTIONS =====
 
 pub async fn setup_test_environment() -> (
-    // Update return type to include generic parameter
-    Arc<DefaultPluginManager<LocalStorageProvider>>,
+    // Update return type to remove generic parameter
+    Arc<DefaultPluginManager>, // Remove <LocalStorageProvider>
     Arc<DefaultStageManager>,
     Arc<DefaultStorageManager>,
     Arc<tokio::sync::Mutex<HashSet<String>>>, // stages_executed (tokio)
@@ -508,9 +534,10 @@ pub async fn setup_test_environment() -> (
     let plugin_config_path = tmp_dir_config.path().join("plugin_config");
     fs::create_dir_all(&app_config_path).unwrap();
     fs::create_dir_all(&plugin_config_path).unwrap();
-    let provider = Arc::new(LocalStorageProvider::new(tmp_dir_config.path().to_path_buf()));
-    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
-        provider,
+    // Use the storage_manager's provider for consistency
+    let provider = Arc::clone(storage_manager.provider()); // Clone Arc from storage_manager
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove <LocalStorageProvider>
+        provider, // Use the cloned provider
         app_config_path,
         plugin_config_path,
         ConfigFormat::Json,

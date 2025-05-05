@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::StorageProvider; // Add this import
 use std::sync::{Arc, Mutex};
 use tokio::test;
 use std::any::Any;
@@ -313,8 +314,8 @@ async fn test_stage_dispatches_event() {
     let plugin_config_path = tmp_dir.path().join("plugin_config");
     fs::create_dir_all(&app_config_path).unwrap();
     fs::create_dir_all(&plugin_config_path).unwrap();
-    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
-    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
         provider,
         app_config_path,
         plugin_config_path,

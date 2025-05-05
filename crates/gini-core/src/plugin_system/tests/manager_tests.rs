@@ -1,5 +1,6 @@
 #![cfg(test)] // Add this line
 
+use crate::StorageProvider; // Add this import
 use crate::plugin_system::manager::{DefaultPluginManager, PluginManager}; // Keep this line
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::dependency::PluginDependency;
@@ -246,7 +247,7 @@ impl Stage for MockStage {
 }
 
 // Helper function to create a manager with a temporary config directory
-fn create_test_manager() -> (DefaultPluginManager<LocalStorageProvider>, TempDir) {
+fn create_test_manager() -> (DefaultPluginManager, TempDir) { // Remove generic
     let tmp_dir = tempdir().unwrap();
     let app_config_path = tmp_dir.path().join("app_config");
     let plugin_config_path = tmp_dir.path().join("plugin_config");
@@ -254,9 +255,9 @@ fn create_test_manager() -> (DefaultPluginManager<LocalStorageProvider>, TempDir
     fs::create_dir_all(&plugin_config_path).unwrap();
 
     // Pass the tmp_dir path to the LocalStorageProvider
-    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
+    let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
     // Explicitly type the Arc<ConfigManager>
-    let config_manager: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
         provider,
         app_config_path,
         plugin_config_path,
@@ -1244,8 +1245,8 @@ async fn test_state_load_on_initialize() {
         fs::create_dir_all(&app_config_path).unwrap();
         fs::create_dir_all(&plugin_config_path.join("user")).unwrap(); // Ensure user dir exists
 
-        let provider1 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
-        let config_manager1: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        let provider1 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
+        let config_manager1: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
             provider1,
             app_config_path.clone(),
             plugin_config_path.clone(),
@@ -1271,8 +1272,8 @@ async fn test_state_load_on_initialize() {
         let app_config_path = tmp_dir.path().join("app_config"); // Use same paths
         let plugin_config_path = tmp_dir.path().join("plugin_config");
 
-        let provider2 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf()));
-        let config_manager2: Arc<ConfigManager<LocalStorageProvider>> = Arc::new(ConfigManager::new(
+        let provider2 = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
+        let config_manager2: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
             provider2,
             app_config_path,
             plugin_config_path,

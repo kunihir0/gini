@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt; // Add fmt import
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock}; // Replace RefCell with RwLock
 
@@ -91,7 +92,10 @@ impl ConfigData {
                 self.values.insert(key.to_string(), json_value);
                 Ok(())
             },
-            Err(e) => Err(Error::Storage(format!("Failed to serialize config value: {}", e))),
+            Err(e) => Err(Error::SerializationError {
+                format: "JSON".to_string(), // Assuming internal representation uses JSON values
+                source: Box::new(e),
+            }),
         }
     }
     
@@ -121,18 +125,25 @@ impl ConfigData {
     pub fn serialize(&self, format: ConfigFormat) -> Result<String> {
         match format {
             ConfigFormat::Json => {
-                serde_json::to_string_pretty(&self)
-                    .map_err(|e| Error::Storage(format!("Failed to serialize to JSON: {}", e)))
+                serde_json::to_string_pretty(&self).map_err(|e| Error::SerializationError {
+                    format: "JSON".to_string(),
+                    source: Box::new(e),
+                })
             },
             #[cfg(feature = "yaml-config")]
             ConfigFormat::Yaml => {
-                serde_yaml::to_string(&self)
-                    .map_err(|e| Error::Storage(format!("Failed to serialize to YAML: {}", e)))
+                serde_yaml::to_string(&self).map_err(|e| Error::SerializationError {
+                    format: "YAML".to_string(),
+                    source: Box::new(e),
+                })
             },
             #[cfg(feature = "toml-config")]
             ConfigFormat::Toml => {
-                toml::to_string_pretty(&self)
-                    .map_err(|e| Error::Storage(format!("Failed to serialize to TOML: {}", e)))
+                // Note: toml::Value doesn't directly support flatten, so we serialize the inner map
+                toml::to_string_pretty(&self.values).map_err(|e| Error::SerializationError {
+                    format: "TOML".to_string(),
+                    source: Box::new(e),
+                })
             },
         }
     }
@@ -141,18 +152,30 @@ impl ConfigData {
     pub fn deserialize(data: &str, format: ConfigFormat) -> Result<Self> {
         match format {
             ConfigFormat::Json => {
-                serde_json::from_str(data)
-                    .map_err(|e| Error::Storage(format!("Failed to deserialize from JSON: {}", e)))
+                serde_json::from_str(data).map_err(|e| Error::DeserializationError {
+                    format: "JSON".to_string(),
+                    source: Box::new(e),
+                })
             },
             #[cfg(feature = "yaml-config")]
             ConfigFormat::Yaml => {
-                serde_yaml::from_str(data)
-                    .map_err(|e| Error::Storage(format!("Failed to deserialize from YAML: {}", e)))
+                serde_yaml::from_str(data).map_err(|e| Error::DeserializationError {
+                    format: "YAML".to_string(),
+                    source: Box::new(e),
+                })
             },
             #[cfg(feature = "toml-config")]
             ConfigFormat::Toml => {
-                toml::from_str(data)
-                    .map_err(|e| Error::Storage(format!("Failed to deserialize from TOML: {}", e)))
+                // Note: toml::Value doesn't directly support flatten, so we deserialize into the inner map
+                let values: HashMap<String, toml::Value> = toml::from_str(data).map_err(|e| Error::DeserializationError {
+                    format: "TOML".to_string(),
+                    source: Box::new(e),
+                })?;
+                // Convert toml::Value to serde_json::Value
+                let json_values = values.into_iter().map(|(k, v)| {
+                    (k, serde_json::to_value(v).unwrap_or(serde_json::Value::Null)) // Handle potential conversion errors gracefully?
+                }).collect();
+                Ok(ConfigData { values: json_values })
             },
         }
     }
@@ -183,10 +206,10 @@ pub enum PluginConfigScope {
 }
 
 /// Configuration manager that handles loading, saving, and caching configurations
-#[derive(Debug)] // Remove Clone from derive
-pub struct ConfigManager<P: StorageProvider + ?Sized> {
+// #[derive(Debug)] // Remove derive Debug, implement manually
+pub struct ConfigManager { // Remove generic type parameter P
     /// Storage provider for reading/writing configs
-    provider: Arc<P>,
+    provider: Arc<dyn StorageProvider>, // Use dynamic dispatch
     /// Base path for application configurations
     app_config_path: PathBuf,
     /// Base path for plugin configurations
@@ -197,10 +220,10 @@ pub struct ConfigManager<P: StorageProvider + ?Sized> {
     cache: Arc<RwLock<HashMap<String, ConfigData>>>,
 }
 
-impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
+impl ConfigManager { // Remove generic type parameter P
     /// Create a new configuration manager
     pub fn new(
-        provider: Arc<P>, 
+        provider: Arc<dyn StorageProvider>, // Use dynamic dispatch
         app_config_path: PathBuf,
         plugin_config_path: PathBuf,
         default_format: ConfigFormat,
@@ -279,8 +302,17 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
         // Not in cache, need to load from disk
         let path = self.resolve_config_path(name, scope);
         
-        // If file doesn't exist, return default empty config
+        // If file doesn't exist, return default empty config (no error)
         if !self.provider.exists(&path) {
+            // Check if the *directory* exists before returning empty.
+            // If the dir doesn't exist, it might indicate a setup issue.
+            if let Some(parent_dir) = path.parent() {
+                if !self.provider.is_dir(parent_dir) {
+                    // Optionally, log a warning here or return a specific error?
+                    // For now, return empty config as per original logic.
+                }
+            }
+            
             let empty_config = ConfigData::new();
             
             // Cache the empty config (write lock)
@@ -289,12 +321,28 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
             return Ok(empty_config);
         }
         
+        // Ensure it's actually a file before trying to read
+        if !self.provider.is_file(&path) {
+            return Err(Error::StorageOperationFailed {
+                operation: "load_config".to_string(),
+                path: Some(path.clone()),
+                message: format!("Path exists but is not a file: {}", path.display()),
+            });
+        }
+        
         // Determine format from file extension
         let format = ConfigFormat::from_path(&path)
-            .ok_or_else(|| Error::Storage(format!("Unknown config format for path: {:?}", path)))?;
+            .ok_or_else(|| Error::ConfigFormatError { path: path.clone() })?;
         
         // Load the file content
-        let content = self.provider.read_to_string(&path)?;
+        let content = self.provider.read_to_string(&path).map_err(|e| {
+            // Add context to potential IO error
+            if let Error::IoError { source, .. } = e {
+                Error::io(source, "read_to_string", Some(path.clone()))
+            } else {
+                e // Pass through other errors
+            }
+        })?;
         
         // Parse based on format
         let config = ConfigData::deserialize(&content, format)?;
@@ -428,14 +476,28 @@ impl<P: StorageProvider + ?Sized + 'static> ConfigManager<P> {
     }
 }
 
+// Manual Debug implementation for ConfigManager
+impl fmt::Debug for ConfigManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfigManager")
+            .field("provider", &self.provider.name()) // Use provider name for Debug
+            .field("app_config_path", &self.app_config_path)
+            .field("plugin_config_path", &self.plugin_config_path)
+            .field("default_format", &*self.default_format.read().unwrap()) // Read the format
+            // Optionally skip cache or provide summary
+            .field("cache", &format!("{} items", self.cache.read().unwrap().len()))
+            .finish()
+    }
+}
+
 /// Extension trait for StorageManager to provide configuration capabilities
-pub trait ConfigStorageExt: StorageProvider where Self: 'static {
+pub trait ConfigStorageExt { // Remove StorageProvider bound and 'static
     /// Get the configuration manager
-    fn config_manager<P: StorageProvider + ?Sized>(&self) -> &ConfigManager<P>;
+    fn config_manager(&self) -> &ConfigManager; // Remove generic P
 }
 
 // Manual Clone implementation for ConfigManager
-impl<P: StorageProvider + ?Sized> Clone for ConfigManager<P> {
+impl Clone for ConfigManager { // Remove generic type parameter P
     fn clone(&self) -> Self {
         Self {
             provider: Arc::clone(&self.provider), // Clone the Arc

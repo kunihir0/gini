@@ -1,9 +1,10 @@
+use std::fmt::Debug; // Add Debug import
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use crate::kernel::error::Result;
 
 /// Trait for storage providers that can read and write data
-pub trait StorageProvider: Send + Sync {
+pub trait StorageProvider: Send + Sync + Debug { // Add Debug requirement
     /// Get the name of this provider
     fn name(&self) -> &str;
     
