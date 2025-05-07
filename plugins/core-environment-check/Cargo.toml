@@ -1,0 +1,18 @@
+[package]
+name = "core-environment-check"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gini Project Contributors"] # Or appropriate author info
+description = "Gini core plugin for checking host environment compatibility."
+
+[lib]
+crate-type = ["cdylib", "rlib"] # Compile as dynamic library AND rust library
+
+[dependencies]
+gini-core = { path = "../../crates/gini-core" } # Path dependency to gini-core
+log = "0.4" # Example dependency, might need others later
+serde = { version = "1.0", features = ["derive"] }
+async-trait = "0.1" # Required for async trait methods
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # For async tests
+tempfile = "3" # For creating temporary files

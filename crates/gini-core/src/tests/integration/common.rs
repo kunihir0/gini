@@ -21,6 +21,7 @@ use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test set
 // Removed unused LocalStorageProvider import
 use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::manager::DefaultStageManager;
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::requirement::StageRequirement;
 use crate::storage::manager::DefaultStorageManager;
 use crate::storage::provider::StorageProvider;
@@ -84,14 +85,11 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn stages(&self) -> Vec<Box<dyn Stage>> {
-        vec![
-            Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))
-        ]
-    }
-
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-// Add default implementations for new trait methods
+    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+        Ok(())
+    }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
@@ -189,12 +187,6 @@ impl Plugin for DependentPlugin {
         }
     }
 
-    fn stages(&self) -> Vec<Box<dyn Stage>> {
-        vec![
-            Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))
-        ]
-    }
-
     fn shutdown(&self) -> KernelResult<()> {
         println!("{}::shutdown called", self.name());
         // Record shutdown order
@@ -210,7 +202,10 @@ impl Plugin for DependentPlugin {
             ))),
         }
     }
-// Add default implementations for new trait methods
+    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+        Ok(())
+    } // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
@@ -266,14 +261,11 @@ impl Plugin for VersionedPlugin {
         Ok(())
     }
 
-    fn stages(&self) -> Vec<Box<dyn Stage>> {
-        vec![
-            Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))
-        ]
-    }
-
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-// Add default implementations for new trait methods
+    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+        Ok(())
+    }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
@@ -522,24 +514,53 @@ pub async fn setup_test_environment() -> (
     Arc<std::sync::Mutex<Vec<String>>> // shutdown_order (std)
 ) {
     // Create storage manager with a test directory path
-    let temp_path = std::env::temp_dir().join("gini_test_common"); // Use unique name
-    let storage_manager = Arc::new(DefaultStorageManager::new(temp_path));
+    let _temp_path = std::env::temp_dir().join("gini_test_common"); // Path no longer needed for constructor
+    // DefaultStorageManager::new now takes no arguments and returns Result
+    // Handle the Result before creating the Arc
+    let storage_manager_instance = DefaultStorageManager::new().expect("Failed to create test storage manager instance");
+    let storage_manager = Arc::new(storage_manager_instance); // Create Arc from the instance
 
     // Create stage manager
     let stage_manager = Arc::new(DefaultStageManager::new());
 
     // Create ConfigManager for PluginManager
-    let tmp_dir_config = tempdir().unwrap(); // Separate temp dir for config
-    let app_config_path = tmp_dir_config.path().join("app_config");
-    let plugin_config_path = tmp_dir_config.path().join("plugin_config");
-    fs::create_dir_all(&app_config_path).unwrap();
-    fs::create_dir_all(&plugin_config_path).unwrap();
-    // Use the storage_manager's provider for consistency
-    let provider = Arc::clone(storage_manager.provider()); // Clone Arc from storage_manager
-    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove <LocalStorageProvider>
-        provider, // Use the cloned provider
-        app_config_path,
-        plugin_config_path,
+    // Ensure a unique directory for each call to setup_test_environment for config paths
+    let unique_config_dir = tempdir().expect("Failed to create unique temp dir for config manager");
+    let app_config_path = unique_config_dir.path().join("app_config");
+    let plugin_config_path = unique_config_dir.path().join("plugin_config");
+    fs::create_dir_all(&app_config_path).expect("Failed to create app_config dir");
+    fs::create_dir_all(&plugin_config_path).expect("Failed to create plugin_config dir");
+    
+    // The DefaultStorageManager created earlier determines its own XDG paths for general storage.
+    // For the ConfigManager used by DefaultPluginManager, we want it to use these specific, isolated temp paths.
+    // We need a StorageProvider instance that operates on these temp paths for the ConfigManager.
+    // However, DefaultPluginManager takes an Arc<ConfigManager>, and ConfigManager is constructed with a StorageProvider.
+    // The existing `storage_manager` (DefaultStorageManager) from setup_test_environment uses XDG paths.
+    // We need a *new* ConfigManager instance for the PluginManager that uses a provider scoped to these unique temp dirs.
+    // This implies that the DefaultPluginManager should perhaps be constructed with paths, or the ConfigManager it uses
+    // should be configurable to use specific paths rather than deriving from a global StorageManager's provider.
+
+    // For now, let's create a new LocalStorageProvider specifically for this ConfigManager,
+    // which is not ideal as it diverges from the main storage_manager's provider, but will isolate configs.
+    // A better long-term solution would be to make ConfigManager's paths more flexible or
+    // allow DefaultPluginManager to be configured with specific config paths.
+
+    // Create a new LocalStorageProvider instance. This is a simplified approach for test isolation.
+    // Note: LocalStorageProvider::new() might not be public or might require a base path.
+    // Assuming DefaultStorageManager's provider() method gives an Arc<dyn StorageProvider> that can be used.
+    // The DefaultStorageManager's provider is already created and uses XDG paths.
+    // What we need is for the ConfigManager to operate on the unique_config_dir.
+    // The ConfigManager takes a StorageProvider. We can't easily change the base path of the existing provider.
+
+    // Let's stick to the original approach of creating a ConfigManager with the unique paths,
+    // but acknowledge this ConfigManager will use the *same provider type* as the main storage_manager,
+    // but operate on different *base paths* passed to its constructor.
+    let provider_for_plugin_config = Arc::clone(storage_manager.provider()); // Use the same provider type
+
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new(
+        provider_for_plugin_config, // This provider will be used with the paths below
+        app_config_path,      // Isolated app config path
+        plugin_config_path,   // Isolated plugin config path
         ConfigFormat::Json,
     ));
 
@@ -554,5 +575,6 @@ pub async fn setup_test_environment() -> (
     let execution_order = Arc::new(std::sync::Mutex::new(Vec::new())); // Use full path
     let shutdown_order = Arc::new(std::sync::Mutex::new(Vec::new())); // Use full path
 
-    (plugin_manager, stage_manager, storage_manager, stages_executed, execution_order, shutdown_order) // Return shutdown tracker
+    // Return the Arc<DefaultStorageManager>
+    (plugin_manager, stage_manager, storage_manager, stages_executed, execution_order, shutdown_order)
 }

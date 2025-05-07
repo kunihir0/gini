@@ -1,13 +1,13 @@
-
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex; // Already present, ensure it's used
 
 use crate::kernel::bootstrap::Application; // Needed for Plugin::init
 use crate::kernel::error::{Error, Result}; // Keep kernel::Result for stage execute return
 use crate::plugin_system::registry::PluginRegistry;
 use crate::stage_manager::{Stage, StageContext};
+use crate::stage_manager::registry::SharedStageRegistry; // Add SharedStageRegistry import
 
 // Constants for context keys
 pub const PLUGIN_REGISTRY_KEY: &str = "plugin_registry";
@@ -39,11 +39,17 @@ impl Stage for PluginPreflightCheckStage {
 
         let registry = registry_arc_mutex.lock().await;
         let mut failures = HashSet::new();
-        let mut overall_result: Result<()> = Ok(());
+        // If a fundamental error occurs (e.g. context access), this will be set.
+        // Individual plugin preflight failures are logged and added to `failures` set.
+        let stage_execution_error: Option<Error> = None;
 
         println!("Running pre-flight checks for {} plugins...", registry.iter_plugins().count());
 
         for (id, plugin) in registry.iter_plugins() {
+            // Skip already failed plugins if this stage were to be re-run (though not typical)
+            if failures.contains(id) {
+                continue;
+            }
             println!("  - Checking plugin: {}", plugin.name());
             match plugin.preflight_check(context).await {
                 Ok(_) => {
@@ -51,26 +57,26 @@ impl Stage for PluginPreflightCheckStage {
                 }
                 Err(e) => {
                     eprintln!("    - Pre-flight check FAILED for {}: {}", plugin.name(), e);
-                    // Store the specific error? For now, just mark as failed.
                     failures.insert(id.clone());
-                    // Collect the first error to return if any fail
-                    if overall_result.is_ok() {
-                         overall_result = Err(Error::Plugin(format!(
-                            "Pre-flight check failed for plugin '{}': {}", id, e
-                        )));
-                    }
+                    // We log the error and add to failures, but the stage itself doesn't fail here.
+                    // The PluginInitializationStage will use the `failures` set.
                 }
             }
         }
 
         // Store the set of failed plugin IDs in the context for the next stage
-        context.set_data(PREFLIGHT_FAILURES_KEY, failures);
+        context.set_data(PREFLIGHT_FAILURES_KEY, failures.clone()); // Store a clone
 
-        println!("Pre-flight checks complete.");
-        // Return Ok even if some checks failed; the initialization stage will handle skipping.
-        // However, if a critical error occurred during the process (like context access), propagate that.
-        // Let's adjust: return the first pre-flight error encountered, but still store all failures.
-        overall_result
+        println!("Pre-flight checks complete. {} plugins failed pre-flight.", failures.len());
+        
+        // The stage itself succeeds if it could iterate through plugins.
+        // Individual preflight failures are handled by the next stage.
+        // Propagate only critical stage execution errors, not individual plugin preflight errors.
+        if let Some(err) = stage_execution_error {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     fn dry_run_description(&self, context: &StageContext) -> String {
@@ -99,55 +105,44 @@ impl Stage for PluginInitializationStage {
     async fn execute(&self, context: &mut StageContext) -> Result<()> {
         println!("Executing Stage: {}", self.name());
 
-        // Retrieve the plugin registry and failure set
+        // Retrieve immutable data first
         let registry_arc_mutex = context
             .get_data::<Arc<Mutex<PluginRegistry>>>(PLUGIN_REGISTRY_KEY)
             .ok_or_else(|| Error::Stage(format!("'{}' not found in StageContext", PLUGIN_REGISTRY_KEY)))?
             .clone();
-        let failures = context
+        let preflight_failures = context
             .get_data::<HashSet<String>>(PREFLIGHT_FAILURES_KEY)
-            .cloned() // Clone the HashSet if found
-            .unwrap_or_default(); // Default to empty set if not found
+            .map(|set_ref| set_ref.clone())
+            .unwrap_or_default();
+        let stage_registry_arc = context
+             .get_data::<SharedStageRegistry>("stage_registry_arc") // Use SharedStageRegistry type alias
+             .ok_or_else(|| Error::Stage("StageRegistry Arc not found in context for PluginInitializationStage".to_string()))?
+             .clone();
 
-        // TODO: This stage needs mutable access to the Application object to pass to init.
-        // Assuming it's stored in the context for now. This needs proper implementation.
-        let app_ref_maybe = context.get_data_mut::<Application>(APPLICATION_KEY);
-        let app = app_ref_maybe.ok_or_else(|| Error::Stage(format!("'{}' not found or wrong type in StageContext", APPLICATION_KEY)))?;
+        // Now get mutable access to Application
+        let app = context.get_data_mut::<Application>(APPLICATION_KEY)
+            .ok_or_else(|| Error::Stage(format!("'{}' (Application) not found or wrong type in StageContext", APPLICATION_KEY)))?;
 
+        // Lock the plugin registry
+        let mut registry = registry_arc_mutex.lock().await;
 
-        let registry = registry_arc_mutex.lock().await;
-        let mut overall_result: Result<()> = Ok(());
-
-        println!("Initializing plugins (skipping {} failed pre-flight checks)...", failures.len());
-
-        for (id, plugin) in registry.iter_plugins() {
-            if failures.contains(id) {
-                println!("  - Skipping initialization for {} (failed pre-flight check)", plugin.name());
-                continue;
-            }
-
-            println!("  - Initializing plugin: {}", plugin.name());
-            match plugin.init(app) { // Pass the mutable app reference
-                Ok(_) => {
-                    println!("    - Initialization PASSED for {}", plugin.name());
-                    // Test-specific tracker logic removed from main code.
-                }
-                Err(e) => {
-                    eprintln!("    - Initialization FAILED for {}: {}", plugin.name(), e);
-                    // How to handle init failures? Mark plugin as disabled? Stop pipeline?
-                    // For now, log and collect the first error.
-                     if overall_result.is_ok() {
-                         overall_result = Err(Error::Plugin(format!(
-                            "Initialization failed for plugin '{}': {}", id, e
-                        )));
-                    }
-                    // Consider adding to a different failure set? e.g., "init_failures"
+        // Disable plugins that failed pre-flight checks
+        if !preflight_failures.is_empty() {
+            println!("Disabling plugins that failed pre-flight checks: {:?}", preflight_failures);
+            for failed_plugin_id in preflight_failures {
+                match registry.disable_plugin(&failed_plugin_id) {
+                    Ok(_) => println!("  - Plugin '{}' disabled due to pre-flight failure.", failed_plugin_id),
+                    Err(e) => eprintln!("  - Warning: Failed to disable plugin '{}' after pre-flight failure: {}", failed_plugin_id, e),
                 }
             }
         }
 
+        // Call the registry's initialize_all method, passing the app and the StageRegistry Arc.
+        // This method internally checks if plugins are enabled before initializing them.
+        registry.initialize_all(app, &stage_registry_arc.registry).await?; // Pass the inner Arc
+
         println!("Plugin initialization complete.");
-        overall_result // Return the first initialization error encountered
+        Ok(())
     }
 
      fn dry_run_description(&self, context: &StageContext) -> String {
@@ -186,3 +181,19 @@ impl Stage for PluginPostInitializationStage {
         format!("Would run post-initialization hooks for successfully initialized plugins.")
     }
 }
+// --- Core Pipeline Definitions ---
+
+use crate::stage_manager::pipeline::PipelineDefinition; // Ensure this use is present
+
+/// Pipeline definition for basic environment checks performed on application startup.
+pub const STARTUP_ENV_CHECK_PIPELINE: PipelineDefinition = PipelineDefinition {
+    name: "startup_environment_check",
+    stages: &[
+        "env_check:gather_os_info",
+        "env_check:gather_cpu_info",
+        "env_check:gather_ram_info", // Added RAM info stage
+        "env_check:gather_gpu_info", // Added GPU info stage
+        "env_check:check_iommu",     // Added IOMMU check stage
+    ],
+    description: Some("Performs basic host environment checks on startup."),
+};

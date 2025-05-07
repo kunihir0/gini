@@ -30,6 +30,7 @@ This document tracks the implementation status of various components and feature
 | Plugin Dependency Resolution | Resolution of plugin dependencies | ✅ | Handles complex graphs using topological sort and cycle detection. |
 | Plugin Conflict Detection | Detection of plugin conflicts | ✅ | Detects declared mutual exclusions and version incompatibilities. |
 | Plugin State Management | Persistence of plugin state | ✅ | Enabled/disabled state persists via ConfigManager. |
+| Core: VM Setup | Handles VM hardware configuration (incl. VFIO) | 📝 | Planned, requires design and implementation |
 
 ## Phase 3: Stage Management System
 

@@ -1,8 +1,47 @@
 pub mod messages;
+pub mod manager; // Added manager module
+
+pub use manager::UIManager; // Export UIManager
 
 use std::sync::Mutex;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::fmt::Debug; // Import Debug
+
+// --- Added Definitions ---
+
+/// Represents input received from a user via a UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserInput {
+    /// Simple text input.
+    Text(String),
+    /// A specific command with arguments.
+    Command(String, Vec<String>),
+    /// Confirmation response (e.g., yes/no).
+    Confirmation(bool),
+    // Add other input types as necessary (e.g., selection from a list)
+}
+
+/// Trait for UI connectors that bridge the core and a specific UI.
+/// Connectors are responsible for displaying information (`handle_message`)
+/// and sending user interactions (`send_input`) back to the core.
+pub trait UiConnector: Send + Sync + Debug {
+    /// Returns the unique name of the connector (e.g., "cli", "web").
+    fn name(&self) -> &str;
+
+    /// Handles a message sent from the core application to the UI.
+    /// Implementations should display this message appropriately in their UI.
+    fn handle_message(&self, message: UiMessage); // Changed message to be owned
+
+    /// Sends user input received from the UI to the core application.
+    /// This might involve internal queuing or direct processing depending
+    /// on the application architecture.
+    /// Returns Ok(()) on success, or an error message string on failure.
+    fn send_input(&self, input: UserInput) -> Result<(), String>;
+}
+
+// --- End Added Definitions ---
+
 
 /// UI message severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

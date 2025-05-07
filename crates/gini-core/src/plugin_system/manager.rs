@@ -1,12 +1,10 @@
 // crates/gini-core/src/plugin_system/manager.rs
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future; // Import Future
 use std::pin::Pin; // Import Pin
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use std::fs;
 use libloading::{Library, Symbol};
@@ -16,11 +14,12 @@ use std::os::raw::c_char;
 
 use crate::kernel::bootstrap::Application;
 use crate::stage_manager::context::StageContext;
-use crate::stage_manager::Stage;
+// Removed unused: use crate::stage_manager::Stage;
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::requirement::StageRequirement;
 
 use crate::kernel::component::KernelComponent;
-use crate::storage::config::{ConfigManager, ConfigScope, PluginConfigScope, ConfigData};
+use crate::storage::config::{ConfigManager, ConfigScope};
 // Removed unused StorageProvider import
 use crate::kernel::error::{Error, Result}; // Crate's Result alias
 use crate::plugin_system::traits::{
@@ -31,6 +30,9 @@ use crate::plugin_system::{Plugin, PluginManifest, ApiVersion, PluginRegistry, P
 use crate::kernel::constants;
 
 
+const CORE_SETTINGS_CONFIG_NAME: &str = "core_settings"; // Config file name for core settings
+
+
 // --- Local FFI Helper Functions ---
 
 /// Maps FfiResult to crate::kernel::error::Error
@@ -39,6 +41,10 @@ fn map_ffi_error(ffi_err: FfiResult, context: &str) -> Error {
 }
 
 /// Safely converts an FFI C string pointer to a Rust String.
+/// # Safety
+/// The caller must ensure that `ptr` is a valid pointer to a null-terminated
+/// C string, and that it remains valid for the duration of this function call.
+/// The string data is expected to be UTF-8 encoded.
 unsafe fn ffi_string_from_ptr(ptr: *const c_char) -> std::result::Result<String, FfiResult> { unsafe { // Explicit std::result
     if ptr.is_null() {
         return Err(FfiResult::NullPointer);
@@ -50,6 +56,10 @@ unsafe fn ffi_string_from_ptr(ptr: *const c_char) -> std::result::Result<String,
 }}
 
 /// Safely converts an FFI C string pointer (which can be null) to an Option<String>.
+/// # Safety
+/// The caller must ensure that if `ptr` is non-null, it is a valid pointer to a
+/// null-terminated C string, and that it remains valid for the duration of this
+/// function call. The string data is expected to be UTF-8 encoded.
 unsafe fn ffi_opt_string_from_ptr(ptr: *const c_char) -> std::result::Result<Option<String>, FfiResult> { unsafe { // Explicit std::result
     if ptr.is_null() {
         Ok(None)
@@ -82,6 +92,12 @@ struct VTablePluginWrapper {
 impl VTablePluginWrapper {
     /// Creates a new wrapper from a VTable pointer and the loaded Library.
     /// Takes ownership of the Library.
+    /// # Safety
+    /// The `vtable_ptr` must be a valid pointer to a `PluginVTable` allocated by the plugin
+    /// (e.g., via `Box::into_raw`) and returned by its `_plugin_init` function.
+    /// The `PluginVTable` and its `instance` pointer must remain valid until `destroy` is called
+    /// on the VTable, which happens in `VTablePluginWrapper::drop`.
+    /// The `library` argument must be the `libloading::Library` from which `vtable_ptr` was obtained.
     unsafe fn new(vtable_ptr: *mut PluginVTable, library: Library) -> Result<Self> {
         if vtable_ptr.is_null() {
             // If pointer is null, drop the library as it's unusable
@@ -90,6 +106,10 @@ impl VTablePluginWrapper {
         }
 
         // Dereference the pointer once safely
+        // SAFETY: `vtable_ptr` is assumed valid as per function contract.
+        // The VTable's functions will be called using `vtable_ref`, and its `instance`
+        // pointer will be passed to them. The `library` is stored to ensure
+        // function pointers remain valid.
         let vtable_ref = unsafe { &*vtable_ptr };
         let instance_const = vtable_ref.instance as *const c_void;
 
@@ -97,19 +117,27 @@ impl VTablePluginWrapper {
         // The `library` variable will be dropped automatically in the Err case if we return early.
 
         // Get name, convert, and immediately free the FFI pointer
-        let name_ptr = (vtable_ref.name)(instance_const); // Removed unnecessary unsafe block
-        let name_string = unsafe { ffi_string_from_ptr(name_ptr) } // Keep unsafe for ffi_string_from_ptr
+        let name_ptr = (vtable_ref.name)(instance_const);
+        // SAFETY: `name_ptr` is returned by the plugin's VTable `name` function.
+        // It's assumed to be a valid C string pointer as per FFI contract.
+        // `ffi_string_from_ptr` handles null checks and UTF-8 conversion.
+        let name_string = unsafe { ffi_string_from_ptr(name_ptr) }
             .map_err(|e| map_ffi_error(e, "getting plugin name"))?;
-        (vtable_ref.free_name)(name_ptr as *mut c_char); // Removed unnecessary unsafe block
+        // SAFETY: `name_ptr` was returned by the plugin, and `free_name` is the
+        // corresponding function from the plugin to free it.
+        (vtable_ref.free_name)(name_ptr as *mut c_char);
 
         // Leak the name string once to get &'static str
         let static_name: &'static str = Box::leak(name_string.into_boxed_str());
 
         // Get version, convert, and immediately free the FFI pointer
-        let version_ptr = (vtable_ref.version)(instance_const); // Removed unnecessary unsafe block
-        let version = unsafe { ffi_string_from_ptr(version_ptr) } // Keep unsafe for ffi_string_from_ptr
+        let version_ptr = (vtable_ref.version)(instance_const);
+        // SAFETY: `version_ptr` is returned by the plugin's VTable `version` function.
+        // Assumed valid as per FFI contract.
+        let version = unsafe { ffi_string_from_ptr(version_ptr) }
             .map_err(|e| map_ffi_error(e, "getting plugin version"))?;
-        (vtable_ref.free_version)(version_ptr as *mut c_char); // Removed unnecessary unsafe block
+        // SAFETY: `version_ptr` was returned by the plugin, and `free_version` is its deallocator.
+        (vtable_ref.free_version)(version_ptr as *mut c_char);
 
         let is_core = (vtable_ref.is_core)(instance_const);
         let ffi_priority = (vtable_ref.priority)(instance_const); // Unsafe block removed
@@ -137,12 +165,20 @@ impl VTablePluginWrapper {
     where
         T: Copy,
         F: Fn(T) -> Result<R>, // Converter returns crate Result
-    { unsafe {
-        // The outer function is already unsafe, so this inner block is redundant.
-        let vtable = &*self.vtable.0; // Removed unnecessary unsafe block
+    {
+        // SAFETY: This function is marked `unsafe` because it dereferences `self.vtable.0`
+        // and calls FFI functions. The caller must ensure `self.vtable.0` is valid.
+        // The `get_slice_fn` is expected to return a valid `FfiSlice` (pointer and length)
+        // or a slice with a null pointer if empty. The memory for the slice data is owned
+        // by the plugin. `FfiSlice::as_slice` handles null pointer checks.
+        // The `free_slice_fn` is called to ensure the plugin deallocates the slice memory.
+        let vtable = unsafe { &*self.vtable.0 };
         let instance_const = vtable.instance as *const c_void;
         let ffi_slice = (get_slice_fn)(instance_const);
-        let result = ffi_slice.as_slice().map_or_else(
+        // SAFETY: `FfiSlice::as_slice` is unsafe because it dereferences the raw pointer `ffi_slice.ptr`.
+        // We rely on the FFI contract that `get_slice_fn` returns a valid pointer and length.
+        // The function handles null pointers internally. Needs an unsafe block per Rust 2024 rules.
+        let result = unsafe { ffi_slice.as_slice() }.map_or_else(
             || Ok(Vec::new()),
             |slice_data| {
                 slice_data.iter()
@@ -150,38 +186,42 @@ impl VTablePluginWrapper {
                     .collect::<Result<Vec<R>>>() // Collect into crate Result<Vec<R>>
             },
         );
+        // SAFETY: `ffi_slice` was returned by the plugin, and `free_slice_fn` is its deallocator.
         (free_slice_fn)(ffi_slice);
         result
-    }}
+    }
 }
 
 impl Drop for VTablePluginWrapper {
     fn drop(&mut self) {
         println!("Dropping VTablePluginWrapper for '{}'", self.name_cache);
+        // SAFETY: This block handles the deallocation of resources managed via FFI.
+        // 1. `self.vtable.0` points to the `PluginVTable` provided by the plugin.
+        //    Its `destroy` function is called to let the plugin clean up its `instance` data.
+        //    This relies on `self.vtable.0` and `vtable_ref.instance` being valid, and
+        //    `vtable_ref.destroy` being a valid function pointer.
+        // 2. `Box::from_raw` reclaims the memory of the `PluginVTable` itself, assuming it
+        //    was originally allocated via `Box::into_raw` by the plugin.
+        // 3. Dropping `self.library` unloads the dynamic library.
+        // These operations must occur in this order: plugin instance cleanup, VTable memory free, then library unload.
         unsafe {
             if !self.vtable.0.is_null() {
-                // 1. Destroy the plugin instance via the VTable function pointer
                 let vtable_ref = &*self.vtable.0;
-                println!("  - Calling destroy function pointer...");
+                println!("  - Calling FFI destroy function for plugin instance...");
                 (vtable_ref.destroy)(vtable_ref.instance);
-                println!("  - destroy function called.");
+                println!("  - FFI destroy function called.");
 
-                // 2. Free the VTable struct itself (reconstruct the Box)
-                println!("  - Reconstructing VTable Box...");
-                let _vtable_box = Box::from_raw(self.vtable.0 as *mut PluginVTable); // Unsafe block removed (outer function is unsafe)
+                println!("  - Reconstructing VTable Box to free its memory...");
+                let _vtable_box = Box::from_raw(self.vtable.0 as *mut PluginVTable);
                 println!("  - VTable Box reconstructed and will be dropped.");
-                // Set pointer to null after freeing to prevent double free if drop is called again somehow
-                self.vtable.0 = std::ptr::null();
+                self.vtable.0 = std::ptr::null_mut(); // Prevent double free
             } else {
                  println!("  - VTable pointer was null, skipping instance/VTable destruction.");
             }
 
-            // 3. Drop the Library Option, which unloads the library if Some(library)
-            println!("  - Dropping Library Option...");
-            // This happens automatically when `self.library` goes out of scope after this function,
-            // or we can be explicit:
-            drop(self.library.take()); // Take ownership and drop it
-             println!("  - Library Option dropped.");
+            println!("  - Dropping Library Option (unloads .so file)...");
+            drop(self.library.take());
+            println!("  - Library Option dropped.");
         }
          println!("Finished dropping VTablePluginWrapper for '{}'", self.name_cache);
     }
@@ -321,45 +361,108 @@ impl Plugin for VTablePluginWrapper {
         }
     }
 
-    // --- Methods NOT handled by the simple VTable ---
+    // --- Lifecycle Methods implemented via VTable ---
 
-    fn init(&self, _app: &mut Application) -> Result<()> {
-        println!("Warning: VTablePluginWrapper::init called for '{}', but not implemented via VTable.", self.name_cache);
-        Ok(())
+    fn init(&self, app: &mut Application) -> Result<()> {
+        // SAFETY: `self.vtable.0` is dereferenced to call the FFI `init` function.
+        // Assumes `self.vtable.0` is valid (checked in `new`).
+        // `vtable.instance` must be valid for the plugin.
+        // `app` is cast to `*mut c_void`; the FFI function must handle this correctly
+        // and not misuse the pointer (e.g., store it beyond the call if `Application` is not 'static).
+        // The call is synchronous, so `app` remains valid.
+        unsafe {
+            let vtable = &*self.vtable.0;
+            let app_ptr = app as *mut _ as *mut c_void;
+            let result = (vtable.init)(vtable.instance, app_ptr);
+            if result == FfiResult::Ok {
+                Ok(())
+            } else {
+                Err(map_ffi_error(result, &format!("initializing plugin '{}'", self.name_cache)))
+            }
+        }
     }
 
     // Manually implement the async fn to match async_trait's expected signature
     #[must_use = "The result of preflight_check should be handled"]
     fn preflight_check<'life0, 'life1, 'async_trait>(
         &'life0 self,
-        _context: &'life1 StageContext
+        context: &'life1 StageContext
     ) -> Pin<Box<dyn Future<Output = std::result::Result<(), PluginError>> + Send + 'async_trait>>
     where
         'life0: 'async_trait,
         'life1: 'async_trait,
         Self: 'async_trait,
     {
-        let name_cache = self.name_cache; // Clone to move into the async block
+        // Perform the synchronous FFI call here, outside the async block.
+        // `self` is borrowed for `'life0`, ensuring pointers are valid during this call.
+        // SAFETY: Dereferences `self.vtable.0` to call FFI `preflight_check`.
+        // Assumes `self.vtable.0` and `vtable.instance` are valid.
+        // `context` is cast to `*const c_void`; FFI must handle correctly.
+        // `context` remains valid for the synchronous FFI call.
+        let ffi_call_result: FfiResult = unsafe {
+            let vtable = &*self.vtable.0;
+            let context_ptr = context as *const _ as *const c_void;
+            (vtable.preflight_check)(vtable.instance, context_ptr)
+        };
+
+        // Capture the result and other Send-able data for the async block.
+        let plugin_name = self.name_cache; // &'static str is Send
+
         Box::pin(async move {
-            println!("Warning: VTablePluginWrapper::preflight_check called for '{}', but not implemented via VTable.", name_cache);
-            // The actual logic would go here if preflight_check was supported via FFI
-            Ok(())
+            if ffi_call_result == FfiResult::Ok {
+                Ok(())
+            } else {
+                Err(PluginError::PreflightCheckError(format!(
+                    "FFI Error during preflight_check for plugin '{}': {:?}",
+                    plugin_name, ffi_call_result
+                )))
+            }
         })
     }
 
-
-    fn stages(&self) -> Vec<Box<dyn Stage>> {
-        println!("Warning: VTablePluginWrapper::stages called for '{}', but not implemented via VTable.", self.name_cache);
-        Vec::new()
+    fn register_stages(&self, registry: &mut StageRegistry) -> Result<()> { // Use kernel Result alias
+        // SAFETY: Dereferences `self.vtable.0` to call FFI `register_stages`.
+        // Assumes `self.vtable.0` and `vtable.instance` are valid.
+        // `registry` is cast to `*mut c_void`; FFI must handle correctly.
+        // `registry` remains valid for the synchronous FFI call.
+        unsafe {
+            let vtable = &*self.vtable.0;
+            let registry_ptr = registry as *mut _ as *mut c_void;
+            let result = (vtable.register_stages)(vtable.instance, registry_ptr);
+            if result == FfiResult::Ok {
+                Ok(())
+            } else {
+                Err(map_ffi_error(result, &format!("registering stages for plugin '{}'", self.name_cache)))
+            }
+        }
     }
 
     fn shutdown(&self) -> Result<()> {
-        println!("VTablePluginWrapper::shutdown called for '{}' (handled by Drop).", self.name_cache);
-        Ok(())
+        // The primary shutdown logic (destroying instance, freeing VTable, unloading library)
+        // is handled by the `Drop` implementation of VTablePluginWrapper.
+        // This `shutdown` method in the `Plugin` trait is for any *additional*
+        // graceful shutdown logic the plugin might want to perform *before* its
+        // memory is reclaimed.
+        // SAFETY: Dereferences `self.vtable.0` to call FFI `shutdown`.
+        // Assumes `self.vtable.0` and `vtable.instance` are valid.
+        unsafe {
+            let vtable = &*self.vtable.0;
+            let result = (vtable.shutdown)(vtable.instance);
+            if result == FfiResult::Ok {
+                println!("Plugin '{}' FFI shutdown method executed successfully.", self.name_cache);
+                Ok(())
+            } else {
+                eprintln!("Error during FFI shutdown for plugin '{}': {:?}", self.name_cache, result);
+                Err(map_ffi_error(result, &format!("shutting down plugin '{}'", self.name_cache)))
+            }
+        }
     }
 }
 
 // --- End VTablePluginWrapper ---
+
+
+const DISABLED_PLUGINS_KEY: &str = "core.plugins.disabled";
 
 
 /// Plugin system component interface
@@ -373,9 +476,7 @@ pub trait PluginManager: KernelComponent {
     async fn is_plugin_loaded(&self, id: &str) -> Result<bool>;
     async fn get_plugin_dependencies(&self, id: &str) -> Result<Vec<String>>;
     async fn get_dependent_plugins(&self, id: &str) -> Result<Vec<String>>;
-    async fn enable_plugin(&self, id: &str) -> Result<()>;
-    async fn disable_plugin(&self, id: &str) -> Result<()>;
-    async fn is_plugin_enabled(&self, id: &str) -> Result<bool>;
+    async fn is_plugin_enabled(&self, id: &str) -> Result<bool>; // Note: This reflects runtime state, not persisted config
     async fn get_plugin_manifest(&self, id: &str) -> Result<Option<PluginManifest>>;
 }
 
@@ -385,16 +486,6 @@ pub struct DefaultPluginManager { // Remove generic <P>
     registry: Arc<Mutex<PluginRegistry>>,
     config_manager: Arc<ConfigManager>, // Remove generic <P>
 }
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct PluginStates {
-    #[serde(default)]
-    enabled_map: HashMap<String, bool>,
-}
-
-const PLUGIN_STATES_CONFIG_NAME: &str = "plugin_states";
-const PLUGIN_STATES_CONFIG_KEY: &str = "enabled_map";
-const PLUGIN_STATES_SCOPE: ConfigScope = ConfigScope::Plugin(PluginConfigScope::User);
 
 impl DefaultPluginManager { // Remove generic <P>
     pub fn new(config_manager: Arc<ConfigManager>) -> Result<Self> {
@@ -415,12 +506,20 @@ impl DefaultPluginManager { // Remove generic <P>
     fn load_so_plugin(&self, path: &Path) -> Result<Box<dyn Plugin>> { // Uses crate Result
         type PluginInitFn = unsafe extern "C" fn() -> *mut PluginVTable;
 
+        // SAFETY: `Library::new` is unsafe as it loads foreign code.
+        // The path must point to a valid shared library compatible with the host.
         let library = unsafe { Library::new(path) }
             .map_err(|e| Error::Plugin(format!("Failed to load library {:?}: {}", path, e)))?;
 
+        // SAFETY: `library.get` is unsafe as it retrieves a symbol by name.
+        // `_plugin_init` is the agreed-upon symbol name for the plugin's entry point.
+        // The symbol must have the `PluginInitFn` signature.
         let init_symbol: Symbol<PluginInitFn> = unsafe { library.get(b"_plugin_init\0") }
             .map_err(|e| Error::Plugin(format!("Failed to find _plugin_init symbol in {:?}: {}", path, e)))?;
 
+        // SAFETY: Calling the FFI function `init_symbol()` is unsafe.
+        // It's wrapped in `panic::catch_unwind` to handle panics within the FFI call.
+        // The FFI function is expected to return a valid `*mut PluginVTable` or null.
         let vtable_ptr = match panic::catch_unwind(|| unsafe { init_symbol() }) {
             Ok(ptr) if !ptr.is_null() => ptr,
             Err(e) => {
@@ -432,13 +531,90 @@ impl DefaultPluginManager { // Remove generic <P>
             Ok(ptr) if ptr.is_null() => {
                  return Err(Error::Plugin(format!("Plugin initialization function in {:?} returned a null pointer.", path)));
             }
-             _ => unreachable!(),
+             _ => unreachable!(), // Should be covered by the two Ok(ptr) cases
         };
 
-        // Pass the library ownership to the wrapper
-        let plugin_wrapper = unsafe { VTablePluginWrapper::new(vtable_ptr, library)? }; // Pass library here
+        // Pass the library ownership to the wrapper.
+        // SAFETY: `vtable_ptr` is the pointer returned by the plugin's `_plugin_init`.
+        // `VTablePluginWrapper::new`'s safety contract must be upheld here.
+        let plugin_wrapper = unsafe { VTablePluginWrapper::new(vtable_ptr, library)? };
 
         Ok(Box::new(plugin_wrapper))
+    }
+
+    /// Persists the intent to enable a plugin by removing it from the disabled list.
+    /// This method is intended for CLI/external management, not runtime enabling.
+    pub async fn persist_enable_plugin(&self, name: &str) -> Result<()> {
+        // Load the core settings config data
+        let mut config_data = self.config_manager.load_config(crate::plugin_system::manager::CORE_SETTINGS_CONFIG_NAME, ConfigScope::Application)?;
+
+        // Get the current list of disabled plugins, defaulting to an empty Vec if not present
+        let mut disabled_list: Vec<String> = config_data.get_or(DISABLED_PLUGINS_KEY, Vec::new());
+
+        // Remove the plugin from the disabled list if it's there
+        disabled_list.retain(|disabled_name| disabled_name != name);
+
+        // Update the config data with the modified list
+        config_data.set(DISABLED_PLUGINS_KEY, &disabled_list)?;
+
+        // Save the updated config data back
+        self.config_manager.save_config(crate::plugin_system::manager::CORE_SETTINGS_CONFIG_NAME, &config_data, ConfigScope::Application)?;
+
+        println!("Persisted state: Plugin '{}' marked as enabled (removed from disabled list).", name);
+
+        // Also update runtime state in registry
+        let mut registry = self.registry.lock().await;
+        if registry.has_plugin(name) {
+            registry.enable_plugin(name)?; // Propagate actual errors if enabling a known plugin fails
+        } else {
+            // If plugin doesn't exist in registry, it's a no-op for runtime state, matching test expectation.
+            println!("Attempted to enable non-existent plugin '{}' in registry (no runtime state change).", name);
+        }
+
+        Ok(())
+    }
+
+    /// Persists the intent to disable a plugin by adding it to the disabled list.
+    /// This method is intended for CLI/external management, not runtime disabling.
+    pub async fn persist_disable_plugin(&self, name: &str) -> Result<()> {
+        // Verify plugin exists before disabling
+        let registry = self.registry.lock().await;
+        if !registry.has_plugin(name) {
+            // Use the correct error variant
+            return Err(Error::Plugin(format!("Plugin not found: {}", name)));
+        }
+        // Core plugins cannot be disabled via this mechanism (they are always loaded)
+        if let Some(plugin) = registry.get_plugin(name) {
+            if plugin.is_core() {
+                return Err(Error::Plugin(format!("Core plugin '{}' cannot be disabled.", name)));
+            }
+        }
+        drop(registry); // Release lock before async I/O
+
+        // Load the core settings config data
+        let mut config_data = self.config_manager.load_config(crate::plugin_system::manager::CORE_SETTINGS_CONFIG_NAME, ConfigScope::Application)?;
+
+        // Get the current list of disabled plugins, defaulting to an empty Vec if not present
+        let mut disabled_list: Vec<String> = config_data.get_or(DISABLED_PLUGINS_KEY, Vec::new());
+
+        // Add the plugin to the disabled list if it's not already there
+        if !disabled_list.contains(&name.to_string()) {
+            disabled_list.push(name.to_string());
+        }
+
+        // Update the config data with the modified list
+        config_data.set(DISABLED_PLUGINS_KEY, &disabled_list)?;
+
+        // Save the updated config data back
+        self.config_manager.save_config(crate::plugin_system::manager::CORE_SETTINGS_CONFIG_NAME, &config_data, ConfigScope::Application)?;
+
+        println!("Persisted state: Plugin '{}' marked as disabled.", name);
+
+        // Also update runtime state in registry
+        let mut registry = self.registry.lock().await;
+        registry.disable_plugin(name)?; // Propagate potential errors like "not found" or "is core"
+
+        Ok(())
     }
 }
 
@@ -458,20 +634,29 @@ impl KernelComponent for DefaultPluginManager { // Remove generic <P>
 
     async fn initialize(&self) -> Result<()> {
         println!("Initializing Plugin Manager...");
-        let loaded_states = match self.load_plugin_states() {
-            Ok(states) => { println!("Successfully loaded plugin states."); states }
-            Err(e) => { eprintln!("Warning: Failed to load plugin states: {}. Proceeding with defaults.", e); HashMap::new() }
-        };
-        if !loaded_states.is_empty() {
-            let mut registry = self.registry.lock().await;
-            for (plugin_id, should_be_enabled) in loaded_states.iter() {
-                if registry.has_plugin(plugin_id) {
-                    if *should_be_enabled { if !registry.is_enabled(plugin_id) { registry.enabled.insert(plugin_id.to_string()); println!("Applied loaded state: Enabled plugin '{}'", plugin_id); } }
-                    else { if registry.is_enabled(plugin_id) { registry.enabled.remove(plugin_id); println!("Applied loaded state: Disabled plugin '{}'", plugin_id); } }
-                } else { println!("Plugin '{}' found in state file but not currently registered. State ignored.", plugin_id); }
+        // Load persisted disabled state
+        match self.config_manager.load_config(CORE_SETTINGS_CONFIG_NAME, ConfigScope::Application) {
+            Ok(config_data) => {
+                let disabled_list: Vec<String> = config_data.get_or(DISABLED_PLUGINS_KEY, Vec::new());
+                if !disabled_list.is_empty() {
+                    println!("Applying persisted disabled state for plugins: {:?}", disabled_list);
+                    let mut registry = self.registry.lock().await;
+                    for plugin_name in disabled_list {
+                        // Attempt to disable in registry, ignoring errors like "not found" or "is core"
+                        // as these states might be inconsistent until full initialization.
+                        // Core plugins are handled by persist_disable_plugin check anyway.
+                        let _ = registry.disable_plugin(&plugin_name);
+                    }
+                }
+            }
+            Err(e) => {
+                // Log error but continue initialization - perhaps config file is missing/corrupt
+                eprintln!("Warning: Failed to load plugin disabled states from config: {}. Proceeding with defaults.", e);
             }
         }
-        let plugin_dir = PathBuf::from("./target/debug");
+
+        // Load external plugins from directory
+        let plugin_dir = PathBuf::from("./target/debug"); // TODO: Make this configurable
         if plugin_dir.exists() && plugin_dir.is_dir() {
             match self.load_plugins_from_directory(&plugin_dir).await {
                 Ok(count) => println!("Loaded {} external plugins from {:?}", count, plugin_dir),
@@ -524,8 +709,25 @@ impl PluginManager for DefaultPluginManager { // Remove generic <P>
                             let path = entry.path();
                             if path.is_file() && path.extension().map_or(false, |ext| ext == "so") {
                                 println!("Found potential plugin: {:?}", path);
+
+                                // Derive plugin name from filename (e.g., libcore_logging.so -> core-logging)
+                                let derived_plugin_name = path.file_stem()
+                                    .and_then(|stem| stem.to_str()) // Get stem as &str
+                                    .map(|stem| stem.strip_prefix("lib").unwrap_or(stem)) // Remove "lib" prefix
+                                    .map(|name_part| name_part.replace('_', "-")) // Replace underscores
+                                    .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()); // Fallback
+
+                                // Check if the derived plugin name is already registered
+                                if !derived_plugin_name.is_empty() && registry.is_registered(&derived_plugin_name) {
+                                    println!("Plugin '{}' (derived from {:?}) is already registered (likely static), skipping dynamic load.", derived_plugin_name, path);
+                                    continue; // Skip to the next file
+                                }
+
+                                // Attempt to load the .so file
                                 match self.load_so_plugin(&path) {
                                     Ok(plugin) => {
+                                        // Note: The plugin's actual name() might differ from derived_plugin_name.
+                                        // Registration uses the name() reported by the plugin itself.
                                         let name = plugin.name().to_string(); // Leaks memory
                                         match registry.register_plugin(plugin) {
                                             Ok(_) => { println!("Successfully loaded and registered plugin: {}", name); loaded_count += 1; }
@@ -585,24 +787,6 @@ impl PluginManager for DefaultPluginManager { // Remove generic <P>
         Ok(dependents)
     }
 
-    async fn enable_plugin(&self, id: &str) -> Result<()> {
-        { let mut registry = self.registry.lock().await; registry.enable_plugin(id)?; }
-        let mut states = self.load_plugin_states()?;
-        states.insert(id.to_string(), true);
-        self.save_plugin_states(&states)?;
-        Ok(())
-    }
-
-    async fn disable_plugin(&self, id: &str) -> Result<()> {
-        let plugin_opt = self.get_plugin(id).await?;
-        if let Some(plugin) = plugin_opt { if plugin.is_core() { return Err(Error::Plugin(format!("Cannot disable core plugin '{}'", id))); } }
-        { let mut registry = self.registry.lock().await; registry.disable_plugin(id)?; }
-        let mut states = self.load_plugin_states()?;
-        states.insert(id.to_string(), false);
-        self.save_plugin_states(&states)?;
-        Ok(())
-    }
-
     async fn is_plugin_enabled(&self, id: &str) -> Result<bool> {
         let registry = self.registry.lock().await;
         Ok(registry.is_enabled(id))
@@ -636,43 +820,6 @@ impl PluginManager for DefaultPluginManager { // Remove generic <P>
             }
             None => Ok(None),
         }
-    }
-}
-
-// Helper methods for loading/saving state
-impl DefaultPluginManager { // Remove generic <P>
-    fn load_plugin_states(&self) -> Result<HashMap<String, bool>> {
-        match self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE) {
-            Ok(config_data) => {
-                let states_map: HashMap<String, bool> = config_data.get(PLUGIN_STATES_CONFIG_KEY)
-                    .unwrap_or_else(|| { println!("No existing plugin states found under key '{}', using defaults.", PLUGIN_STATES_CONFIG_KEY); HashMap::new() });
-                Ok(states_map)
-            }
-            // Handle specific errors gracefully (file not found, format error, basic IO)
-            Err(Error::FileNotFound { .. }) | Err(Error::ConfigFormatError { .. }) | Err(Error::IoError { .. }) => {
-                println!("Plugin state file '{}' not found or invalid format/IO error, using defaults.", PLUGIN_STATES_CONFIG_NAME);
-                Ok(HashMap::new()) // Return Ok with empty map
-            }
-            // Propagate other errors
-            Err(e) => Err(Error::Plugin(format!("Failed to load plugin states config: {}", e))),
-        }
-    }
-
-    fn save_plugin_states(&self, states: &HashMap<String, bool>) -> Result<()> {
-        let mut config_data = match self.config_manager.load_config(PLUGIN_STATES_CONFIG_NAME, PLUGIN_STATES_SCOPE) {
-            Ok(data) => data,
-            // Handle specific errors gracefully when loading before save
-            Err(Error::FileNotFound { .. }) | Err(Error::ConfigFormatError { .. }) | Err(Error::IoError { .. }) => {
-                 println!("Plugin state file '{}' not found or invalid, creating new one.", PLUGIN_STATES_CONFIG_NAME);
-                 ConfigData::default() // Create default config data
-            }
-            // Propagate other errors
-            Err(e) => return Err(e), // Return other errors directly
-        };
-        config_data.set(PLUGIN_STATES_CONFIG_KEY, states)?;
-        self.config_manager.save_config(PLUGIN_STATES_CONFIG_NAME, &config_data, PLUGIN_STATES_SCOPE)?;
-        println!("Successfully saved plugin states.");
-        Ok(())
     }
 }
 

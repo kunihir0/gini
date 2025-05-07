@@ -59,28 +59,27 @@ async fn test_lifecycle_management() {
     {
         let registry = plugin_manager.registry();
         let mut reg = registry.lock().await;
-        let mut app = Application::new(Some(std::env::temp_dir())).expect("Failed to create app");
+        let mut app = Application::new().expect("Failed to create app");
+        // Get the StageRegistry Arc from the test environment's StageManager
+        let stage_registry_arc = stage_manager.registry().registry();
 
-        // Initialize plugins individually
-        reg.initialize_plugin("LifecyclePluginA", &mut app).expect("Failed to initialize PluginA");
-        reg.initialize_plugin("LifecyclePluginB", &mut app).expect("Failed to initialize PluginB");
+        // Initialize plugins individually, passing the correct StageRegistry Arc
+        reg.initialize_plugin("LifecyclePluginA", &mut app, &stage_registry_arc).await.expect("Failed to initialize PluginA");
+        reg.initialize_plugin("LifecyclePluginB", &mut app, &stage_registry_arc).await.expect("Failed to initialize PluginB");
         execution_order.lock().unwrap().push("plugins_initialized".to_string());
     }
 
-    // Register plugin stages with stage manager
+    // Stage registration now happens during initialize_plugin, so this block is redundant
     {
         let registry = plugin_manager.registry();
-        let plugins = {
+        let _plugins = { // Keep variable binding, but mark as unused if needed
+            // No longer need to manually iterate and register stages here.
+            // Stage registration is now handled during plugin initialization.
             let reg = registry.lock().await;
             reg.get_plugins_arc()
         };
+        // execution_order.lock().unwrap().push("stages_registered".to_string()); // Remove this step
 
-        for plugin in plugins {
-            for stage in plugin.stages() {
-                StageManager::register_stage(&*stage_manager, stage).await.expect("Failed to register plugin stage");
-            }
-        }
-        execution_order.lock().unwrap().push("stages_registered".to_string());
     }
 
     // Create and execute a pipeline with plugin stages
@@ -113,15 +112,16 @@ async fn test_lifecycle_management() {
     let init_pos = order.iter().position(|s| s == "system_initialized").expect("Missing system_initialized");
     let reg_pos = order.iter().position(|s| s == "plugins_registered").expect("Missing plugins_registered");
     let plugins_init_pos = order.iter().position(|s| s == "plugins_initialized").expect("Missing plugins_initialized");
-    let stages_reg_pos = order.iter().position(|s| s == "stages_registered").expect("Missing stages_registered");
+    // let stages_reg_pos = order.iter().position(|s| s == "stages_registered").expect("Missing stages_registered"); // Removed check
     let stages_exec_pos = order.iter().position(|s| s == "stages_executed").expect("Missing stages_executed");
     let shutdown_pos = order.iter().position(|s| s == "plugins_shutdown").expect("Missing plugins_shutdown");
 
     // Verify correct order of lifecycle phases
     assert!(init_pos < reg_pos, "System should be initialized before plugins are registered");
     assert!(reg_pos < plugins_init_pos, "Plugins should be registered before initialized");
-    assert!(plugins_init_pos < stages_reg_pos, "Plugins should be initialized before stages are registered");
-    assert!(stages_reg_pos < stages_exec_pos, "Stages should be registered before executed");
+    // assert!(plugins_init_pos < stages_reg_pos, "Plugins should be initialized before stages are registered"); // Removed check
+    // assert!(stages_reg_pos < stages_exec_pos, "Stages should be registered before executed"); // Removed check
+    assert!(plugins_init_pos < stages_exec_pos, "Plugins should be initialized before stages are executed"); // Check init before exec
     assert!(stages_exec_pos < shutdown_pos, "Stages should be executed before system shutdown");
 
     // Check that plugin stages were executed
@@ -159,11 +159,16 @@ async fn test_plugin_shutdown_order() {
     }
 
     // Initialize plugins (initialize B, which should trigger A first)
-    let mut app = Application::new(Some(std::env::temp_dir())).expect("Failed to create app for test");
+    let mut app = Application::new().expect("Failed to create app for test");
     {
         let registry = plugin_manager.registry();
+        // Get the StageRegistry Arc from the test environment's StageManager (even if unused by these plugins)
+        // We need a StageManager instance for this. Let's modify setup_test_environment or create one here.
+        // For simplicity, let's assume setup_test_environment provides it.
+        let stage_manager = _stage_manager; // Use the one from setup
+        let stage_registry_arc = stage_manager.registry().registry();
         let mut reg_lock = registry.lock().await;
-        reg_lock.initialize_plugin("DepShutdownB", &mut app).expect("Failed to initialize DepShutdownB");
+        reg_lock.initialize_plugin("DepShutdownB", &mut app, &stage_registry_arc).await.expect("Failed to initialize DepShutdownB");
     }
 
     // Verify initialization order first (A then B) (use std::sync::Mutex lock)
@@ -236,13 +241,16 @@ async fn test_plugin_shutdown_error_handling() {
     }
 
     // Initialize plugins
-    let mut app = Application::new(Some(std::env::temp_dir())).expect("Failed to create app for test");
+    let mut app = Application::new().expect("Failed to create app for test");
     {
         let registry = plugin_manager.registry();
+        // Get the StageRegistry Arc from the test environment's StageManager
+        let stage_manager = _stage_manager; // Use the one from setup
+        let stage_registry_arc = stage_manager.registry().registry();
         let mut reg_lock = registry.lock().await;
         // Initialize both (order doesn't strictly matter here as they have no deps on each other)
-        reg_lock.initialize_plugin(&error_plugin_name, &mut app).expect("Failed to initialize error plugin");
-        reg_lock.initialize_plugin(&success_plugin_name, &mut app).expect("Failed to initialize success plugin");
+        reg_lock.initialize_plugin(&error_plugin_name, &mut app, &stage_registry_arc).await.expect("Failed to initialize error plugin");
+        reg_lock.initialize_plugin(&success_plugin_name, &mut app, &stage_registry_arc).await.expect("Failed to initialize success plugin");
     }
      // Verify both are marked as initialized
     {

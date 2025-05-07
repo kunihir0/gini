@@ -45,11 +45,12 @@ fn create_test_manager_for_loading() -> (DefaultPluginManager, TempDir) { // Rem
     fs::create_dir_all(&plugin_config_path).unwrap();
 
     let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
-    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
-        provider,
-        app_config_path,
-        plugin_config_path,
-        ConfigFormat::Json,
+    // Call ConfigManager::new with the reverted signature
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new(
+        provider,             // Pass the provider Arc
+        app_config_path,      // Pass the app config path
+        plugin_config_path,   // Pass the plugin config path
+        ConfigFormat::Json,   // Pass the default format
     ));
     (DefaultPluginManager::new(config_manager).unwrap(), tmp_dir)
 }

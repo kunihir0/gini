@@ -41,5 +41,6 @@ toml = { version = "0.8", optional = true }
 # Tests moved here require tempfile
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] } # Add tokio for async tests
 tempfile = "3.10"
+futures = "0.3" # Added for block_on in tests
 # Or use workspace dependency: tempfile = { workspace = true }
 # serde_json moved to main dependencies

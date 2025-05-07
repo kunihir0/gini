@@ -4,6 +4,8 @@ use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::stage_manager::context::StageContext; // Added for preflight context if needed later
 use async_trait::async_trait;
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
+// Removed incorrect import: use crate::plugin_system::error::PluginError;
 use crate::stage_manager::requirement::StageRequirement;
 
 /// Priority levels for plugins
@@ -319,12 +321,31 @@ pub struct PluginVTable {
     /// Frees the memory allocated for the slice returned by `incompatible_with`.
     pub free_incompatible_with: extern "C" fn(slice: FfiSlice<FfiPluginDependency>),
 
-    // NOTE: Methods like `init`, `shutdown`, `preflight_check`, `stages` are NOT included
-    // in this VTable. They will be implemented by the host-side wrapper struct
-    // which holds this VTable pointer. The wrapper will manage the plugin's lifecycle
-    // and interaction with the core system, potentially using the `instance` pointer
-    // or other mechanisms if needed, but not directly via simple VTable calls for
-    // these complex/stateful operations.
+    // --- Lifecycle Methods ---
+
+    /// Initializes the plugin.
+    /// `app_ptr` is a raw pointer to `gini_core::kernel::bootstrap::Application`.
+    /// The plugin should cast this pointer appropriately to interact with the application.
+    /// Returns `FfiResult::Ok` on success, or an error code on failure.
+    pub init: extern "C" fn(instance: *mut c_void, app_ptr: *mut c_void) -> FfiResult,
+
+    /// Performs pre-flight checks for the plugin.
+    /// `context_ptr` is a raw pointer to `gini_core::stage_manager::context::StageContext`.
+    /// The plugin should cast this pointer to perform checks.
+    /// Returns `FfiResult::Ok` if checks pass, or an error code if they fail.
+    /// Note: This is a synchronous FFI call. If async operations are needed,
+    /// the plugin must manage its own runtime or use a blocking approach.
+    pub preflight_check: extern "C" fn(instance: *const c_void, context_ptr: *const c_void) -> FfiResult,
+
+    /// Registers stages provided by this plugin.
+    /// `registry_ptr` is a raw pointer to `gini_core::stage_manager::registry::StageRegistry`.
+    /// The plugin should cast this pointer and use it to register its stages.
+    /// Returns `FfiResult::Ok` on success, or an error code on failure.
+    pub register_stages: extern "C" fn(instance: *const c_void, registry_ptr: *mut c_void) -> FfiResult,
+    
+    /// Shuts down the plugin.
+    /// Returns `FfiResult::Ok` on success, or an error code on failure.
+    pub shutdown: extern "C" fn(instance: *mut c_void) -> FfiResult,
 }
 
 // Helper functions `ffi_string_from_ptr` and `ffi_opt_string_from_ptr` moved to manager.rs
@@ -424,9 +445,9 @@ pub trait Plugin: Send + Sync {
         Ok(())
     }
 
-    /// Get the stages provided by this plugin
-    fn stages(&self) -> Vec<Box<dyn crate::stage_manager::Stage>>;
-    
+    /// Register stages provided by this plugin with the StageRegistry.
+    fn register_stages(&self, registry: &mut StageRegistry) -> Result<()>;
+
     /// Shutdown the plugin
     fn shutdown(&self) -> Result<()>;
 }

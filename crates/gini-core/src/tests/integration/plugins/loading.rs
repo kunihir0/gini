@@ -64,37 +64,37 @@ async fn test_static_plugin_initialization_succeeds() -> KernelResult<()> {
     // and does not incorrectly trigger the dynamic loading logic (which is currently stubbed).
 
     // Destructure all trackers
-    let (plugin_manager, _, _, stages_executed, execution_order, _) = setup_test_environment().await;
+    let (plugin_manager, stage_manager_arc, _, stages_executed, execution_order, _) = setup_test_environment().await; // Get stage_manager too
     KernelComponent::initialize(&*plugin_manager).await?;
+    KernelComponent::initialize(&*stage_manager_arc).await?; // Initialize stage_manager
 
     // Create a basic, compatible plugin (statically defined, doesn't need actual loading)
-    let plugin = TestPlugin::new("LoadFailTestPlugin", stages_executed.clone(), execution_order.clone()); // Pass execution_order
+    let plugin = TestPlugin::new("StaticInitTestPlugin", stages_executed.clone(), execution_order.clone()); // Pass execution_order, new name
     let plugin_name = plugin.name().to_string();
 
     // Register the plugin
+    let plugin_registry_arc = plugin_manager.registry();
     {
-        let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin))?;
+        let mut registry_lock = plugin_registry_arc.lock().await;
+        registry_lock.register_plugin(Box::new(plugin))?;
         // Ensure it's enabled but not initialized
-        assert!(registry.is_enabled(&plugin_name));
-        assert!(!registry.initialized.contains(&plugin_name));
+        assert!(registry_lock.is_enabled(&plugin_name));
+        assert!(!registry_lock.initialized.contains(&plugin_name));
     }
 
-    // Attempt to initialize - this should succeed for a static plugin
-
-    let mut app = Application::new(None).unwrap();
-    let init_result = {
-        let mut registry = plugin_manager.registry().lock().await;
-        registry.initialize_plugin(&plugin_name, &mut app)
-    };
-
-    // Assert that initialization succeeded for the static plugin
-    assert!(init_result.is_ok(), "Initialization of static plugin should succeed, but failed: {:?}", init_result.err());
-
-
+    // Initialize the plugin using initialize_all
+    let mut app_for_init = Application::new().unwrap();
+    // Get the actual Arc<Mutex<StageRegistry>> from the stage_manager provided by setup_test_environment
+    let stage_registry_for_init = stage_manager_arc.registry().registry.clone();
+    {
+        let mut plugin_registry_locked = plugin_registry_arc.lock().await;
+        plugin_registry_locked.initialize_all(&mut app_for_init, &stage_registry_for_init).await
+            .expect("initialize_all failed for static plugin initialization test");
+    } // plugin_registry_locked is dropped here
+    
      // Verify plugin is marked as initialized
-    let registry = plugin_manager.registry().lock().await;
-    assert!(registry.initialized.contains(&plugin_name), "Plugin should be marked as initialized after successful init");
+    let registry_check = plugin_manager.registry().lock().await;
+    assert!(registry_check.initialized.contains(&plugin_name), "Plugin '{}' should be marked as initialized after successful init. Initialized: {:?}", plugin_name, registry_check.initialized);
 
     Ok(())
 }

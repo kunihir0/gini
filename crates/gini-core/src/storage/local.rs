@@ -70,23 +70,22 @@ impl StorageProvider for LocalStorageProvider {
     fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<()> {
         let full_path = self.resolve_path(path);
         
-        // Ensure parent directory exists
-        if let Some(parent) = full_path.parent() {
-            if !self.is_dir(parent) { // Use self.is_dir to check relative path
-                 self.create_dir_all(parent)?; // Use self.create_dir_all for relative path
-            }
-        } else {
-            // Handle cases where path has no parent (e.g., root directory, unlikely for configs)
-             return Err(Error::StorageOperationFailed {
+        // Get parent directory, error if none
+        let parent_dir = match full_path.parent() {
+            Some(p) => p,
+            None => return Err(Error::StorageOperationFailed {
                 operation: "write_bytes".to_string(),
                 path: Some(full_path.clone()),
                 message: "Cannot write to path without parent directory".to_string(),
-            });
-        }
+            }),
+        };
+
+        // Unconditionally ensure parent directory exists
+        self.create_dir_all(parent_dir)?;
 
         // Create a named temporary file in the same directory as the target file
-        let temp_file = NamedTempFile::new_in(full_path.parent().unwrap()) // unwrap is safe due to check above
-            .map_err(|e| Error::io(e, "create_temp_file", Some(full_path.parent().unwrap().to_path_buf())))?;
+        let temp_file = NamedTempFile::new_in(parent_dir)
+            .map_err(|e| Error::io(e, "create_temp_file", Some(parent_dir.to_path_buf())))?;
 
         // Write contents to the temporary file
         // Use write_all for robustness

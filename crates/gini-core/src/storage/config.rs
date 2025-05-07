@@ -11,7 +11,21 @@ use serde_yaml;
 use toml;
 
 use crate::kernel::error::{Error, Result};
-use crate::storage::StorageProvider;
+// use crate::storage::manager::StorageManager; // Import StorageManager trait
+use crate::storage::StorageProvider; // Keep for direct provider access if needed elsewhere
+
+/// Defines the scope for storage operations, determining the base directory.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageScope {
+    /// Application-specific configuration files (e.g., `$XDG_CONFIG_HOME/gini`).
+    Application,
+    /// Plugin-specific configuration files (e.g., `$XDG_CONFIG_HOME/gini/plugins/<plugin_name>`).
+    Plugin { plugin_name: String },
+    /// Application data files (e.g., `$XDG_DATA_HOME/gini`).
+    Data,
+    // Potentially add Cache, Logs, etc. later
+}
+
 
 /// Supported configuration file formats
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -206,13 +220,11 @@ pub enum PluginConfigScope {
 }
 
 /// Configuration manager that handles loading, saving, and caching configurations
-// #[derive(Debug)] // Remove derive Debug, implement manually
-pub struct ConfigManager { // Remove generic type parameter P
-    /// Storage provider for reading/writing configs
-    provider: Arc<dyn StorageProvider>, // Use dynamic dispatch
-    /// Base path for application configurations
+// #[derive(Debug)] // Manual Debug implementation below
+pub struct ConfigManager {
+    // Store provider and paths directly again
+    provider: Arc<dyn StorageProvider>,
     app_config_path: PathBuf,
-    /// Base path for plugin configurations
     plugin_config_path: PathBuf,
     /// Default format for new configurations
     default_format: Arc<RwLock<ConfigFormat>>, // Use Arc<RwLock> for shared mutability
@@ -220,33 +232,38 @@ pub struct ConfigManager { // Remove generic type parameter P
     cache: Arc<RwLock<HashMap<String, ConfigData>>>,
 }
 
-impl ConfigManager { // Remove generic type parameter P
+impl ConfigManager {
     /// Create a new configuration manager
+    // Revert to taking provider and paths, store them directly.
+    // StorageManager will be accessed via methods when needed.
     pub fn new(
-        provider: Arc<dyn StorageProvider>, // Use dynamic dispatch
-        app_config_path: PathBuf,
-        plugin_config_path: PathBuf,
+        provider: Arc<dyn StorageProvider>, // Use dynamic dispatch provider
+        app_config_path: PathBuf,           // App config base path
+        plugin_config_path: PathBuf,        // Plugin config base path
         default_format: ConfigFormat,
     ) -> Self {
         Self {
-            provider,
-            app_config_path,
-            plugin_config_path,
-            default_format: Arc::new(RwLock::new(default_format)), // Wrap in Arc<RwLock>
-            cache: Arc::new(RwLock::new(HashMap::new())), // Wrap RwLock in Arc
+            // storage_manager: storage_manager, // Removed field
+            provider, // Store provider directly
+            app_config_path, // Store path directly
+            plugin_config_path, // Store path directly
+            default_format: Arc::new(RwLock::new(default_format)),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
-    /// Get the app configuration path
-    pub fn app_config_path(&self) -> &Path {
-        &self.app_config_path
+
+    /// Get the underlying storage provider Arc.
+    pub fn provider(&self) -> &Arc<dyn StorageProvider> {
+        &self.provider
     }
-    
-    /// Get the plugin configuration path
-    pub fn plugin_config_path(&self) -> &Path {
-        &self.plugin_config_path
-    }
-    
+
+    // Removed storage_manager() getter, access provider directly if needed
+    // pub fn storage_manager(&self) -> &Arc<dyn StorageManager> {
+    //     &self.storage_manager
+    // }
+
+    // Removed app_config_path() and plugin_config_path() methods
+
     /// Get the default format
     pub fn default_format(&self) -> ConfigFormat {
         *self.default_format.read().unwrap() // Read from RwLock
@@ -258,30 +275,31 @@ impl ConfigManager { // Remove generic type parameter P
     }
     
     /// Resolve the complete path for a configuration file
+    /// Resolve the complete path for a configuration file using stored paths
     pub fn resolve_config_path(&self, name: &str, scope: ConfigScope) -> PathBuf {
-        let base_path = match scope {
-            ConfigScope::Application => &self.app_config_path,
-            ConfigScope::Plugin(_) => &self.plugin_config_path,
-        };
-        
-        // Ensure name has appropriate extension
+         // Ensure name has appropriate extension
         let file_name = if Path::new(name).extension().is_some() {
             name.to_string()
         } else {
             format!("{}.{}", name, self.default_format().extension()) // Use method to read lock
         };
-        
+
         match scope {
-            ConfigScope::Application => base_path.join(file_name),
+            ConfigScope::Application => self.app_config_path.join(file_name),
             ConfigScope::Plugin(plugin_scope) => {
+                // Use the stored plugin_config_path
                 match plugin_scope {
-                    PluginConfigScope::Default => base_path.join("default").join(file_name),
-                    PluginConfigScope::User => base_path.join("user").join(file_name),
+                    // Note: This reverts to the original structure: <plugin_config_path>/<scope>/<name>.<ext>
+                    // Example: <root>/plugins/config/default/my_plugin.json
+                    // If the XDG structure (<config_dir>/plugins/<plugin_name>/<scope>/config.json) is desired,
+                    // this needs adjustment, likely requiring the StorageManager reference again.
+                    PluginConfigScope::Default => self.plugin_config_path.join("default").join(file_name),
+                    PluginConfigScope::User => self.plugin_config_path.join("user").join(file_name),
                 }
             },
         }
     }
-    
+
     /// Load configuration from disk
     pub fn load_config(&self, name: &str, scope: ConfigScope) -> Result<ConfigData> {
         // Generate a cache key to identify this configuration
@@ -303,24 +321,27 @@ impl ConfigManager { // Remove generic type parameter P
         let path = self.resolve_config_path(name, scope);
         
         // If file doesn't exist, return default empty config (no error)
+        // Use the stored provider for checks
         if !self.provider.exists(&path) {
-            // Check if the *directory* exists before returning empty.
-            // If the dir doesn't exist, it might indicate a setup issue.
-            if let Some(parent_dir) = path.parent() {
-                if !self.provider.is_dir(parent_dir) {
-                    // Optionally, log a warning here or return a specific error?
-                    // For now, return empty config as per original logic.
-                }
-            }
-            
+             // Check if the *directory* exists before returning empty.
+             // If the dir doesn't exist, it might indicate a setup issue.
+             if let Some(parent_dir) = path.parent() {
+                 if !self.provider.is_dir(parent_dir) {
+                     // Optionally, log a warning here or return a specific error?
+                     // For now, return empty config as per original logic.
+                     // Let's create it to be safe, as before.
+                     self.provider.create_dir_all(parent_dir)?;
+                 }
+             }
+
             let empty_config = ConfigData::new();
-            
+
             // Cache the empty config (write lock)
             self.cache.write().unwrap().insert(cache_key, empty_config.clone()); // Use write lock
 
             return Ok(empty_config);
         }
-        
+
         // Ensure it's actually a file before trying to read
         if !self.provider.is_file(&path) {
             return Err(Error::StorageOperationFailed {
@@ -329,12 +350,12 @@ impl ConfigManager { // Remove generic type parameter P
                 message: format!("Path exists but is not a file: {}", path.display()),
             });
         }
-        
+
         // Determine format from file extension
         let format = ConfigFormat::from_path(&path)
             .ok_or_else(|| Error::ConfigFormatError { path: path.clone() })?;
-        
-        // Load the file content
+
+        // Load the file content using the stored provider
         let content = self.provider.read_to_string(&path).map_err(|e| {
             // Add context to potential IO error
             if let Error::IoError { source, .. } = e {
@@ -343,7 +364,7 @@ impl ConfigManager { // Remove generic type parameter P
                 e // Pass through other errors
             }
         })?;
-        
+
         // Parse based on format
         let config = ConfigData::deserialize(&content, format)?;
         
@@ -357,20 +378,20 @@ impl ConfigManager { // Remove generic type parameter P
     pub fn save_config(&self, name: &str, config: &ConfigData, scope: ConfigScope) -> Result<()> {
         let path = self.resolve_config_path(name, scope);
         
-        // Ensure the directory exists
+        // Ensure the directory exists using the stored provider
         if let Some(parent) = path.parent() {
             self.provider.create_dir_all(parent)?;
         }
-        
+
         // Determine format from file extension or use default
         let format = ConfigFormat::from_path(&path).unwrap_or(self.default_format()); // Use method to read lock
-        
+
         // Serialize based on format
         let content = config.serialize(format)?;
-        
-        // Write to disk
+
+        // Write to disk using the stored provider
         self.provider.write_string(&path, &content)?;
-        
+
         // Update cache
         let cache_key = match scope {
             ConfigScope::Application => format!("app:{}", name),
@@ -437,7 +458,7 @@ impl ConfigManager { // Remove generic type parameter P
 
     /// List available configuration files
     pub fn list_configs(&self, scope: ConfigScope) -> Result<Vec<String>> {
-        // Get the appropriate directory path
+        // Get the appropriate directory path using stored paths
         let dir_path = match scope {
             ConfigScope::Application => self.app_config_path.clone(),
             ConfigScope::Plugin(plugin_scope) => match plugin_scope {
@@ -445,29 +466,41 @@ impl ConfigManager { // Remove generic type parameter P
                 PluginConfigScope::User => self.plugin_config_path.join("user"),
             },
         };
-        
-        // Ensure directory exists
+
+        // Ensure directory exists using stored provider
         if !self.provider.exists(&dir_path) {
-            return Ok(vec![]);
+            // Attempt to create the directory if it doesn't exist? Or just return empty?
+            // Let's create it for consistency with load/save.
+            self.provider.create_dir_all(&dir_path)?;
+            return Ok(vec![]); // Return empty if just created
         }
-        
-        // List files in directory
+        if !self.provider.is_dir(&dir_path) {
+            return Err(Error::StorageOperationFailed {
+                operation: "list_configs".to_string(),
+                path: Some(dir_path.clone()),
+                message: "Path exists but is not a directory".to_string(),
+            });
+        }
+        println!("[list_configs] Listing in directory: {:?}", dir_path); // DEBUG
+
+        // List files in directory using stored provider
         let entries = self.provider.read_dir(&dir_path)?;
-        
+        println!("[list_configs] Found entries: {:?}", entries); // DEBUG
+
         // Filter for configuration files
         let config_files = entries.into_iter()
             .filter_map(|path| {
-                // Check if it's a file
+                // Check if it's a file using stored provider
                 if self.provider.is_file(&path) {
                     // Check if it has a recognized extension
                     if ConfigFormat::from_path(&path).is_some() {
                         // Extract the file name without extension
                         path.file_stem().and_then(|stem| stem.to_str().map(String::from))
                     } else {
-                        None
+                        None // Not a recognized config format
                     }
                 } else {
-                    None
+                    None // Not a file
                 }
             })
             .collect();
@@ -477,14 +510,14 @@ impl ConfigManager { // Remove generic type parameter P
 }
 
 // Manual Debug implementation for ConfigManager
+// Update Debug impl to use stored provider/paths
 impl fmt::Debug for ConfigManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ConfigManager")
-            .field("provider", &self.provider.name()) // Use provider name for Debug
+            .field("provider", &self.provider.name()) // Use provider name
             .field("app_config_path", &self.app_config_path)
             .field("plugin_config_path", &self.plugin_config_path)
             .field("default_format", &*self.default_format.read().unwrap()) // Read the format
-            // Optionally skip cache or provide summary
             .field("cache", &format!("{} items", self.cache.read().unwrap().len()))
             .finish()
     }
@@ -497,14 +530,15 @@ pub trait ConfigStorageExt { // Remove StorageProvider bound and 'static
 }
 
 // Manual Clone implementation for ConfigManager
-impl Clone for ConfigManager { // Remove generic type parameter P
+// Update Clone impl
+impl Clone for ConfigManager {
     fn clone(&self) -> Self {
         Self {
-            provider: Arc::clone(&self.provider), // Clone the Arc
+            provider: Arc::clone(&self.provider), // Clone provider Arc
             app_config_path: self.app_config_path.clone(),
             plugin_config_path: self.plugin_config_path.clone(),
-            default_format: Arc::clone(&self.default_format), // Clone the Arc<RwLock>
-            cache: Arc::clone(&self.cache),       // Clone the Arc for the cache
+            default_format: Arc::clone(&self.default_format),
+            cache: Arc::clone(&self.cache),
         }
     }
 }

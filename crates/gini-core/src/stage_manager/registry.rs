@@ -108,7 +108,7 @@ impl Default for StageRegistry {
 /// Thread-safe stage registry using Tokio's Mutex
 #[derive(Clone, Debug)] // Shared can be Clone and Debug as it holds an Arc
 pub struct SharedStageRegistry {
-    registry: Arc<Mutex<StageRegistry>>, // Use tokio::sync::Mutex
+    pub registry: Arc<Mutex<StageRegistry>>, // Use tokio::sync::Mutex
 }
 
 impl SharedStageRegistry {

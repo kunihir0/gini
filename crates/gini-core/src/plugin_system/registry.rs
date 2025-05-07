@@ -1,11 +1,16 @@
-use std::collections::{HashMap, HashSet, VecDeque}; // Ensure this is the only import line for these
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use tokio::sync::Mutex; // Add back Mutex import
+use std::pin::Pin;
+use std::future::Future;
 
 use crate::kernel::error::{Error, Result};
-use crate::plugin_system::traits::{Plugin};
+use crate::kernel::bootstrap::Application;
+use crate::plugin_system::traits::Plugin;
 use crate::plugin_system::version::ApiVersion;
-use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict}; // Import ConflictManager and conflict types
-use semver::Version; // Import semver::Version for incompatibility checks
+use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict};
+use crate::stage_manager::registry::StageRegistry; // Keep StageRegistry, SharedStageRegistry not directly used in this file's signatures now
+use semver::Version;
 
 /// Registry for managing plugins
 pub struct PluginRegistry {
@@ -90,6 +95,10 @@ impl PluginRegistry {
     /// Check if a plugin is registered by ID
     pub fn has_plugin(&self, id: &str) -> bool {
         self.plugins.contains_key(id)
+    }
+/// Checks if a plugin with the given name is already registered.
+    pub fn is_registered(&self, name: &str) -> bool {
+        self.plugins.contains_key(name)
     }
     
     /// Get a plugin Arc by ID
@@ -200,8 +209,7 @@ impl PluginRegistry {
             // However, the standard algorithm adds nodes with 0 in-degree first.
             // If A depends on B (A -> B), B has in-degree 0 initially. B gets added.
             // Then A's in-degree becomes 0. A gets added. Order: [B, A]. This is correct for init.
-             // Reverse the list to get initialization order (dependencies first)
-             sorted_list.reverse();
+             // Do NOT reverse the list. Kahn's algorithm naturally produces the correct init order.
              Ok(sorted_list)
         } else {
             // Cycle detected. Find the nodes involved in the cycle (nodes not in sorted_list).
@@ -218,18 +226,30 @@ impl PluginRegistry {
     
     /// Public entry point for initializing a single plugin.
     /// Handles the initial call and sets up cycle detection.
-    pub fn initialize_plugin(&mut self, id: &str, app: &mut crate::kernel::bootstrap::Application) -> Result<()> {
+    /// Returns a pinned, boxed future.
+    // Make the public function async again
+    pub async fn initialize_plugin(
+        &mut self,
+        id: &str,
+        app: &mut Application, // Keep app for Plugin::init for now
+        stage_registry_arc: &Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
+    ) -> Result<()> {
         let mut currently_initializing = HashSet::new();
-        self.initialize_plugin_recursive(id, app, &mut currently_initializing)
+        // Pass the stage_registry_arc down
+        self.initialize_plugin_recursive(id, app, stage_registry_arc, &mut currently_initializing).await
     }
 
     /// Internal recursive function for plugin initialization with cycle detection.
-    fn initialize_plugin_recursive(
-        &mut self,
-        id: &str,
-        app: &mut crate::kernel::bootstrap::Application,
-        currently_initializing: &mut HashSet<String>,
-    ) -> Result<()> {
+    /// Returns a pinned, boxed future.
+    fn initialize_plugin_recursive<'a>(
+        &'a mut self,
+        id: &'a str,
+        app: &'a mut Application, // Keep app for Plugin::init
+        stage_registry_arc: &'a Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
+        currently_initializing: &'a mut HashSet<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        // Wrap the async logic in Box::pin
+        Box::pin(async move {
         // Ensure plugin exists and is enabled before initializing
         if !self.has_plugin(id) {
             return Err(Error::Plugin(format!("Plugin not found: {}", id)));
@@ -302,26 +322,59 @@ impl PluginRegistry {
 
             // Initialize dependency if required, enabled, exists, and not already initialized
             if dep.required && dep_exists && dep_enabled && !self.initialized.contains(&dep.plugin_name) {
-                 // Recursive call with the tracking set
-                 self.initialize_plugin_recursive(&dep.plugin_name, app, currently_initializing)?;
+                 // Recursive call: Pass app and the stage_registry_arc_clone
+                 self.initialize_plugin_recursive(
+                     &dep.plugin_name,
+                     app, // Pass app reference down
+                     stage_registry_arc, // Pass the original Arc reference down
+                     currently_initializing
+                 ).await?;
             }
+       }
+
+       // --- Initialize the plugin itself ---
+       println!("[PluginRegistry] Initializing plugin: {}", id);
+
+       // Call init with mutable borrow of app (still required by Plugin::init signature)
+       plugin_arc.init(app)?;
+       println!("[PluginRegistry] Plugin initialized: {}", id);
+
+       // --- Register stages immediately after successful initialization ---
+       println!("[PluginRegistry] Attempting to register stages for plugin: {}...", id);
+       // Lock the registry using the Arc<Mutex<StageRegistry>> directly
+       let mut registry_guard = stage_registry_arc.lock().await;
+       println!("[PluginRegistry] StageRegistry locked for plugin: {}", id);
+       match plugin_arc.register_stages(&mut *registry_guard) { // Call the plugin's method
+            Ok(_) => {
+                println!("[PluginRegistry] plugin.register_stages call succeeded for plugin: {}", id);
+             }
+             Err(e) => {
+                 println!("[PluginRegistry] plugin.register_stages call FAILED for plugin: {}: {}", id, e);
+                 // Propagate the error
+                 return Err(e);
+             }
         }
+        // Drop the guard explicitly *before* marking as initialized, although it would drop at end of scope anyway.
+        drop(registry_guard);
+        println!("[PluginRegistry] StageRegistry unlocked for plugin: {}", id);
 
-        // Now initialize the plugin itself
-        // We use the cloned Arc here. Assuming `init` doesn't need `&mut self`.
-        // If `init` requires `&mut self`, the design needs rethinking (e.g., Arc<Mutex<dyn Plugin>>).
-        plugin_arc.init(app)?;
+
+        // Mark as initialized *after* successful init and stage registration
         self.initialized.insert(id.to_string());
-
         // --- Cycle Detection Cleanup ---
         currently_initializing.remove(id);
         // --- End Cycle Detection Cleanup ---
 
-        Ok(())
+        Ok(()) }) // Close the async move block and Box::pin
     }
-    
-    /// Initialize all plugins in dependency order, after checking for conflicts.
-    pub fn initialize_all(&mut self, app: &mut crate::kernel::bootstrap::Application) -> Result<()> {
+
+    /// Initialize all enabled plugins in dependency order, after checking for conflicts.
+    /// Requires the Application instance (for Plugin::init) and the correct StageRegistry Arc.
+    pub async fn initialize_all(
+        &mut self,
+        app: &mut Application,
+        stage_registry_arc: &Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
+    ) -> Result<()> {
         // 1. Detect conflicts among enabled plugins
         self.detect_all_conflicts()?;
         println!("[Init] Detected conflicts: {:?}", self.conflict_manager.get_conflicts());
@@ -378,11 +431,9 @@ impl PluginRegistry {
         for id in sorted_plugin_ids {
             // Check if already initialized (might happen due to dependency resolution within recursive calls)
             if !self.initialized.contains(&id) {
-                 // initialize_plugin already checks for enabled status, but we know it's enabled here.
                  println!("[Init] Calling initialize_plugin for: {}", id);
-                 // Call the public method which sets up its own cycle detection (as a safeguard)
-                 // and handles recursive initialization.
-                 match self.initialize_plugin(&id, app) {
+                 // Call the public method, passing the app and the stage_registry_arc
+                 match self.initialize_plugin(&id, app, stage_registry_arc).await {
                      Ok(_) => println!("[Init] Successfully initialized plugin: {}", id),
                      Err(e) => {
                          // If initialization fails for one plugin, stop the whole process?

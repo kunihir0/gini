@@ -1,6 +1,6 @@
 use std::any::TypeId; // Remove braces
-use std::path::PathBuf;
-use std::env;
+// Removed unused std::path::PathBuf
+// Removed unused std::env
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -13,39 +13,37 @@ use crate::event::DefaultEventManager; // Remove braces
 use crate::stage_manager::manager::DefaultStageManager; // Remove braces
 use crate::plugin_system::DefaultPluginManager; // Remove braces
 use crate::storage::DefaultStorageManager; // Remove braces
+use crate::ui_bridge::UIManager; // Added UIManager import
 
 /// Main application struct coordinating components via dependency injection
 pub struct Application {
-    base_path: PathBuf,
-    config_dir: PathBuf,
+    // base_path: PathBuf, // Removed: Path logic now handled by StorageManager
+    // config_dir: PathBuf, // Removed: Path logic now handled by StorageManager
     initialized: bool,
     // Simplified Dependency registry
     dependencies: Arc<Mutex<DependencyRegistry>>,
     // Keep track of component initialization order (using concrete TypeIds)
     component_init_order: Vec<TypeId>,
+    // UI Manager to handle UI connections
+    ui_manager: UIManager, // Added ui_manager field
 }
 
 // Updated impl Application block using simplified DependencyRegistry
 impl Application {
-    /// Creates a new application instance with default components.
-    pub fn new(base_path_override: Option<PathBuf>) -> Result<Self> {
+    /// Creates a new application instance with default components using XDG paths.
+    pub fn new() -> Result<Self> { // Removed base_path_override
         println!("Initializing {} v{}", constants::APP_NAME, constants::APP_VERSION);
 
-        let base_path = base_path_override.unwrap_or_else(|| env::current_dir().unwrap_or_default());
-        println!("Using base path: {}", base_path.display());
-
-        let config_dir = base_path.join("user");
-        if !config_dir.exists() {
-            println!("Creating user data directory: {}", config_dir.display());
-            std::fs::create_dir_all(&config_dir)
-                .map_err(|e| Error::Init(format!("Failed to create user data directory: {}", e)))?;
-        }
+        // Base path and config dir logic removed - handled by StorageManager::new()
 
         let mut registry = DependencyRegistry::new();
         let mut init_order = Vec::new();
 
         // Register default components using their concrete types
-        let storage_manager = Arc::new(DefaultStorageManager::new(config_dir.clone()));
+        // Instantiate StorageManager using the new XDG-aware constructor
+        let storage_manager = Arc::new(DefaultStorageManager::new()?); // Call new() which returns Result
+        println!("Using config directory: {}", storage_manager.config_dir().display());
+        println!("Using data directory: {}", storage_manager.data_dir().display());
         registry.register_instance(storage_manager.clone()); // Register Arc<DefaultStorageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStorageManager>()); // Store concrete TypeId
 
@@ -65,12 +63,16 @@ impl Application {
         registry.register_instance(stage_manager.clone()); // Register Arc<DefaultStageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStageManager>()); // Store concrete TypeId
 
+        // Instantiate UIManager
+        let ui_manager = UIManager::new();
+
         Ok(Application {
-            base_path,
-            config_dir,
+            // base_path, // Removed
+            // config_dir, // Removed
             initialized: false,
             dependencies: Arc::new(Mutex::new(registry)),
             component_init_order: init_order,
+            ui_manager, // Assign ui_manager instance
         })
     }
 
@@ -94,7 +96,14 @@ impl Application {
 
         self.initialized = true;
         println!("Application initialized and started successfully.");
-        println!("User data directory: {}", self.config_dir.display());
+        // Print XDG paths from StorageManager
+        if let Some(sm) = self.get_component::<DefaultStorageManager>().await {
+             println!("Config directory: {}", sm.config_dir().display());
+             println!("Data directory: {}", sm.data_dir().display());
+        } else {
+             println!("Warning: Could not retrieve StorageManager to display paths.");
+        }
+
 
         println!("Application running... (Simulating work)");
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -158,21 +167,14 @@ impl Application {
              } else {
                  eprintln!("Warning: Component instance not found in registry for TypeId {:?} during stop.", type_id);
              }
-        }
+         }
         self.initialized = false; // Mark as not running
         println!("Component shutdown complete.");
         Ok(())
     }
 
-    /// Returns the base path of the application.
-    pub fn base_path(&self) -> &PathBuf {
-        &self.base_path
-    }
-
-    /// Returns the config directory path.
-    pub fn config_dir(&self) -> &PathBuf {
-        &self.config_dir
-    }
+    // Removed base_path() method
+    // Removed config_dir() method
 
     /// Returns whether the application has been initialized.
     pub fn is_initialized(&self) -> bool {
@@ -187,5 +189,30 @@ impl Application {
             .ok()
             .and_then(|reg| reg.get_concrete::<DefaultStorageManager>())
             .expect("Storage manager not found in registry")
+    }
+
+    /// Get the plugin manager instance (synchronous convenience accessor)
+    /// Note: Uses try_lock for sync access, similar to storage_manager. May need async if required elsewhere.
+    pub fn plugin_manager(&self) -> Arc<DefaultPluginManager> {
+        // Similar simplified approach as storage_manager
+        self.dependencies.try_lock()
+            .ok()
+            .and_then(|reg| reg.get_concrete::<DefaultPluginManager>())
+            .expect("Plugin manager not found in registry")
+    }
+
+    /// Get the stage manager instance (synchronous convenience accessor)
+    /// Note: Uses try_lock for sync access.
+    pub fn stage_manager(&self) -> Arc<DefaultStageManager> {
+        // Similar simplified approach as other managers
+        self.dependencies.try_lock()
+            .ok()
+            .and_then(|reg| reg.get_concrete::<DefaultStageManager>())
+            .expect("Stage manager not found in registry")
+    }
+
+    /// Returns a mutable reference to the UI manager.
+    pub fn ui_manager_mut(&mut self) -> &mut UIManager {
+        &mut self.ui_manager
     }
 }

@@ -4,6 +4,7 @@
 use crate::kernel::bootstrap::Application;
 use crate::plugin_system::traits::{Plugin, PluginPriority};
 use crate::stage_manager::StageContext;
+use crate::stage_manager::registry::StageRegistry; // Added
 use std::path::PathBuf;
 
 use super::super::common::{setup_test_environment, TestPlugin, DependentPlugin, ShutdownBehavior, PreflightBehavior, VersionedPlugin};
@@ -42,11 +43,13 @@ async fn test_common_plugin_helpers_coverage() {
     assert!(!versioned_plugin.compatible_api_versions().is_empty());
     assert!(versioned_plugin.dependencies().is_empty());
     assert!(versioned_plugin.required_stages().is_empty());
-    let mut app_dummy = Application::new(None).unwrap(); // Need a dummy app for init
+    let mut app_dummy = Application::new().unwrap(); // Need a dummy app for init
     assert!(versioned_plugin.init(&mut app_dummy).is_ok());
     let ctx_dummy = StageContext::new_dry_run(PathBuf::new()); // Dummy context
     assert!(versioned_plugin.preflight_check(&ctx_dummy).await.is_ok());
-    assert!(!versioned_plugin.stages().is_empty());
+    // Test register_stages instead of stages()
+    let mut dummy_registry = StageRegistry::new();
+    assert!(versioned_plugin.register_stages(&mut dummy_registry).is_ok());
     assert!(versioned_plugin.shutdown().is_ok());
 
 }

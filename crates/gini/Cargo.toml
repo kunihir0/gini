@@ -11,10 +11,17 @@ path = "src/main.rs"
 [dependencies]
 gini-core = { path = "../gini-core", version = "0.1.0" } # Explicit version match for path dependency
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Needed for #[tokio::main]
+clap = { version = "4", features = ["derive"] } # Command-line argument parsing
+# Core plugins for static registration
+core-environment-check = { path = "../../plugins/core-environment-check" }
+core-logging = { path = "../../plugins/core-logging" }
+log = "0.4" # Standard logging facade
 
 # Add any other dependencies ONLY needed by main.rs itself (e.g., command-line arg parsing like clap)
 
 [dev-dependencies]
+assert_cmd = "2.0" # For CLI integration testing
+predicates = "3.1" # For assertions with assert_cmd
 # Keep tempfile here ONLY if integration tests specific to the binary remain/are added here.
 # tempfile = "3.10"
 # Or use workspace dependency: tempfile = { workspace = true }

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::kernel::bootstrap::Application; // Mock or minimal version needed
-use crate::kernel::error::{Error, Result as KernelResult};
+use crate::kernel::error::{Result as KernelResult}; // Removed unused Error
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::version::{VersionRange, ApiVersion}; // Import ApiVersion
@@ -18,6 +18,7 @@ use crate::stage_manager::core_stages::{
     PLUGIN_REGISTRY_KEY, PREFLIGHT_FAILURES_KEY, APPLICATION_KEY,
 };
 use crate::stage_manager::Stage; // Import the Stage trait
+use crate::stage_manager::registry::{StageRegistry, SharedStageRegistry}; // Added for register_stages & SharedStageRegistry
 
 // --- Mock Plugins ---
 
@@ -34,7 +35,6 @@ impl Plugin for SuccessPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
 
     // Mock init - tracks initialization
@@ -50,6 +50,7 @@ impl Plugin for SuccessPlugin {
         println!("SuccessPlugin preflight check: OK");
         Ok(())
     }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
@@ -67,7 +68,6 @@ impl Plugin for FailPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
 
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
@@ -79,6 +79,7 @@ impl Plugin for FailPlugin {
         println!("FailPlugin preflight check: FAIL");
         Err(PluginError::PreflightCheckError("Simulated preflight failure".to_string()))
     }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -97,7 +98,6 @@ impl Plugin for DefaultPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
 
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
@@ -105,6 +105,7 @@ impl Plugin for DefaultPlugin {
         Ok(())
     }
     // Uses default preflight_check implementation (always Ok)
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -114,28 +115,32 @@ impl Plugin for DefaultPlugin {
 
 // --- Test Setup ---
 
-async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>) {
+async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>, SharedStageRegistry) {
     // Create registry and add plugins
     let api_version = ApiVersion::from_str("0.1.0").unwrap(); // Use imported ApiVersion
-    let registry = Arc::new(Mutex::new(PluginRegistry::new(api_version)));
+    let plugin_registry_arc = Arc::new(Mutex::new(PluginRegistry::new(api_version)));
     {
-        let mut reg = registry.lock().await;
+        let mut reg = plugin_registry_arc.lock().await;
         // Use expect for clearer panic messages in test setup
         reg.register_plugin(Box::new(SuccessPlugin)).expect("Failed to register SuccessPlugin");
         reg.register_plugin(Box::new(FailPlugin)).expect("Failed to register FailPlugin");
         reg.register_plugin(Box::new(DefaultPlugin)).expect("Failed to register DefaultPlugin");
     }
 
-    // Create context and add registry
+    // Create StageRegistry
+    let stage_registry_arc = SharedStageRegistry::new(); // Create SharedStageRegistry
+
+    // Create context and add registries
     let mut context = StageContext::new_live(std::env::temp_dir()); // Use temp dir for config
-    context.set_data(PLUGIN_REGISTRY_KEY, registry.clone());
+    context.set_data(PLUGIN_REGISTRY_KEY, plugin_registry_arc.clone());
+    context.set_data("stage_registry_arc", stage_registry_arc.clone()); // Add StageRegistry to context
 
     // Add a placeholder Application to context for init stage signature
     // This is a simplification for the test. A real scenario needs the actual Application.
-    let placeholder_app = Application::new(None).expect("Failed to create placeholder app"); // Create a dummy app
+    let placeholder_app = Application::new().expect("Failed to create placeholder app"); // Create a dummy app
     context.set_data(APPLICATION_KEY, placeholder_app); // Add it to context
 
-    (context, registry)
+    (context, plugin_registry_arc, stage_registry_arc)
 }
 
 
@@ -143,24 +148,16 @@ async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>) 
 
 #[tokio::test]
 async fn test_preflight_check_stage_execution() {
-    let (mut context, _registry) = setup_test_environment().await;
+    let (mut context, _plugin_registry, _stage_registry) = setup_test_environment().await;
     let stage = PluginPreflightCheckStage;
 
     // Execute the preflight stage
     let result = stage.execute(&mut context).await;
 
     // Assertions
-    // The stage itself should return Ok unless there's an internal error (like context access).
-    // Individual plugin failures are handled by storing them in the context.
-    // However, we modified it to return the *first* plugin error.
-    assert!(result.is_err(), "Stage execute should return the first preflight error");
-    if let Err(Error::Plugin(msg)) = result {
-         assert!(msg.contains("FailPlugin"), "Error message should mention FailPlugin");
-         assert!(msg.contains("Simulated preflight failure"), "Error message should contain the failure reason");
-    } else {
-        panic!("Expected Plugin Error, got {:?}", result);
-    }
-
+    // The stage itself should now return Ok unless there's a fundamental stage execution error.
+    // Individual plugin preflight failures are logged and recorded in the context.
+    assert!(result.is_ok(), "Stage execute should return Ok even if plugins fail preflight. Error: {:?}", result.err());
 
     // Check context for failures
     let failures = context.get_data::<HashSet<String>>(PREFLIGHT_FAILURES_KEY);
@@ -175,7 +172,7 @@ async fn test_preflight_check_stage_execution() {
 
 #[tokio::test]
 async fn test_initialization_stage_skips_failed_preflight() {
-    let (mut context, _registry) = setup_test_environment().await;
+    let (mut context, _plugin_registry, _stage_registry) = setup_test_environment().await;
     let preflight_stage = PluginPreflightCheckStage;
     let init_stage = PluginInitializationStage;
 

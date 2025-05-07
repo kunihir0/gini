@@ -8,7 +8,8 @@ use crate::kernel::error::{Error, Result as KernelResult};
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
 use crate::plugin_system::version::VersionRange;
-use crate::stage_manager::{Stage, StageContext};
+use crate::stage_manager::registry::StageRegistry; // Added
+use crate::stage_manager::StageContext; // Removed unused Stage
 use crate::stage_manager::requirement::StageRequirement;
 
 use super::super::common::{setup_test_environment, TestPlugin};
@@ -111,11 +112,16 @@ impl Plugin for ConflictingPlugin {
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
     fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
+    // fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] } // Removed
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
+
+    // Add register_stages implementation
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> {
+        Ok(()) // No stages to register
+    }
 }
 
 #[tokio::test]

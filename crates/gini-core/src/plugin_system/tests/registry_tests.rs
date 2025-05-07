@@ -6,11 +6,13 @@ use crate::kernel::bootstrap::Application;
 use crate::kernel::error::{Result as KernelResult, Error};
 use crate::stage_manager::context::StageContext;
 use crate::stage_manager::requirement::StageRequirement;
-use crate::stage_manager::Stage;
+// Removed unused: use crate::stage_manager::Stage;
+use crate::stage_manager::registry::StageRegistry;
 use async_trait::async_trait;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}}; // Add Arc here
 use std::collections::HashSet;
+use tokio::sync::Mutex; // Add Mutex
 
 // --- Mock Plugin for Registry Tests ---
 struct MockRegistryPlugin {
@@ -54,7 +56,6 @@ impl Plugin for MockRegistryPlugin {
     fn compatible_api_versions(&self) -> Vec<VersionRange> { self.compatible_apis.clone() }
     fn dependencies(&self) -> Vec<PluginDependency> { self.deps.clone() }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn init(&self, _app: &mut Application) -> KernelResult<()> {
         println!("MockRegistryPlugin '{}' init called.", self.id);
         self.init_called.store(true, Ordering::SeqCst);
@@ -66,6 +67,7 @@ impl Plugin for MockRegistryPlugin {
          Ok(())
     }
     async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
@@ -77,15 +79,22 @@ fn create_test_registry() -> PluginRegistry {
 
 fn create_mock_app() -> Application {
      // Create a minimal Application instance for testing init/shutdown
-     Application::new(None).expect("Failed to create mock application")
-}
-
-#[cfg(test)]
-mod tests {
+     Application::new().expect("Failed to create mock application")
+ }
+ 
+ // Helper to create a mock StageRegistry Arc for tests
+ fn create_mock_stage_registry_arc() -> Arc<Mutex<StageRegistry>> {
+     Arc::new(Mutex::new(StageRegistry::new()))
+ }
+ 
+ 
+ #[cfg(test)]
+ mod tests {
     use super::*;
+    // Removed unused: use tokio::test;
 
-    #[test]
-    fn test_registry_new() {
+    #[tokio::test] // Use tokio::test
+    async fn test_registry_new() { // Add async
         let registry = create_test_registry();
         assert_eq!(registry.plugin_count(), 0);
         assert_eq!(registry.initialized_count(), 0);
@@ -93,8 +102,8 @@ mod tests {
         assert_eq!(registry.api_version().to_string(), "0.1.0");
     }
 
-    #[test]
-    fn test_register_plugin_success() {
+    #[tokio::test] // Use tokio::test
+    async fn test_register_plugin_success() { // Add async
         let mut registry = create_test_registry();
         let plugin = Box::new(MockRegistryPlugin::default("plugin1"));
         let plugin_id = plugin.name().to_string();
@@ -107,8 +116,8 @@ mod tests {
         assert!(!registry.initialized.contains(&plugin_id), "Plugin should not be initialized yet");
     }
 
-    #[test]
-    fn test_register_duplicate_plugin() {
+    #[tokio::test] // Use tokio::test
+    async fn test_register_duplicate_plugin() { // Add async
         let mut registry = create_test_registry();
         registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin1"))).unwrap();
         let result = registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin1")));
@@ -116,8 +125,8 @@ mod tests {
         assert_eq!(registry.plugin_count(), 1); // Count should remain 1
     }
 
-     #[test]
-     fn test_register_incompatible_api() {
+     #[tokio::test] // Use tokio::test
+     async fn test_register_incompatible_api() { // Add async
          let mut registry = PluginRegistry::new(ApiVersion::from_str("1.0.0").unwrap()); // API v1.0.0
          // Plugin compatible with >=0.1.0, <0.2.0
          let plugin = Box::new(MockRegistryPlugin::new(
@@ -131,8 +140,8 @@ mod tests {
          assert_eq!(registry.plugin_count(), 0);
      }
 
-    #[test]
-    fn test_unregister_plugin() {
+    #[tokio::test] // Use tokio::test
+    async fn test_unregister_plugin() { // Add async
         let mut registry = create_test_registry();
         let plugin_id = "plugin_to_unregister";
         registry.register_plugin(Box::new(MockRegistryPlugin::default(plugin_id))).unwrap();
@@ -150,8 +159,8 @@ mod tests {
         assert!(result2.is_err());
     }
 
-    #[test]
-    fn test_get_plugin() {
+    #[tokio::test] // Use tokio::test
+    async fn test_get_plugin() { // Add async
         let mut registry = create_test_registry();
         let plugin_id = "plugin_to_get";
         registry.register_plugin(Box::new(MockRegistryPlugin::default(plugin_id))).unwrap();
@@ -164,8 +173,8 @@ mod tests {
         assert!(non_existent.is_none());
     }
 
-    #[test]
-    fn test_get_plugins_arc() {
+    #[tokio::test] // Use tokio::test
+    async fn test_get_plugins_arc() { // Add async
         let mut registry = create_test_registry();
         registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin1"))).unwrap();
         registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin2"))).unwrap();
@@ -177,8 +186,8 @@ mod tests {
         assert!(names.contains("plugin2"));
     }
 
-    #[test]
-    fn test_enable_disable_is_enabled() {
+    #[tokio::test] // Use tokio::test
+    async fn test_enable_disable_is_enabled() { // Add async
         let mut registry = create_test_registry();
         let plugin_id = "plugin_enable_disable";
         registry.register_plugin(Box::new(MockRegistryPlugin::default(plugin_id))).unwrap();
@@ -210,8 +219,8 @@ mod tests {
         assert!(disable_non_existent.is_ok());
     }
 
-    #[test]
-    fn test_get_enabled_plugins_arc() {
+    #[tokio::test] // Use tokio::test
+    async fn test_get_enabled_plugins_arc() { // Add async
         let mut registry = create_test_registry();
         registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin1"))).unwrap();
         registry.register_plugin(Box::new(MockRegistryPlugin::default("plugin2"))).unwrap();
@@ -227,32 +236,35 @@ mod tests {
         assert!(names.contains("plugin3"));
     }
 
-     #[test]
-     fn test_initialize_plugin_basic() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_plugin_basic() {
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
          let plugin_id = "init_plugin";
          let plugin = Box::new(MockRegistryPlugin::default(plugin_id));
-         let init_flag = plugin.init_called.clone(); // Clone Arc for checking later
+         let init_flag = plugin.init_called.clone();
          registry.register_plugin(plugin).unwrap();
-
+ 
          assert!(!init_flag.load(Ordering::SeqCst));
          assert!(!registry.initialized.contains(plugin_id));
-
-         let result = registry.initialize_plugin(plugin_id, &mut app);
+ 
+         // Pass the stage_registry_arc
+         let result = registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await;
          assert!(result.is_ok());
          assert!(init_flag.load(Ordering::SeqCst), "Plugin init method should have been called");
          assert!(registry.initialized.contains(plugin_id), "Plugin should be marked as initialized");
-
+ 
          // Initialize again (should be no-op)
          let init_flag_before = init_flag.load(Ordering::SeqCst);
-         let result2 = registry.initialize_plugin(plugin_id, &mut app);
+         // Pass the stage_registry_arc again
+         let result2 = registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await;
          assert!(result2.is_ok());
          assert_eq!(init_flag.load(Ordering::SeqCst), init_flag_before, "Init should not be called again");
      }
 
-     #[test]
-     fn test_initialize_disabled_plugin_skips() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_disabled_plugin_skips() { // Make test async
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
          let plugin_id = "init_disabled";
@@ -261,15 +273,17 @@ mod tests {
          registry.register_plugin(plugin).unwrap();
 
          registry.disable_plugin(plugin_id).unwrap(); // Disable it
-
-         let result = registry.initialize_plugin(plugin_id, &mut app);
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Pass the stage_registry_arc
+         let result = registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await;
          assert!(result.is_ok(), "Initializing a disabled plugin should succeed (but be a no-op)");
          assert!(!init_flag.load(Ordering::SeqCst), "Init should NOT be called for disabled plugin");
          assert!(!registry.initialized.contains(plugin_id), "Disabled plugin should not be marked initialized");
      }
 
-     #[test]
-     fn test_initialize_all_enabled_only() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_all_enabled_only() { // Make test async
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
          let plugin1 = Box::new(MockRegistryPlugin::default("plugin1"));
@@ -283,10 +297,12 @@ mod tests {
          registry.register_plugin(plugin3).unwrap();
 
          registry.disable_plugin("plugin2").unwrap(); // Disable plugin2
-
-         let result = registry.initialize_all(&mut app);
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Pass the stage_registry_arc
+         let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
          assert!(result.is_ok());
-
+ 
          assert!(init1.load(Ordering::SeqCst), "Plugin1 should be initialized");
          assert!(!init2.load(Ordering::SeqCst), "Plugin2 should NOT be initialized");
          assert!(init3.load(Ordering::SeqCst), "Plugin3 should be initialized");
@@ -298,8 +314,8 @@ mod tests {
      }
 
 
-     #[test]
-     fn test_shutdown_all() {
+     #[tokio::test] // Make test async
+     async fn test_shutdown_all() { // Make test async
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
          let plugin1 = Box::new(MockRegistryPlugin::default("plugin1"));
@@ -308,12 +324,13 @@ mod tests {
          let shutdown2 = plugin2.shutdown_called.clone();
          registry.register_plugin(plugin1).unwrap();
          registry.register_plugin(plugin2).unwrap();
-
-         // Initialize them
-         registry.initialize_plugin("plugin1", &mut app).unwrap();
-         registry.initialize_plugin("plugin2", &mut app).unwrap();
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Initialize them, passing the stage_registry_arc
+         registry.initialize_plugin("plugin1", &mut app, &stage_registry_arc).await.unwrap();
+         registry.initialize_plugin("plugin2", &mut app, &stage_registry_arc).await.unwrap();
          assert_eq!(registry.initialized_count(), 2);
-
+ 
          // Shutdown
          let result = registry.shutdown_all();
          assert!(result.is_ok());
@@ -324,15 +341,16 @@ mod tests {
          assert!(registry.initialized.is_empty());
      }
 
-     #[test]
-     fn test_disable_initialized_plugin_fails() {
+     #[tokio::test] // Make test async
+     async fn test_disable_initialized_plugin_fails() { // Make test async
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
          let plugin_id = "disable_initialized";
          registry.register_plugin(Box::new(MockRegistryPlugin::default(plugin_id))).unwrap();
-
-         // Initialize it
-         registry.initialize_plugin(plugin_id, &mut app).unwrap();
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Initialize it, passing the stage_registry_arc
+         registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await.unwrap();
          assert!(registry.initialized.contains(plugin_id));
          assert!(registry.is_enabled(plugin_id));
 
@@ -343,8 +361,8 @@ mod tests {
          assert!(registry.initialized.contains(plugin_id), "Plugin should remain initialized"); // State shouldn't change
      }
 
-     #[test]
-     fn test_check_dependencies_enabled_only() {
+     #[tokio::test] // Use tokio::test
+     async fn test_check_dependencies_enabled_only() { // Add async
          let mut registry = create_test_registry();
          let dep_id = "dependency_plugin";
          let main_id = "main_plugin";
@@ -386,8 +404,8 @@ mod tests {
      }
 // --- New Tests for Dependency Resolution ---
 
-    #[test]
-    fn test_initialize_all_linear_dependency() {
+    #[tokio::test] // Make test async
+    async fn test_initialize_all_linear_dependency() { // Make test async
         // A -> B -> C
         let mut registry = create_test_registry();
         let mut app = create_mock_app();
@@ -402,8 +420,10 @@ mod tests {
         registry.register_plugin(plugin_a).unwrap();
         registry.register_plugin(plugin_b).unwrap();
         registry.register_plugin(plugin_c).unwrap();
+        let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
 
-        let result = registry.initialize_all(&mut app);
+        // Pass the stage_registry_arc
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
         assert!(result.is_ok(), "Initialization should succeed. Error: {:?}", result.err());
 
         assert!(init_a.load(Ordering::SeqCst), "A should be initialized");
@@ -413,8 +433,8 @@ mod tests {
         // Although we don't directly check the order here, success implies a valid order was found.
     }
 
-    #[test]
-    fn test_initialize_all_diamond_dependency() {
+    #[tokio::test] // Make test async
+    async fn test_initialize_all_diamond_dependency() { // Make test async
         //   -> B --
         // A        -> D
         //   -> C --
@@ -434,8 +454,10 @@ mod tests {
         registry.register_plugin(plugin_b).unwrap();
         registry.register_plugin(plugin_c).unwrap();
         registry.register_plugin(plugin_d).unwrap();
+        let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
 
-        let result = registry.initialize_all(&mut app);
+        // Pass the stage_registry_arc
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
         assert!(result.is_ok(), "Initialization should succeed. Error: {:?}", result.err());
 
         assert!(init_a.load(Ordering::SeqCst), "A should be initialized");
@@ -445,8 +467,8 @@ mod tests {
         assert_eq!(registry.initialized_count(), 4);
     }
 
-    #[test]
-    fn test_initialize_all_simple_cycle() {
+    #[tokio::test] // Make test async
+    async fn test_initialize_all_simple_cycle() { // Make test async
         // A -> B -> A
         let mut registry = create_test_registry();
         let mut app = create_mock_app();
@@ -455,8 +477,10 @@ mod tests {
 
         registry.register_plugin(plugin_a).unwrap();
         registry.register_plugin(plugin_b).unwrap();
+        let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
 
-        let result = registry.initialize_all(&mut app);
+        // Pass the stage_registry_arc
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
         assert!(result.is_err(), "Initialization should fail due to cycle");
         if let Err(Error::Plugin(msg)) = result {
             println!("Cycle error message: {}", msg); // Log for debugging
@@ -467,8 +491,8 @@ mod tests {
         assert_eq!(registry.initialized_count(), 0);
     }
 
-     #[test]
-     fn test_initialize_all_complex_cycle() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_all_complex_cycle() { // Make test async
          // A -> B -> C -> A
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
@@ -479,8 +503,10 @@ mod tests {
          registry.register_plugin(plugin_a).unwrap();
          registry.register_plugin(plugin_b).unwrap();
          registry.register_plugin(plugin_c).unwrap();
-
-         let result = registry.initialize_all(&mut app);
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Pass the stage_registry_arc
+         let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
          assert!(result.is_err(), "Initialization should fail due to cycle");
          if let Err(Error::Plugin(msg)) = result {
              println!("Cycle error message: {}", msg); // Log for debugging
@@ -491,8 +517,8 @@ mod tests {
          assert_eq!(registry.initialized_count(), 0);
      }
 
-     #[test]
-     fn test_initialize_all_missing_dependency() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_all_missing_dependency() { // Make test async
          // A -> B (B is missing)
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
@@ -502,7 +528,9 @@ mod tests {
 
          // Note: The topological sort itself might succeed if B isn't in the 'enabled' set.
          // The error should occur during the recursive initialize_plugin call.
-         let result = registry.initialize_all(&mut app);
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+         // Pass the stage_registry_arc
+         let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
          assert!(result.is_err(), "Initialization should fail due to missing dependency B");
          if let Err(Error::Plugin(msg)) = result {
              println!("Missing dependency error: {}", msg);
@@ -513,8 +541,8 @@ mod tests {
          assert_eq!(registry.initialized_count(), 0);
      }
 
-     #[test]
-     fn test_initialize_all_disabled_dependency() {
+     #[tokio::test] // Make test async
+     async fn test_initialize_all_disabled_dependency() { // Make test async
          // A -> B (B is registered but disabled)
          let mut registry = create_test_registry();
          let mut app = create_mock_app();
@@ -527,8 +555,10 @@ mod tests {
          registry.register_plugin(plugin_b).unwrap();
 
          registry.disable_plugin("B").unwrap(); // Disable B
-
-         let result = registry.initialize_all(&mut app);
+         let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         // Pass the stage_registry_arc
+         let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
          assert!(result.is_err(), "Initialization should fail due to disabled dependency B");
          if let Err(Error::Plugin(msg)) = result {
              println!("Disabled dependency error: {}", msg);

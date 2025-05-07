@@ -17,6 +17,7 @@ use crate::event::manager::{EventManager, DefaultEventManager};
 use crate::event::types::TestEvent;
 use crate::stage_manager::{Stage, StageContext, StageManager};
 use crate::stage_manager::manager::DefaultStageManager; // Corrected import path
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::requirement::StageRequirement; // Moved import higher
 use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
 use crate::plugin_system::manager::DefaultPluginManager;
@@ -305,8 +306,9 @@ async fn test_stage_dispatches_event() {
     let event_manager = Arc::new(DefaultEventManager::new());
     let stage_manager = Arc::new(DefaultStageManager::new());
     // Break down storage_manager creation
-    let storage_base_path = std::env::temp_dir().join("gini_test_stage_event");
-    let _storage_manager = Arc::new(DefaultStorageManager::new(storage_base_path)); // Dummy storage
+    // let storage_base_path = std::env::temp_dir().join("gini_test_stage_event"); // Unused
+    // DefaultStorageManager::new now takes no arguments and returns Result
+    let _storage_manager = Arc::new(DefaultStorageManager::new().expect("Failed to create dummy storage manager"));
 
     // Setup ConfigManager for PluginManager
     let tmp_dir = tempdir().unwrap();
@@ -315,11 +317,12 @@ async fn test_stage_dispatches_event() {
     fs::create_dir_all(&app_config_path).unwrap();
     fs::create_dir_all(&plugin_config_path).unwrap();
     let provider = Arc::new(LocalStorageProvider::new(tmp_dir.path().to_path_buf())) as Arc<dyn StorageProvider>; // Cast to dyn trait
-    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new( // Remove generic
-        provider,
-        app_config_path,
-        plugin_config_path,
-        ConfigFormat::Json,
+    // Call ConfigManager::new with the reverted signature
+    let config_manager: Arc<ConfigManager> = Arc::new(ConfigManager::new(
+        provider,             // Pass the provider Arc
+        app_config_path,      // Pass the app config path
+        plugin_config_path,   // Pass the plugin config path
+        ConfigFormat::Json,   // Pass the default format
     ));
     let _plugin_manager = Arc::new(DefaultPluginManager::new(config_manager).unwrap()); // Pass ConfigManager
 
@@ -404,14 +407,15 @@ impl Plugin for EventDispatchingPlugin {
     }
 
     async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> { Ok(()) }
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
 
+// impl EventDispatchingPlugin { fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } } // Added dummy impl
 
 #[test]
 async fn test_plugin_dispatches_event() {

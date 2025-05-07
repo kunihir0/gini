@@ -4,6 +4,8 @@ members = [
     "crates/gini-core",
     "crates/gini",
     "plugins/examples/compat_check", # Add the new example plugin
+    "plugins/core-environment-check",
+    "plugins/core-logging",
     # Add future plugin crates here, e.g., "plugins/gini-plugin-example"
 ]
 

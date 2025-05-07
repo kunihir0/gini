@@ -6,7 +6,8 @@ use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::stage_manager::context::StageContext;
 use crate::stage_manager::requirement::StageRequirement;
-use crate::stage_manager::Stage;
+// Removed unused: use crate::stage_manager::Stage;
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::kernel::error::Result as KernelResult;
 use crate::kernel::bootstrap::Application; // Needed for Plugin::init signature
 use async_trait::async_trait;
@@ -117,8 +118,8 @@ impl Plugin for MockTraitPlugin {
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
     fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
     // Default preflight_check is used
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
     fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }

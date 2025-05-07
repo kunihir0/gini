@@ -4,6 +4,17 @@ use crate::stage_manager::{StageContext, StageResult};
 // Import SharedStageRegistry for execute method
 use crate::stage_manager::registry::SharedStageRegistry;
 
+/// Represents a static definition of a pipeline.
+/// Used for defining constant pipelines that can be easily referenced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PipelineDefinition {
+    /// The unique identifier name for the pipeline.
+    pub name: &'static str,
+    /// An ordered slice of stage IDs included in this pipeline.
+    pub stages: &'static [&'static str],
+    /// An optional description of the pipeline's purpose.
+    pub description: Option<&'static str>,
+}
 /// Stage execution pipeline
 pub struct StagePipeline {
     /// Name of the pipeline
@@ -179,6 +190,13 @@ impl StagePipeline {
 
         // Validate before execution
         self.validate(registry).await?;
+
+        // --- Add SharedStageRegistry to context ---
+        // Clone the Arc to store it in the context.
+        // Stages like PluginInitializationStage can retrieve this.
+        context.set_data("stage_registry_arc", registry.clone());
+        // --- End Add SharedStageRegistry ---
+
 
         // Get the execution order
         let execution_order = self.get_execution_order()?;

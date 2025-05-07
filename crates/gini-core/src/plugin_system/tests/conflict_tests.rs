@@ -3,10 +3,11 @@
 
 use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict, ResolutionStrategy};
 use crate::plugin_system::{Plugin, PluginDependency, ApiVersion, VersionRange, PluginPriority, PluginRegistry};
-use crate::stage_manager::{StageRequirement, Stage}; // Added for Plugin trait (StageId not needed directly)
+use crate::stage_manager::StageRequirement; // Removed unused Stage
+use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::context::StageContext; // Added for preflight_check
     use crate::plugin_system::traits::PluginError; // Added for preflight_check
-use crate::kernel::error::{Result};
+use crate::kernel::error::Result;
 use crate::kernel::bootstrap::Application; // Needed for Plugin trait
 use std::str::FromStr; // Needed for VersionRange::from_str
 // No longer need PluginManifest here directly, but keep HashSet if needed later
@@ -325,8 +326,6 @@ impl Plugin for MockPlugin {
 
     // Add missing stage methods with dummy implementations
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    // Corrected return type for stages (no StageId needed)
-    fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] }
 
     // Add missing async preflight_check
     async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> {
@@ -336,6 +335,7 @@ impl Plugin for MockPlugin {
     // Dummy implementations for init/shutdown
     fn init(&self, _app: &mut Application) -> Result<()> { Ok(()) }
     fn shutdown(&self) -> Result<()> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> Result<()> { Ok(()) } // Added
 
 // Implement new trait methods
     fn conflicts_with(&self) -> Vec<String> { self.conflicts_with_ids.clone() }

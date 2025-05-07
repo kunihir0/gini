@@ -1,8 +1,9 @@
 use gini_core::plugin_system::{
     Plugin, PluginDependency, PluginPriority, traits::PluginError, version::VersionRange,
 };
-use gini_core::stage_manager::{Stage, StageContext, requirement::StageRequirement};
-use gini_core::kernel::bootstrap::Application; // For init method signature
+use gini_core::stage_manager::{StageContext, requirement::StageRequirement}; // Removed unused Stage
+use gini_core::stage_manager::registry::StageRegistry; // Added
+use gini_core::kernel::bootstrap::Application;
 use gini_core::kernel::Result as KernelResult; // Removed unused KernelError import
 use async_trait::async_trait;
  // Keep for potential other uses, or remove if truly unused later
@@ -79,10 +80,6 @@ impl Plugin for CompatCheckPlugin {
         }
     }
 
-    fn stages(&self) -> Vec<Box<dyn Stage>> {
-        vec![] // This plugin doesn't provide any stages
-    }
-
     fn shutdown(&self) -> KernelResult<()> {
         // No complex shutdown needed for this example
         println!("CompatCheckPlugin shut down (placeholder).");
@@ -97,10 +94,16 @@ impl Plugin for CompatCheckPlugin {
     fn incompatible_with(&self) -> Vec<PluginDependency> {
         vec![] // Default: no incompatibilities
     }
+
+    // Add register_stages implementation
+    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> {
+        println!("CompatCheckPlugin provides no stages to register.");
+        Ok(())
+    }
 }
 
 use gini_core::plugin_system::traits::{
-    FfiSlice, FfiVersionRange, FfiPluginDependency,
+    FfiResult, FfiSlice, FfiVersionRange, FfiPluginDependency,
     FfiStageRequirement, PluginVTable, FfiPluginPriority,
 };
 use std::os::raw::{c_char, c_void};
@@ -250,6 +253,44 @@ extern "C" fn ffi_get_empty_incompatible_with(_instance: *const c_void) -> FfiSl
 }
 extern "C" fn ffi_free_empty_incompatible_with(_slice: FfiSlice<FfiPluginDependency>) {}
 
+// --- New FFI Lifecycle Stubs ---
+
+extern "C" fn ffi_init(instance: *mut c_void, _app_ptr: *mut c_void) -> FfiResult {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    println!("FFI: CompatCheckPlugin ('{}') ffi_init called.", plugin.name());
+    // In a real plugin, cast app_ptr and interact with Application.
+    // Here, we just call the Rust method for demonstration if needed,
+    // but the host already calls the Rust trait method.
+    // plugin.init() // This would require app_ptr to be correctly cast and passed.
+    FfiResult::Ok
+}
+
+extern "C" fn ffi_preflight_check(instance: *const c_void, _context_ptr: *const c_void) -> FfiResult {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    println!("FFI: CompatCheckPlugin ('{}') ffi_preflight_check called.", plugin.name());
+    // In a real plugin, cast context_ptr and perform checks.
+    // The Rust trait method `preflight_check` is already called by the host.
+    // This FFI function would be for plugins written purely in C/C++ etc.
+    // For this example, we can simulate its logic or just return Ok.
+    // Let's assume the host relies on the trait's async preflight_check.
+    FfiResult::Ok
+}
+
+extern "C" fn ffi_register_stages(instance: *const c_void, _registry_ptr: *mut c_void) -> FfiResult {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    println!("FFI: CompatCheckPlugin ('{}') ffi_register_stages called.", plugin.name());
+    // In a real plugin, cast registry_ptr and register stages.
+    // The host already calls the Rust trait method.
+    FfiResult::Ok
+}
+
+extern "C" fn ffi_shutdown(instance: *mut c_void) -> FfiResult {
+    let plugin = unsafe { &*(instance as *const CompatCheckPlugin) };
+    println!("FFI: CompatCheckPlugin ('{}') ffi_shutdown called.", plugin.name());
+    // Perform any FFI-specific shutdown before destroy.
+    FfiResult::Ok
+}
+
 
 /// The entry point function for the plugin loader.
 #[no_mangle]
@@ -280,6 +321,11 @@ pub extern "C" fn _plugin_init() -> *mut PluginVTable {
             free_conflicts_with: ffi_free_empty_conflicts_with,
             incompatible_with: ffi_get_empty_incompatible_with,
             free_incompatible_with: ffi_free_empty_incompatible_with,
+            // New lifecycle functions
+            init: ffi_init,
+            preflight_check: ffi_preflight_check,
+            register_stages: ffi_register_stages,
+            shutdown: ffi_shutdown,
         };
 
         // Box the VTable and return the raw pointer
