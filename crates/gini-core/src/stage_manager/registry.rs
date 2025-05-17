@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex; // Use tokio's Mutex
 use std::fmt; // Import fmt
-
-use crate::kernel::error::{Error, Result};
+ 
+use crate::kernel::error::{Error as KernelError, Result as KernelResult}; // Renamed Error & Result
 use crate::stage_manager::{Stage, StageContext, StageResult};
+use crate::stage_manager::error::StageSystemError; // Import StageSystemError
 
 /// Registry for managing stages
 // Removed Clone derive as Box<dyn Stage> is not Clone
@@ -35,13 +36,13 @@ impl StageRegistry {
     }
 
     /// Register a stage
-    pub fn register_stage(&mut self, stage: Box<dyn Stage>) -> Result<()> {
+    pub fn register_stage(&mut self, stage: Box<dyn Stage>) -> std::result::Result<(), StageSystemError> {
         let id = stage.id().to_string();
-
+ 
         if self.stages.contains_key(&id) {
-            return Err(Error::Stage(format!("Stage already exists with ID: {}", id)));
+            return Err(StageSystemError::StageAlreadyExists { stage_id: id });
         }
-
+ 
         self.stages.insert(id, stage);
         Ok(())
     }
@@ -73,27 +74,27 @@ impl StageRegistry {
 
     /// Execute a specific stage asynchronously (internal method)
     /// Takes &self because Stage::execute takes &self.
-    pub async fn execute_stage_internal(&self, id: &str, context: &mut StageContext) -> Result<StageResult> {
-        let stage = match self.stages.get(id) {
-            Some(stage) => stage,
-            None => return Err(Error::Stage(format!("Stage not found with ID: {}", id))),
-        };
-
+    pub async fn execute_stage_internal(&self, id: &str, context: &mut StageContext) -> std::result::Result<StageResult, StageSystemError> {
+        let stage = self.stages.get(id).ok_or_else(|| StageSystemError::StageNotFound { stage_id: id.to_string() })?;
+ 
         println!("Executing stage: {} ({})", stage.name(), id);
-
+ 
         if context.is_dry_run() {
             println!("DRY RUN: {}", stage.dry_run_description(context));
             return Ok(StageResult::Success);
         }
-
+ 
         match stage.execute(context).await {
             Ok(()) => {
                 println!("Stage completed successfully: {}", id);
                 Ok(StageResult::Success)
             },
-            Err(e) => {
-                println!("Stage failed: {} - {}", id, e);
-                Ok(StageResult::Failure(e.to_string()))
+            Err(source_err) => {
+                println!("Stage failed: {} - {}", id, source_err);
+                Err(StageSystemError::StageExecutionFailed {
+                    stage_id: id.to_string(),
+                    source: source_err,
+                })
             }
         }
     }
@@ -125,30 +126,30 @@ impl SharedStageRegistry {
     }
 
     /// Register a stage
-    pub async fn register_stage(&self, stage: Box<dyn Stage>) -> Result<()> {
+    pub async fn register_stage(&self, stage: Box<dyn Stage>) -> KernelResult<()> {
         let mut registry = self.registry.lock().await;
-        registry.register_stage(stage)
+        registry.register_stage(stage).map_err(KernelError::from)
     }
-
+ 
     /// Check if a stage exists
-    pub async fn has_stage(&self, id: &str) -> Result<bool> {
+    pub async fn has_stage(&self, id: &str) -> bool { // Made infallible
         let registry = self.registry.lock().await;
-        Ok(registry.has_stage(id))
+        registry.has_stage(id)
     }
-
+ 
     /// Execute a specific stage asynchronously
-    pub async fn execute_stage(&self, id: &str, context: &mut StageContext) -> Result<StageResult> {
+    pub async fn execute_stage(&self, id: &str, context: &mut StageContext) -> KernelResult<StageResult> {
         // Lock the registry immutably first to get the stage reference if needed,
         // or lock mutably if the internal execute needs mutable access.
         // Since execute_stage_internal now takes &self, we lock immutably.
         let registry = self.registry.lock().await;
-        registry.execute_stage_internal(id, context).await
+        registry.execute_stage_internal(id, context).await.map_err(KernelError::from)
     }
-
+ 
     /// Get all registered stage IDs
-    pub async fn get_all_ids(&self) -> Result<Vec<String>> {
+    pub async fn get_all_ids(&self) -> Vec<String> { // Made infallible
         let registry = self.registry.lock().await;
-        Ok(registry.get_all_ids())
+        registry.get_all_ids()
     }
 }
 

@@ -1,12 +1,14 @@
 #![cfg(test)]
 
 use async_trait::async_trait;
+use std::sync::Arc; // Added for Arc
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
+// use crate::kernel::error::{Error, Result as KernelResult}; // Removed unused imports
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError as TraitsPluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::registry::StageRegistry; // Added
 use crate::stage_manager::StageContext; // Removed unused Stage
@@ -30,9 +32,9 @@ async fn test_plugin_enabling_disabling() {
     // Register plugins
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin1)).expect("Failed to register Plugin1");
-        registry.register_plugin(Box::new(plugin2)).expect("Failed to register Plugin2");
-        registry.register_plugin(Box::new(plugin3)).expect("Failed to register Plugin3");
+        registry.register_plugin(Arc::new(plugin1)).expect("Failed to register Plugin1");
+        registry.register_plugin(Arc::new(plugin2)).expect("Failed to register Plugin2");
+        registry.register_plugin(Arc::new(plugin3)).expect("Failed to register Plugin3");
     }
 
     // Disable Plugin2
@@ -92,8 +94,11 @@ async fn test_plugin_enabling_disabling() {
         assert!(result.is_err(), "Enabling a non-existent plugin should return an error");
         // Optionally check the error type/message if needed
         match result.err().unwrap() {
-            Error::Plugin(msg) => assert!(msg.contains("Cannot enable non-existent plugin")),
-            e => panic!("Expected Error::Plugin, got {:?}", e),
+            PluginSystemError::RegistrationError { plugin_id, message } => {
+                assert_eq!(plugin_id, "NonExistentPlugin");
+                assert!(message.contains("Cannot enable non-existent plugin"));
+            }
+            e => panic!("Expected PluginSystemError::RegistrationError, got {:?}", e),
         }
     }
 }
@@ -110,16 +115,16 @@ impl Plugin for ConflictingPlugin {
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     // fn stages(&self) -> Vec<Box<dyn Stage>> { vec![] } // Removed
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 
     // Add register_stages implementation
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> {
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> {
         Ok(()) // No stages to register
     }
 }
@@ -142,23 +147,24 @@ async fn test_plugin_conflict_detection_and_resolution() {
     // Register the first plugin - should succeed
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin1)).expect("Failed to register first conflicting plugin");
+        registry.register_plugin(Arc::new(plugin1)).expect("Failed to register first conflicting plugin");
     }
 
     // Attempt to register the second plugin - should fail due to name conflict
     let register_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin2)) // Register the second one
+        registry.register_plugin(Arc::new(plugin2)) // Register the second one
     };
 
     assert!(register_result.is_err(), "Registering a plugin with a conflicting name should fail");
 
     // Verify the error type and message
     match register_result.err().unwrap() {
-        Error::Plugin(msg) => {
-            assert!(msg.contains("Plugin already registered: ConflictPlugin"), "Expected name conflict error, got: {}", msg); // Match actual error
+        PluginSystemError::RegistrationError { plugin_id, message } => {
+            assert_eq!(plugin_id, "ConflictPlugin");
+            assert!(message.contains("Plugin already registered"), "Expected name conflict error, got: {}", message);
         }
-        e => panic!("Expected Error::Plugin for conflict, got {:?}", e),
+        e => panic!("Expected PluginSystemError::RegistrationError for conflict, got {:?}", e),
     }
 
     // Verify only the first plugin is actually registered
@@ -191,8 +197,8 @@ async fn test_plugin_get_plugin_ids() {
     // Register plugins
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin1)).expect("Register 1");
-        registry.register_plugin(Box::new(plugin2)).expect("Register 2");
+        registry.register_plugin(Arc::new(plugin1)).expect("Register 1");
+        registry.register_plugin(Arc::new(plugin2)).expect("Register 2");
     }
 
     // Get IDs

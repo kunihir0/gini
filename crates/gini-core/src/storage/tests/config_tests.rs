@@ -5,13 +5,19 @@ use async_trait::async_trait;
 use futures::executor::block_on; // Added for block_on
 
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Result;
+use crate::kernel::error::Result as KernelResult; // Alias for Kernel-level results
 use crate::storage::local::LocalStorageProvider;
 use crate::storage::manager::StorageManager; // Import StorageManager trait
 use crate::storage::provider::StorageProvider;
+use crate::storage::error::StorageSystemError; // Import StorageSystemError
+use std::result::Result as StdResult; // Import StdResult for type alias
 use crate::storage::config::{
     ConfigManager, ConfigData, ConfigFormat, ConfigScope, PluginConfigScope, StorageScope
 };
+
+// Type alias for StorageProvider methods in this test module
+type Result<T> = StdResult<T, StorageSystemError>;
+
 
 // --- Mock Storage Manager for ConfigManager Tests ---
 
@@ -47,19 +53,20 @@ impl MockStorageManager {
 #[async_trait]
 impl KernelComponent for MockStorageManager {
     fn name(&self) -> &'static str { "MockStorageManager" }
-    async fn initialize(&self) -> Result<()> {
+    async fn initialize(&self) -> KernelResult<()> { // KernelComponent methods use KernelResult
         // Ensure base dirs exist within the temp dir
-        self.provider.create_dir_all(&self.config_dir)?;
-        self.provider.create_dir_all(&self.config_dir.join("plugins"))?; // Needed by ConfigManager structure
-        self.provider.create_dir_all(&self.data_dir)?;
+        self.provider.create_dir_all(&self.config_dir).map_err(crate::kernel::error::Error::from)?;
+        self.provider.create_dir_all(&self.config_dir.join("plugins")).map_err(crate::kernel::error::Error::from)?; // Needed by ConfigManager structure
+        self.provider.create_dir_all(&self.data_dir).map_err(crate::kernel::error::Error::from)?;
         Ok(())
     }
-    async fn start(&self) -> Result<()> { Ok(()) }
-    async fn stop(&self) -> Result<()> { Ok(()) }
+    async fn start(&self) -> KernelResult<()> { Ok(()) } // KernelComponent methods use KernelResult
+    async fn stop(&self) -> KernelResult<()> { Ok(()) } // KernelComponent methods use KernelResult
 }
 
 impl StorageProvider for MockStorageManager {
     // Delegate all provider methods to the inner LocalStorageProvider
+    // These now correctly return Result<T, StorageSystemError>
     fn name(&self) -> &str { self.provider.name() }
     fn exists(&self, path: &Path) -> bool { self.provider.exists(path) }
     fn is_file(&self, path: &Path) -> bool { self.provider.is_file(path) }
@@ -120,17 +127,17 @@ fn create_test_config_manager() -> (ConfigManager, Arc<TempDir>) {
 // --- Tests ---
 
 #[test]
-fn test_config_data_basic() -> Result<()> {
+fn test_config_data_basic() -> KernelResult<()> { // Test functions use KernelResult
     // Test basic ConfigData operations
     let mut config = ConfigData::new();
 
     // Test setting and getting values
-    config.set("string_value", "hello")?;
-    config.set("int_value", 42)?;
-    config.set("bool_value", true)?;
+    config.set("string_value", "hello").map_err(crate::kernel::error::Error::from)?;
+    config.set("int_value", 42).map_err(crate::kernel::error::Error::from)?;
+    config.set("bool_value", true).map_err(crate::kernel::error::Error::from)?;
 
     // Array and object values
-    config.set("array", vec![1, 2, 3])?;
+    config.set("array", vec![1, 2, 3]).map_err(crate::kernel::error::Error::from)?;
 
     // Test retrieving values
     assert_eq!(config.get::<String>("string_value").unwrap(), "hello");
@@ -156,16 +163,16 @@ fn test_config_data_basic() -> Result<()> {
 }
 
 #[test]
-fn test_config_serialization() -> Result<()> {
+fn test_config_serialization() -> KernelResult<()> { // Test functions use KernelResult
     // Create a config with some data
     let mut config = ConfigData::new();
-    config.set("string_value", "hello")?;
-    config.set("int_value", 42)?;
-    config.set("bool_value", true)?;
+    config.set("string_value", "hello").map_err(crate::kernel::error::Error::from)?;
+    config.set("int_value", 42).map_err(crate::kernel::error::Error::from)?;
+    config.set("bool_value", true).map_err(crate::kernel::error::Error::from)?;
 
     // Test JSON serialization/deserialization
-    let json_str = config.serialize(ConfigFormat::Json)?;
-    let deserialized = ConfigData::deserialize(&json_str, ConfigFormat::Json)?;
+    let json_str = config.serialize(ConfigFormat::Json).map_err(crate::kernel::error::Error::from)?;
+    let deserialized = ConfigData::deserialize(&json_str, ConfigFormat::Json).map_err(crate::kernel::error::Error::from)?;
 
     assert_eq!(deserialized.get::<String>("string_value").unwrap(), "hello");
     assert_eq!(deserialized.get::<i32>("int_value").unwrap(), 42);
@@ -174,8 +181,8 @@ fn test_config_serialization() -> Result<()> {
     #[cfg(feature = "yaml-config")]
     {
         // Test YAML serialization/deserialization if the feature is enabled
-        let yaml_str = config.serialize(ConfigFormat::Yaml)?;
-        let yaml_deserialized = ConfigData::deserialize(&yaml_str, ConfigFormat::Yaml)?;
+        let yaml_str = config.serialize(ConfigFormat::Yaml).map_err(crate::kernel::error::Error::from)?;
+        let yaml_deserialized = ConfigData::deserialize(&yaml_str, ConfigFormat::Yaml).map_err(crate::kernel::error::Error::from)?;
 
         assert_eq!(yaml_deserialized.get::<String>("string_value").unwrap(), "hello");
         assert_eq!(yaml_deserialized.get::<i32>("int_value").unwrap(), 42);
@@ -185,8 +192,8 @@ fn test_config_serialization() -> Result<()> {
     #[cfg(feature = "toml-config")]
     {
         // Test TOML serialization/deserialization if the feature is enabled
-        let toml_str = config.serialize(ConfigFormat::Toml)?;
-        let toml_deserialized = ConfigData::deserialize(&toml_str, ConfigFormat::Toml)?;
+        let toml_str = config.serialize(ConfigFormat::Toml).map_err(crate::kernel::error::Error::from)?;
+        let toml_deserialized = ConfigData::deserialize(&toml_str, ConfigFormat::Toml).map_err(crate::kernel::error::Error::from)?;
 
         assert_eq!(toml_deserialized.get::<String>("string_value").unwrap(), "hello");
         assert_eq!(toml_deserialized.get::<i32>("int_value").unwrap(), 42);
@@ -197,14 +204,14 @@ fn test_config_serialization() -> Result<()> {
 }
 
 #[test]
-fn test_app_config_operations() -> Result<()> {
+fn test_app_config_operations() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Create configuration
     let mut app_config = ConfigData::new();
-    app_config.set("app_name", "Test App")?;
-    app_config.set("version", "1.0.0")?;
-    app_config.set("max_connections", 10)?;
+    app_config.set("app_name", "Test App").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("version", "1.0.0").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("max_connections", 10).map_err(crate::kernel::error::Error::from)?;
 
     // Save the configuration
     config_manager.save_app_config("settings", &app_config)?;
@@ -219,8 +226,8 @@ fn test_app_config_operations() -> Result<()> {
 
     // Update the configuration
     let mut updated_config = loaded_config;
-    updated_config.set("max_connections", 20)?;
-    updated_config.set("new_setting", "new value")?;
+    updated_config.set("max_connections", 20).map_err(crate::kernel::error::Error::from)?;
+    updated_config.set("new_setting", "new value").map_err(crate::kernel::error::Error::from)?;
 
     // Save the updated configuration
     config_manager.save_app_config("settings", &updated_config)?;
@@ -237,7 +244,7 @@ fn test_app_config_operations() -> Result<()> {
 }
 #[test]
 #[cfg(feature = "toml-config")] // Only run if toml-config feature is enabled
-fn test_toml_config_operations() -> Result<()> {
+fn test_toml_config_operations() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Set default format to TOML for this test
@@ -245,9 +252,9 @@ fn test_toml_config_operations() -> Result<()> {
 
     // Create configuration
     let mut app_config = ConfigData::new();
-    app_config.set("app_name", "Test App TOML")?;
-    app_config.set("version", "1.0.0-toml")?;
-    app_config.set("max_connections", 15)?; // Use a different value
+    app_config.set("app_name", "Test App TOML").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("version", "1.0.0-toml").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("max_connections", 15).map_err(crate::kernel::error::Error::from)?; // Use a different value
 
     // Save the configuration (should save as settings.toml due to default format)
     config_manager.save_app_config("settings", &app_config)?;
@@ -269,7 +276,7 @@ fn test_toml_config_operations() -> Result<()> {
 
     // Test saving explicitly with .toml extension
     let mut updated_config = loaded_config;
-    updated_config.set("max_connections", 25)?;
+    updated_config.set("max_connections", 25).map_err(crate::kernel::error::Error::from)?;
     config_manager.save_app_config("settings.toml", &updated_config)?;
 
     // Invalidate and reload to check explicit save
@@ -282,7 +289,7 @@ fn test_toml_config_operations() -> Result<()> {
 
 #[test]
 #[cfg(feature = "toml-config")]
-fn test_toml_malformed_load() -> Result<()> {
+fn test_toml_malformed_load() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Create a malformed TOML file
@@ -310,8 +317,21 @@ fn test_toml_malformed_load() -> Result<()> {
     // Verify that loading failed with a deserialization error
     assert!(result.is_err());
     if let Err(e) = result {
-        assert!(matches!(e, crate::kernel::error::Error::DeserializationError { .. }));
-        assert!(e.to_string().contains("Failed to deserialize from TOML"));
+        let e_str = e.to_string();
+        // Check if it's a KernelError wrapping a StorageSystemError::DeserializationError
+        match &e {
+            crate::kernel::error::Error::StorageSystem(StorageSystemError::DeserializationError { format, .. }) => {
+                assert_eq!(format, "TOML"); // format is &String, "TOML" is &str
+            }
+            crate::kernel::error::Error::StorageSystem(other_ss_err) => {
+                 panic!("Expected StorageSystemError::DeserializationError, but got StorageSystemError::{:?}. Full error: {}", other_ss_err, e_str);
+            }
+            other_kernel_err => {
+                panic!("Expected KernelError::StorageSystem, but got {:?}. Full error: {}", other_kernel_err, e_str);
+            }
+        }
+        println!("TOML Deserialization Error String: '{}'", e_str); // Print the exact error string
+        assert!(e_str.contains("Storage system error:") && e_str.contains("Deserialization from 'TOML' failed:"), "Actual error: {}", e_str);
     } else {
         panic!("Expected an error but got Ok");
     }
@@ -320,7 +340,7 @@ fn test_toml_malformed_load() -> Result<()> {
 }
 #[test]
 #[cfg(feature = "yaml-config")] // Only run if yaml-config feature is enabled
-fn test_yaml_config_operations() -> Result<()> {
+fn test_yaml_config_operations() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Set default format to YAML for this test
@@ -328,9 +348,9 @@ fn test_yaml_config_operations() -> Result<()> {
 
     // Create configuration
     let mut app_config = ConfigData::new();
-    app_config.set("app_name", "Test App YAML")?;
-    app_config.set("version", "1.0.0-yaml")?;
-    app_config.set("max_connections", 16)?; // Use a different value
+    app_config.set("app_name", "Test App YAML").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("version", "1.0.0-yaml").map_err(crate::kernel::error::Error::from)?;
+    app_config.set("max_connections", 16).map_err(crate::kernel::error::Error::from)?; // Use a different value
 
     // Save the configuration (should save as settings.yaml due to default format)
     config_manager.save_app_config("settings", &app_config)?;
@@ -352,7 +372,7 @@ fn test_yaml_config_operations() -> Result<()> {
 
     // Test saving explicitly with .yaml extension
     let mut updated_config = loaded_config;
-    updated_config.set("max_connections", 26)?;
+    updated_config.set("max_connections", 26).map_err(crate::kernel::error::Error::from)?;
     config_manager.save_app_config("settings.yaml", &updated_config)?;
 
     // Invalidate and reload to check explicit save
@@ -365,7 +385,7 @@ fn test_yaml_config_operations() -> Result<()> {
 
 #[test]
 #[cfg(feature = "yaml-config")]
-fn test_yaml_malformed_load() -> Result<()> {
+fn test_yaml_malformed_load() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Create a malformed YAML file
@@ -392,9 +412,22 @@ version: "1.0"
     // Verify that loading failed with a deserialization error
     assert!(result.is_err());
     if let Err(e) = result {
-        assert!(matches!(e, crate::kernel::error::Error::DeserializationError { .. }));
+        let e_str = e.to_string();
+        // Check if it's a KernelError wrapping a StorageSystemError::DeserializationError
+        match &e {
+            crate::kernel::error::Error::StorageSystem(StorageSystemError::DeserializationError { format, .. }) => {
+                assert_eq!(format, "YAML"); // format is &String, "YAML" is &str
+            }
+            crate::kernel::error::Error::StorageSystem(other_ss_err) => {
+                 panic!("Expected StorageSystemError::DeserializationError, but got StorageSystemError::{:?}. Full error: {}", other_ss_err, e_str);
+            }
+            other_kernel_err => {
+                panic!("Expected KernelError::StorageSystem, but got {:?}. Full error: {}", other_kernel_err, e_str);
+            }
+        }
         // The exact error message from serde_yaml might vary, but it should indicate deserialization failure.
-        assert!(e.to_string().contains("Failed to deserialize from YAML"));
+        println!("YAML Deserialization Error String: '{}'", e_str); // Print the exact error string
+        assert!(e_str.contains("Storage system error:") && e_str.contains("Deserialization from 'YAML' failed:"), "Actual error: {}", e_str);
     } else {
         panic!("Expected an error but got Ok");
     }
@@ -403,23 +436,23 @@ version: "1.0"
 }
 
 #[test]
-fn test_plugin_config_with_overrides() -> Result<()> {
+fn test_plugin_config_with_overrides() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Create default plugin configuration
     let mut default_config = ConfigData::new();
-    default_config.set("plugin_name", "Test Plugin")?;
-    default_config.set("version", "1.0.0")?;
-    default_config.set("setting1", "default_value1")?;
-    default_config.set("setting2", "default_value2")?;
+    default_config.set("plugin_name", "Test Plugin").map_err(crate::kernel::error::Error::from)?;
+    default_config.set("version", "1.0.0").map_err(crate::kernel::error::Error::from)?;
+    default_config.set("setting1", "default_value1").map_err(crate::kernel::error::Error::from)?;
+    default_config.set("setting2", "default_value2").map_err(crate::kernel::error::Error::from)?;
 
     // Save default plugin configuration
     config_manager.save_plugin_config("test_plugin", &default_config, PluginConfigScope::Default)?;
 
     // Create user-specific plugin configuration (partial override)
     let mut user_config = ConfigData::new();
-    user_config.set("setting1", "user_value1")?; // Override
-    user_config.set("setting3", "user_value3")?; // New setting
+    user_config.set("setting1", "user_value1").map_err(crate::kernel::error::Error::from)?; // Override
+    user_config.set("setting3", "user_value3").map_err(crate::kernel::error::Error::from)?; // New setting
 
     // Save user plugin configuration
     config_manager.save_plugin_config("test_plugin", &user_config, PluginConfigScope::User)?;
@@ -438,13 +471,13 @@ fn test_plugin_config_with_overrides() -> Result<()> {
 }
 
 #[test]
-fn test_config_cache() -> Result<()> {
+fn test_config_cache() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
     let provider = config_manager.provider(); // Get the provider Arc
 
     // Create and save initial config
     let mut config = ConfigData::new();
-    config.set("value", "initial")?;
+    config.set("value", "initial").map_err(crate::kernel::error::Error::from)?;
     config_manager.save_app_config("cached", &config)?;
 
     // Load the config (should be cached)
@@ -472,13 +505,13 @@ fn test_config_cache() -> Result<()> {
 }
 
 #[test]
-fn test_list_configs() -> Result<()> {
+fn test_list_configs() -> KernelResult<()> { // Test functions use KernelResult
     let (config_manager, _temp_dir) = create_test_config_manager(); // Keep temp_dir guard alive
 
     // Create several app configs
     for name in &["settings1", "settings2", "settings3"] {
         let mut config = ConfigData::new();
-        config.set("name", name)?;
+        config.set("name", name).map_err(crate::kernel::error::Error::from)?;
         config_manager.save_app_config(name, &config)?;
     }
 
@@ -494,13 +527,13 @@ fn test_list_configs() -> Result<()> {
     // Create several plugin configs
     for name in &["plugin1", "plugin2"] {
         let mut config = ConfigData::new();
-        config.set("name", name)?;
+        config.set("name", name).map_err(crate::kernel::error::Error::from)?;
         config_manager.save_plugin_config(name, &config, PluginConfigScope::Default)?;
     }
 
     // Create a user plugin config
     let mut user_config = ConfigData::new();
-    user_config.set("name", "plugin1_user")?;
+    user_config.set("name", "plugin1_user").map_err(crate::kernel::error::Error::from)?;
     config_manager.save_plugin_config("plugin1", &user_config, PluginConfigScope::User)?;
 
     // List plugin default configs
@@ -553,15 +586,15 @@ fn test_config_format_detection() {
 }
 
 #[test]
-fn test_config_merge() -> Result<()> {
+fn test_config_merge() -> KernelResult<()> { // Test functions use KernelResult
     // Create two configurations
     let mut config1 = ConfigData::new();
-    config1.set("shared", "original")?;
-    config1.set("only_in_1", "value1")?;
+    config1.set("shared", "original").map_err(crate::kernel::error::Error::from)?;
+    config1.set("only_in_1", "value1").map_err(crate::kernel::error::Error::from)?;
 
     let mut config2 = ConfigData::new();
-    config2.set("shared", "overridden")?;
-    config2.set("only_in_2", "value2")?;
+    config2.set("shared", "overridden").map_err(crate::kernel::error::Error::from)?;
+    config2.set("only_in_2", "value2").map_err(crate::kernel::error::Error::from)?;
 
     // Merge config2 into config1
     config1.merge(&config2);

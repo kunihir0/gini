@@ -9,7 +9,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf; // Added for StageContext::new_live
 use std::fs; // Added for test setup
 use tempfile::tempdir; // Added for test setup
-
+use std::error::Error as StdError; // For boxing
+ 
 // Use fully qualified path for BoxFuture
 use crate::event::dispatcher::BoxFuture;
 use crate::event::{Event, EventResult}; // Added EventId
@@ -19,14 +20,15 @@ use crate::stage_manager::{Stage, StageContext, StageManager};
 use crate::stage_manager::manager::DefaultStageManager; // Corrected import path
 use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::requirement::StageRequirement; // Moved import higher
-use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::manager::DefaultPluginManager;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::version::VersionRange;
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
 use crate::storage::local::LocalStorageProvider; // Added for test setup
 use crate::kernel::bootstrap::Application;
-use crate::kernel::error::Result as KernelResult; // Corrected import path
+use crate::kernel::error::{Result as KernelResult, Error as KernelError}; // Corrected import path, added KernelError
 use crate::storage::manager::DefaultStorageManager;
 #[test]
 async fn test_event_system_integration() {
@@ -44,9 +46,9 @@ async fn test_event_system_integration() {
         })
     });
 
-    event_manager.register_handler("test_event", handler).await.unwrap();
+    event_manager.register_handler("test_event", handler).await;
     let event = TestEvent::new("test_event");
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
     assert!(*called.lock().unwrap(), "Event handler should have been called");
 }
 
@@ -76,10 +78,10 @@ async fn test_multiple_handlers() {
         })
     });
 
-    event_manager.register_handler("multi_event", h1).await.unwrap();
-    event_manager.register_handler("multi_event", h2).await.unwrap();
+    event_manager.register_handler("multi_event", h1).await;
+    event_manager.register_handler("multi_event", h2).await;
     let event = TestEvent::new("multi_event");
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
     assert!(*handler1_called.lock().unwrap(), "First handler should have been called");
     assert!(*handler2_called.lock().unwrap(), "Second handler should have been called");
 }
@@ -102,10 +104,10 @@ async fn test_typed_handler() {
         *h_called.lock().unwrap() = true;
         *h_name.lock().unwrap() = event.name().to_string();
         EventResult::Continue
-    }).await.unwrap();
+    }).await;
 
     let event = TestEvent::new("typed_event");
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
 
     assert!(*handler_called.lock().unwrap(), "Typed handler should have been called");
     assert_eq!(*handler_received_name.lock().unwrap(), "typed_event", "Handler should have received the correct event name");
@@ -159,11 +161,11 @@ async fn test_event_with_payload() {
     event_manager.register_sync_type_handler::<PayloadEvent, _>(move |event: &PayloadEvent| {
         *payload_ref.lock().unwrap() = event.payload().to_string();
         EventResult::Continue
-    }).await.unwrap();
+    }).await;
 
     let expected_payload = "important data";
     let event = PayloadEvent::new("payload_event", expected_payload);
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
 
     assert_eq!(
         *received_payload.lock().unwrap(),
@@ -189,23 +191,23 @@ async fn test_event_handler_unregistration() {
     });
 
     // Register the handler and get the numeric ID
-    let handler_id = event_manager.register_handler("unregister_event", handler).await.unwrap();
+    let handler_id = event_manager.register_handler("unregister_event", handler).await;
 
     // Dispatch event - handler should be called
     let event = TestEvent::new("unregister_event");
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
     assert_eq!(call_count.load(Ordering::SeqCst), 1, "Handler should be called once after registration");
 
     // Unregister the handler using the numeric ID
-    let unregistered = event_manager.unregister_handler(handler_id).await.unwrap();
+    let unregistered = event_manager.unregister_handler(handler_id).await;
     assert!(unregistered, "Handler should be successfully unregistered");
 
     // Dispatch event again - handler should NOT be called
-    event_manager.dispatch(&event).await.unwrap();
+    event_manager.dispatch(&event).await;
     assert_eq!(call_count.load(Ordering::SeqCst), 1, "Handler should not be called after unregistration");
 
     // Try unregistering again - should return false
-    let unregistered_again = event_manager.unregister_handler(handler_id).await.unwrap();
+    let unregistered_again = event_manager.unregister_handler(handler_id).await;
     assert!(!unregistered_again, "Unregistering a non-existent handler should return false");
 }
 
@@ -237,21 +239,21 @@ async fn test_event_queueing_and_processing() {
         })
     });
 
-    event_manager.register_handler("event_a", handler_a).await.unwrap();
-    event_manager.register_handler("event_b", handler_b).await.unwrap();
+    event_manager.register_handler("event_a", handler_a).await;
+    event_manager.register_handler("event_b", handler_b).await;
 
     let event_a = TestEvent::new("event_a");
     let event_b = TestEvent::new("event_b");
 
     // Queue events
-    event_manager.queue_event(Box::new(event_a)).await.unwrap();
-    event_manager.queue_event(Box::new(event_b)).await.unwrap();
+    event_manager.queue_event(Box::new(event_a)).await;
+    event_manager.queue_event(Box::new(event_b)).await;
 
     // Check queue size (optional, internal detail)
     // assert_eq!(event_manager.queue_size().await, 2); // Assuming a method like this exists
 
     // Process the queue
-    event_manager.process_queue().await.unwrap();
+    event_manager.process_queue().await;
 
     // Verify order
     let final_order = execution_order.lock().unwrap();
@@ -285,17 +287,17 @@ impl Stage for EventDispatchingStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Event Dispatching Stage" }
     fn description(&self) -> &str { "Dispatches StageDispatchedEvent" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         println!("Executing stage: {}", self.id);
         let event = StageDispatchedEvent::new("Data from stage");
 
         // Retrieve EventManager from context shared data
         let em = context.get_data::<Arc<DefaultEventManager>>("event_manager")
-            .expect("EventManager should be in context")
+            .ok_or_else(|| Box::new(KernelError::Other("EventManager not found in context".to_string())) as Box<dyn StdError + Send + Sync + 'static>)?
             .clone(); // Clone Arc to use
 
         // Dispatch the event using the retrieved manager
-        em.dispatch(&event).await?;
+        em.dispatch(&event).await; // No '?' as dispatch is infallible
         Ok(())
     }
 }
@@ -340,7 +342,7 @@ async fn test_stage_dispatches_event() {
         *event_received_clone.lock().unwrap() = true;
         *received_data_clone.lock().unwrap() = event.data.clone();
         EventResult::Continue
-    }).await.unwrap();
+    }).await;
 
     // Create context using new_live
     let mut context = StageContext::new_live(PathBuf::from("/tmp/gini_test_stage_event_ctx")); // Use new_live
@@ -386,7 +388,7 @@ impl EventDispatchingPlugin {
     async fn simulate_init_dispatch(&self) -> KernelResult<()> {
         println!("Plugin {} simulating event dispatch from init", self.name);
         let event = PluginDispatchedEvent::new(&self.name); // Pass reference
-        self.event_manager.dispatch(&event).await?; // Dispatch using the held manager
+        self.event_manager.dispatch(&event).await; // Dispatch using the held manager, no '?'
         Ok(())
     }
 }
@@ -401,14 +403,14 @@ impl Plugin for EventDispatchingPlugin {
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> Result<(), PluginSystemError> {
         println!("Plugin {} init called (dispatch simulated separately)", self.name());
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
+    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> Result<(), PluginSystemError> { Ok(()) } // Added
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -434,13 +436,13 @@ async fn test_plugin_dispatches_event() {
         *event_received_clone.lock().unwrap() = true;
         *received_source_clone.lock().unwrap() = event.source.clone();
         EventResult::Continue
-    }).await.unwrap();
+    }).await;
 
     // Create the plugin instance, passing the event manager
     let plugin = EventDispatchingPlugin::new("DispatcherPlugin", event_manager.clone());
 
     // Simulate the action that would trigger the dispatch (e.g., part of init)
-    plugin.simulate_init_dispatch().await.unwrap();
+    plugin.simulate_init_dispatch().await.unwrap(); // This unwrap is for KernelResult, not the event dispatch
 
     // Verify the handler was called
     assert!(*event_received.lock().unwrap(), "Handler for PluginDispatchedEvent should have been called");

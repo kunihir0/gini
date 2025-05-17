@@ -3,25 +3,15 @@
 
 use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict, ResolutionStrategy};
 use crate::plugin_system::{Plugin, PluginDependency, ApiVersion, VersionRange, PluginPriority, PluginRegistry};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::stage_manager::StageRequirement; // Removed unused Stage
 use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::context::StageContext; // Added for preflight_check
-    use crate::plugin_system::traits::PluginError; // Added for preflight_check
-use crate::kernel::error::Result;
+// use crate::kernel::error::Result as KernelResult; // Removed unused import
 use crate::kernel::bootstrap::Application; // Needed for Plugin trait
 use std::str::FromStr; // Needed for VersionRange::from_str
-// No longer need PluginManifest here directly, but keep HashSet if needed later
-// use std::collections::HashSet;
-
-// Helper to create a dummy manifest ID (string) as PluginConflict uses IDs now
-fn dummy_id(id: &str) -> String {
-    id.to_string()
-}
-
-// Updated dummy_manifest to match the new signature (if needed elsewhere, currently not)
-// fn dummy_manifest(id: &str) -> PluginManifest {
-//     PluginManifest::new(id, id, "0.1.0", "Desc", "Auth")
-// }
+use std::sync::Arc; // Added for Arc::new
+use crate::plugin_system::manifest::{ManifestBuilder, ResourceAccessType}; // Added for new tests, removed PluginManifest
 
 
 #[test]
@@ -248,15 +238,179 @@ fn test_conflict_manager_get_plugins_to_disable() {
 
 
 #[test]
-fn test_conflict_manager_detect_conflicts_stub() {
+fn test_conflict_manager_detect_conflicts_no_claims() { // Renamed from stub
     let mut manager = ConflictManager::new();
-    // Pass a slice of String IDs
-    let plugin_ids = vec![dummy_id("p1"), dummy_id("p2")];
-    let result = manager.detect_conflicts(&plugin_ids); // Pass only the required argument
+    let manifest1 = ManifestBuilder::new("p1", "P1", "1.0.0").build();
+    let manifest2 = ManifestBuilder::new("p2", "P2", "1.0.0").build();
+    let manifests = vec![manifest1, manifest2];
+    let result = manager.detect_conflicts(&manifests);
     assert!(result.is_ok());
-    // Ensure no conflicts were added by the stub
     assert!(manager.get_conflicts().is_empty());
 }
+
+#[test]
+fn test_no_conflicts_no_overlap() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_A", "Plugin A", "1.0.0")
+        .resource("file_path", "/logs/a.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_B", "Plugin B", "1.0.0")
+        .resource("file_path", "/logs/b.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    assert!(manager.get_conflicts().is_empty());
+}
+
+#[test]
+fn test_no_conflicts_shared_read() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_A", "Plugin A", "1.0.0")
+        .resource("file_path", "/config/settings.toml", ResourceAccessType::SharedRead)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_B", "Plugin B", "1.0.0")
+        .resource("file_path", "/config/settings.toml", ResourceAccessType::SharedRead)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    assert!(manager.get_conflicts().is_empty());
+}
+
+#[test]
+fn test_exclusive_write_conflict_on_file_path() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_A", "Plugin A", "1.0.0")
+        .resource("file_path", "/var/log/app.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_B", "Plugin B", "1.0.0")
+        .resource("file_path", "/var/log/app.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    let conflicts = manager.get_conflicts();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ResourceConflict);
+    assert!(conflicts[0].description.contains("Resource conflict on type 'file_path', identifier '/var/log/app.log'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_A' claims access 'ExclusiveWrite'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_B' claims access 'ExclusiveWrite'"));
+}
+
+#[test]
+fn test_provides_unique_id_conflict_on_stage() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_C", "Plugin C", "1.0.0")
+        .resource("stage_id", "my_custom_stage", ResourceAccessType::ProvidesUniqueId)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_D", "Plugin D", "1.0.0")
+        .resource("stage_id", "my_custom_stage", ResourceAccessType::ProvidesUniqueId)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    let conflicts = manager.get_conflicts();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ResourceConflict);
+    assert!(conflicts[0].description.contains("Resource conflict on type 'stage_id', identifier 'my_custom_stage'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_C' claims access 'ProvidesUniqueId'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_D' claims access 'ProvidesUniqueId'"));
+}
+
+#[test]
+fn test_mixed_access_conflict_exclusive_vs_provides() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_E", "Plugin E", "1.0.0")
+        .resource("unique_resource", "id_123", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_F", "Plugin F", "1.0.0")
+        .resource("unique_resource", "id_123", ResourceAccessType::ProvidesUniqueId)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    let conflicts = manager.get_conflicts();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ResourceConflict);
+    assert!(conflicts[0].description.contains("Plugin 'plugin_E' claims access 'ExclusiveWrite'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_F' claims access 'ProvidesUniqueId'"));
+}
+
+#[test]
+fn test_mixed_access_conflict_exclusive_vs_shared_read() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_G", "Plugin G", "1.0.0")
+        .resource("shared_file", "/data/critical.dat", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_H", "Plugin H", "1.0.0")
+        .resource("shared_file", "/data/critical.dat", ResourceAccessType::SharedRead)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    let conflicts = manager.get_conflicts();
+    assert_eq!(conflicts.len(), 1, "Expected conflict between ExclusiveWrite and SharedRead");
+    assert_eq!(conflicts[0].conflict_type, ConflictType::ResourceConflict);
+    assert!(conflicts[0].description.contains("Plugin 'plugin_G' claims access 'ExclusiveWrite'"));
+    assert!(conflicts[0].description.contains("Plugin 'plugin_H' claims access 'SharedRead'"));
+}
+
+#[test]
+fn test_no_conflict_different_identifiers() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_I", "Plugin I", "1.0.0")
+        .resource("file_path", "/var/log/app_i.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_J", "Plugin J", "1.0.0")
+        .resource("file_path", "/var/log/app_j.log", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    assert!(manager.get_conflicts().is_empty());
+}
+
+#[test]
+fn test_no_conflict_different_resource_types() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_K", "Plugin K", "1.0.0")
+        .resource("file_path", "my_resource", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_L", "Plugin L", "1.0.0")
+        .resource("network_port", "my_resource", ResourceAccessType::ExclusiveWrite)
+        .build();
+    let manifests = vec![manifest1, manifest2];
+    manager.detect_conflicts(&manifests).unwrap();
+    assert!(manager.get_conflicts().is_empty());
+}
+
+#[test]
+fn test_multiple_resources_multiple_conflicts() {
+    let mut manager = ConflictManager::new();
+    let manifest1 = ManifestBuilder::new("plugin_M", "Plugin M", "1.0.0")
+        .resource("file", "/data/file1.txt", ResourceAccessType::ExclusiveWrite)
+        .resource("port", "8080", ResourceAccessType::ProvidesUniqueId)
+        .resource("id", "common_id", ResourceAccessType::SharedRead) // No conflict here
+        .build();
+    let manifest2 = ManifestBuilder::new("plugin_N", "Plugin N", "1.0.0")
+        .resource("file", "/data/file1.txt", ResourceAccessType::ExclusiveWrite) // Conflict with M on file1
+        .resource("port", "9090", ResourceAccessType::ProvidesUniqueId) // No conflict with M on port
+        .build();
+    let manifest3 = ManifestBuilder::new("plugin_O", "Plugin O", "1.0.0")
+        .resource("port", "8080", ResourceAccessType::ProvidesUniqueId) // Conflict with M on port 8080
+        .resource("id", "common_id", ResourceAccessType::SharedRead) // No conflict here
+        .build();
+
+    let manifests = vec![manifest1.clone(), manifest2.clone(), manifest3.clone()];
+    manager.detect_conflicts(&manifests).unwrap();
+    let conflicts = manager.get_conflicts();
+    assert_eq!(conflicts.len(), 2);
+
+    let has_conflict = |p1_id: &str, p2_id: &str, res_type: &str, res_id: &str| {
+        conflicts.iter().any(|c| {
+            ((c.first_plugin == p1_id && c.second_plugin == p2_id) || (c.first_plugin == p2_id && c.second_plugin == p1_id)) &&
+            c.description.contains(&format!("type '{}', identifier '{}'", res_type, res_id))
+        })
+    };
+
+    assert!(has_conflict("plugin_M", "plugin_N", "file", "/data/file1.txt"), "Missing conflict between M and N on file /data/file1.txt");
+    assert!(has_conflict("plugin_M", "plugin_O", "port", "8080"), "Missing conflict between M and O on port 8080");
+}
+
 
 // --- Tests for PluginRegistry::detect_all_conflicts ---
 mod registry_conflict_tests {
@@ -328,14 +482,14 @@ impl Plugin for MockPlugin {
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
     // Add missing async preflight_check
-    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         Ok(())
     }
 
     // Dummy implementations for init/shutdown
-    fn init(&self, _app: &mut Application) -> Result<()> { Ok(()) }
-    fn shutdown(&self) -> Result<()> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> Result<()> { Ok(()) } // Added
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
 // Implement new trait methods
     fn conflicts_with(&self) -> Vec<String> { self.conflicts_with_ids.clone() }
@@ -349,7 +503,7 @@ fn create_registry_with_plugins(plugins: Vec<MockPlugin>) -> PluginRegistry {
     let mut registry = PluginRegistry::new(api_version);
     for plugin in plugins {
         let plugin_id = plugin.id.clone(); // Clone ID before moving plugin
-        registry.register_plugin(Box::new(plugin)).unwrap();
+        registry.register_plugin(Arc::new(plugin)).unwrap();
         // Ensure all plugins are marked as enabled for conflict detection
         // Use the cloned ID here to avoid borrow checker issue
         registry.enable_plugin(&plugin_id).unwrap();

@@ -1,3 +1,27 @@
+//! # Gini Core Library
+//!
+//! `gini-core` is the central engine of the Gini application framework.
+//! It provides the foundational capabilities for building modular and extensible applications.
+//!
+//! ## Key Features:
+//!
+//! - **Plugin System:** Dynamically load, manage, and interact with plugins.
+//!   See the [`plugin_system`] module.
+//! - **Stage Management:** Define and execute a series of stages or tasks in a configurable pipeline.
+//!   See the [`stage_manager`] module.
+//! - **Event Handling:** A flexible system for inter-module communication via events.
+//!   See the [`event`] module.
+//! - **Kernel Services:** Core application lifecycle management and essential services.
+//!   See the [`kernel`] module.
+//! - **Storage Abstraction:** Provides a way to manage application data and configuration.
+//!   See the [`storage`] module.
+//! - **UI Bridge:** Facilitates communication between the core and user interface components.
+//!   See the [`ui_bridge`] module.
+//! - **Utilities:** Common helper functions and structures.
+//!   See the [`utils`] module.
+//!
+//! The library is designed to be highly modular, allowing developers to use only the
+//! components they need and to extend functionality through custom plugins and stages.
 // Declare modules moved from the old src/
 pub mod event;
 pub mod kernel;

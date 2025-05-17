@@ -1,3 +1,22 @@
+//! # Gini Core Utilities
+//!
+//! This module provides a collection of common helper functions and submodules
+//! used throughout the `gini-core` application. It aims to encapsulate
+//! reusable logic for various tasks.
+//!
+//! ## Key Components & Submodules:
+//!
+//! - **Filesystem Utilities**: A significant portion of this module, and its
+//!   submodule [`fs`], offers functions for path manipulation, file and directory
+//!   operations (checking existence, reading, writing, creating directories),
+//!   and extracting path components (filename, stem, extension).
+//!   Many of these are convenient wrappers around standard library `std::path`
+//!   and `std::fs` functionalities.
+//! - **[`fs`] Submodule**: Contains more specialized or extensive filesystem
+//!   related utilities.
+//!
+//! The utilities provided here help in simplifying common operations and promoting
+//! code reuse within the `gini-core` framework.
 pub mod fs;
 
 use std::path::Path;

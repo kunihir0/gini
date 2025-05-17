@@ -8,7 +8,7 @@ use std::fmt; // Import fmt
 
 use async_trait::async_trait;
 use crate::event::{Event, AsyncEventHandler, EventId, EventResult};
-use crate::kernel::error::{Result};
+// kernel::error::Result is no longer used here as methods are infallible or panic
 
 // This type represents an owned future that returns EventResult
 pub type BoxFuture<'a> = Pin<Box<dyn Future<Output = EventResult> + Send + 'a>>;
@@ -170,34 +170,34 @@ impl SharedEventDispatcher {
 
     pub fn clone_dispatcher(&self) -> Arc<Mutex<EventDispatcher>> { self.dispatcher.clone() }
 
-    pub async fn dispatch(&self, event: &dyn Event) -> Result<EventResult> {
+    pub async fn dispatch(&self, event: &dyn Event) -> EventResult {
         let dispatcher = self.dispatcher.lock().await;
-        Ok(dispatcher.dispatch_internal(event).await)
+        dispatcher.dispatch_internal(event).await
     }
 
-    pub async fn queue_event(&self, event: Box<dyn Event>) -> Result<()> {
+    pub async fn queue_event(&self, event: Box<dyn Event>) {
         let mut dispatcher = self.dispatcher.lock().await;
-        dispatcher.queue_event(event); Ok(())
+        dispatcher.queue_event(event);
     }
 
-    pub async fn process_queue(&self) -> Result<usize> {
+    pub async fn process_queue(&self) -> usize {
         let mut dispatcher = self.dispatcher.lock().await;
-        Ok(dispatcher.process_queue_internal().await)
+        dispatcher.process_queue_internal().await
     }
 
-    pub async fn register_handler( &self, event_name: &'static str, handler: Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync> ) -> Result<EventId> {
+    pub async fn register_handler( &self, event_name: &'static str, handler: Box<dyn Fn(&dyn Event) -> BoxFuture<'_> + Send + Sync> ) -> EventId {
         let mut dispatcher = self.dispatcher.lock().await;
-        Ok(dispatcher.register_handler(event_name, handler))
+        dispatcher.register_handler(event_name, handler)
     }
 
-    pub async fn register_type_handler<E: Event + 'static>( &self, handler: Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync> ) -> Result<EventId> {
+    pub async fn register_type_handler<E: Event + 'static>( &self, handler: Box<dyn Fn(&E) -> BoxFuture<'_> + Send + Sync> ) -> EventId {
         let mut dispatcher = self.dispatcher.lock().await;
-        Ok(dispatcher.register_type_handler::<E>(handler))
+        dispatcher.register_type_handler::<E>(handler)
     }
 
-    pub async fn unregister_handler(&self, id: EventId) -> Result<bool> {
+    pub async fn unregister_handler(&self, id: EventId) -> bool {
         let mut dispatcher = self.dispatcher.lock().await;
-        Ok(dispatcher.unregister_handler(id))
+        dispatcher.unregister_handler(id)
     }
 }
 

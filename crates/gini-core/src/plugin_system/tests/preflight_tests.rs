@@ -7,9 +7,10 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::kernel::bootstrap::Application; // Mock or minimal version needed
-use crate::kernel::error::{Result as KernelResult}; // Removed unused Error
+// use crate::kernel::error::{Result as KernelResult}; // Removed unused import
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
 use crate::plugin_system::version::{VersionRange, ApiVersion}; // Import ApiVersion
 use crate::plugin_system::registry::PluginRegistry;
 use crate::stage_manager::context::StageContext;
@@ -35,10 +36,10 @@ impl Plugin for SuccessPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
     // Mock init - tracks initialization
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         // This cast is tricky in tests. We'll use a simpler tracking mechanism.
         // For the real implementation, the context needs the actual Application.
         // For tests, we'll rely on the MockApplication tracking via context data.
@@ -46,11 +47,11 @@ impl Plugin for SuccessPlugin {
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         println!("SuccessPlugin preflight check: OK");
         Ok(())
     }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
@@ -68,18 +69,21 @@ impl Plugin for FailPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         println!("FailPlugin::init called (SHOULD NOT HAPPEN)");
         panic!("FailPlugin init should not be called after failed preflight!");
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         println!("FailPlugin preflight check: FAIL");
-        Err(PluginError::PreflightCheckError("Simulated preflight failure".to_string()))
+        Err(PluginSystemError::PreflightCheckFailed{
+            plugin_id: self.name().to_string(),
+            message: "Simulated preflight failure".to_string()
+        })
     }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -98,14 +102,14 @@ impl Plugin for DefaultPlugin {
     }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<crate::stage_manager::requirement::StageRequirement> { vec![] }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         println!("DefaultPlugin::init called");
         Ok(())
     }
     // Uses default preflight_check implementation (always Ok)
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
     // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -122,9 +126,9 @@ async fn setup_test_environment() -> (StageContext, Arc<Mutex<PluginRegistry>>, 
     {
         let mut reg = plugin_registry_arc.lock().await;
         // Use expect for clearer panic messages in test setup
-        reg.register_plugin(Box::new(SuccessPlugin)).expect("Failed to register SuccessPlugin");
-        reg.register_plugin(Box::new(FailPlugin)).expect("Failed to register FailPlugin");
-        reg.register_plugin(Box::new(DefaultPlugin)).expect("Failed to register DefaultPlugin");
+        reg.register_plugin(Arc::new(SuccessPlugin)).expect("Failed to register SuccessPlugin");
+        reg.register_plugin(Arc::new(FailPlugin)).expect("Failed to register FailPlugin");
+        reg.register_plugin(Arc::new(DefaultPlugin)).expect("Failed to register DefaultPlugin");
     }
 
     // Create StageRegistry

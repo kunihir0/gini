@@ -10,5 +10,7 @@ crate-type = ["cdylib", "rlib"] # Compile as dynamic library AND rust library
 
 [dependencies]
 gini-core = { path = "../../crates/gini-core" }
-log = "0.4"
-env_logger = "0.11"
+log = "0.4" # For log facade, bridged by tracing-log
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json", "registry"] }
+tracing-log = "0.2" # Bridges log crate to tracing

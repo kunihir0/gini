@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Error as KernelError, Result as KernelResult}; // Renamed Error & Result
 use crate::stage_manager::{StageContext, StageResult};
+use crate::stage_manager::error::StageSystemError; // Import StageSystemError
 // Import SharedStageRegistry for execute method
 use crate::stage_manager::registry::SharedStageRegistry;
 
@@ -43,7 +44,7 @@ impl StagePipeline {
     // Removed with_registry method
 
     /// Add a stage ID to the pipeline (validation happens later or during execution)
-    pub fn add_stage(&mut self, stage_id: &str) -> Result<()> {
+    pub fn add_stage(&mut self, stage_id: &str) -> KernelResult<()> { // Changed to KernelResult
         // Just add the ID, validation against registry happens elsewhere
         if !self.stages.contains(&stage_id.to_string()) {
             self.stages.push(stage_id.to_string());
@@ -52,7 +53,7 @@ impl StagePipeline {
     }
 
     /// Add multiple stage IDs to the pipeline
-    pub fn add_stages(&mut self, stage_ids: &[&str]) -> Result<()> {
+    pub fn add_stages(&mut self, stage_ids: &[&str]) -> KernelResult<()> { // Changed to KernelResult
         for stage_id in stage_ids {
             self.add_stage(stage_id)?;
         }
@@ -60,16 +61,25 @@ impl StagePipeline {
     }
 
     /// Add a dependency between stages
-    pub fn add_dependency(&mut self, stage_id: &str, depends_on: &str) -> Result<()> {
+    // Changed to return Result<(), StageSystemError> as per plan for internal errors
+    pub fn add_dependency(&mut self, stage_id: &str, depends_on: &str) -> std::result::Result<(), StageSystemError> {
         // Validation against registry happens elsewhere
         // Ensure the stages are at least added to this pipeline instance
         if !self.stages.contains(&stage_id.to_string()) {
-             return Err(Error::Stage(format!("Stage '{}' must be added to pipeline before adding dependency", stage_id)));
+             return Err(StageSystemError::DependencyStageNotInPipeline {
+                pipeline_name: self.name.clone(), // Or a generic name if not available
+                stage_id: stage_id.to_string(),
+                dependency_id: depends_on.to_string(), // This error is about stage_id not being in pipeline
+            });
         }
          if !self.stages.contains(&depends_on.to_string()) {
-             return Err(Error::Stage(format!("Dependency stage '{}' must be added to pipeline before adding dependency", depends_on)));
+             return Err(StageSystemError::DependencyStageNotInPipeline {
+                pipeline_name: self.name.clone(),
+                stage_id: stage_id.to_string(), // This error is about depends_on not being in pipeline
+                dependency_id: depends_on.to_string(),
+            });
         }
-
+ 
         self.dependencies
             .entry(stage_id.to_string())
             .or_default()
@@ -79,51 +89,75 @@ impl StagePipeline {
     }
 
     /// Validate the pipeline structure (cycles) and stage existence against a registry
-    pub async fn validate(&self, registry: &SharedStageRegistry) -> Result<()> {
+    // Changed to return Result<(), StageSystemError>
+    pub async fn validate(&self, registry: &SharedStageRegistry) -> std::result::Result<(), StageSystemError> {
         let mut visited = HashSet::new();
         let mut stack = HashSet::new();
-
+ 
         for stage_id in &self.stages {
             // Check existence in the provided registry
-            if !registry.has_stage(stage_id).await? {
-                 return Err(Error::Stage(format!("Stage '{}' defined in pipeline but not found in registry", stage_id)));
+            if !registry.has_stage(stage_id).await { // Removed ? as has_stage is now infallible
+                 return Err(StageSystemError::StageNotFoundInPipelineValidation {
+                    pipeline_name: self.name.clone(),
+                    stage_id: stage_id.to_string(),
+                });
             }
             // Check for cycles
             if !visited.contains(stage_id) {
-                if self.has_cycle(stage_id, &mut visited, &mut stack)? {
-                    return Err(Error::Stage(
-                        format!("Pipeline has cyclic dependencies starting from stage: {}", stage_id)
-                    ));
+                // has_cycle now returns Result<bool, StageSystemError>
+                // It returns Err(DependencyCycleDetected) if a cycle is found.
+                // It returns Ok(false) if no cycle is found from this node.
+                // It should not return Ok(true).
+                match self.has_cycle(stage_id, &mut visited, &mut stack) {
+                    Ok(false) => { /* No cycle found from this node, continue */ }
+                    Ok(true) => {
+                        // This case should ideally not be reached if has_cycle correctly returns Err on cycle.
+                        // If it does, it's an internal logic inconsistency in has_cycle.
+                        // For robustness, treat Ok(true) as a cycle detection as well.
+                        return Err(StageSystemError::DependencyCycleDetected {
+                            pipeline_name: self.name.clone(),
+                            cycle_path: vec![stage_id.to_string()], // Simplified path
+                        });
+                    }
+                    Err(e @ StageSystemError::DependencyCycleDetected { .. }) => return Err(e), // Propagate the detailed error
+                    Err(e) => return Err(e), // Should not happen if has_cycle only returns DependencyCycleDetected or Ok(false)
                 }
             }
         }
         Ok(())
     }
-
+ 
     /// Check for cycles in the dependency graph using DFS (internal helper)
-    fn has_cycle(&self, stage_id: &str, visited: &mut HashSet<String>, stack: &mut HashSet<String>) -> Result<bool> {
+    // Changed to return Result<bool, StageSystemError>, Err if cycle detected.
+    fn has_cycle(&self, stage_id: &str, visited: &mut HashSet<String>, stack: &mut HashSet<String>) -> std::result::Result<bool, StageSystemError> {
         visited.insert(stage_id.to_string());
         stack.insert(stage_id.to_string());
 
         if let Some(deps) = self.dependencies.get(stage_id) {
             for dep in deps {
                 if !visited.contains(dep) {
-                    if self.has_cycle(dep, visited, stack)? {
+                    if self.has_cycle(dep, visited, stack)? { // Recursive call returns Result<bool, StageSystemError>
+                        // If inner call found a cycle (returned Ok(true)), propagate it as Ok(true)
                         return Ok(true);
                     }
                 } else if stack.contains(dep) {
-                    return Ok(true);
+                    // Cycle detected
+                    return Err(StageSystemError::DependencyCycleDetected {
+                        pipeline_name: self.name.clone(), // Or pass pipeline name
+                        cycle_path: stack.iter().cloned().collect(), // Provide the current stack as path
+                    });
                 }
             }
         }
-
+ 
         stack.remove(stage_id);
-        Ok(false)
+        Ok(false) // No cycle found starting from this node in this DFS path
     }
-
+ 
     /// Generate a topologically sorted execution order
     /// Validation (including cycle check) should happen before calling this.
-    fn get_execution_order(&self) -> Result<Vec<String>> {
+    // Changed to return Result<Vec<String>, StageSystemError>
+    fn get_execution_order(&self) -> std::result::Result<Vec<String>, StageSystemError> {
         // Assume validate() was called externally and succeeded
         let mut result = Vec::new();
         let mut visited = HashSet::new();
@@ -144,10 +178,13 @@ impl StagePipeline {
         visited: &mut HashSet<String>,
         temp_mark: &mut HashSet<String>,
         result: &mut Vec<String>,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), StageSystemError> { // Changed to StageSystemError
         if temp_mark.contains(stage_id) {
             // This should ideally be caught by validate(), but check again
-            return Err(Error::Stage(format!("Cyclic dependency found at stage {}", stage_id)));
+            return Err(StageSystemError::DependencyCycleDetected {
+                pipeline_name: self.name.clone(),
+                cycle_path: temp_mark.iter().cloned().collect(), // Provide current path
+            });
         }
         if visited.contains(stage_id) {
             return Ok(()); // Already visited and added
@@ -173,23 +210,23 @@ impl StagePipeline {
         &mut self,
         context: &mut StageContext,
         registry: &SharedStageRegistry // Accept registry here
-    ) -> Result<HashMap<String, StageResult>> {
+    ) -> KernelResult<HashMap<String, StageResult>> { // Returns KernelResult
         println!("Executing pipeline: {}", self.name);
         println!("Description: {}", self.description);
 
         if context.is_dry_run() {
             println!("MODE: DRY RUN");
             // Perform dry run validation if needed, or just simulate success
-             self.validate(registry).await?; // Validate against registry even in dry run
+             self.validate(registry).await.map_err(KernelError::from)?; // Validate against registry
              println!("Dry run validation successful.");
              // Return simulated success for all stages in order
-             let execution_order = self.get_execution_order()?;
+             let execution_order = self.get_execution_order().map_err(KernelError::from)?;
              let results = execution_order.into_iter().map(|id| (id, StageResult::Success)).collect();
              return Ok(results);
         }
-
+ 
         // Validate before execution
-        self.validate(registry).await?;
+        self.validate(registry).await.map_err(KernelError::from)?;
 
         // --- Add SharedStageRegistry to context ---
         // Clone the Arc to store it in the context.
@@ -199,23 +236,34 @@ impl StagePipeline {
 
 
         // Get the execution order
-        let execution_order = self.get_execution_order()?;
+        let execution_order = self.get_execution_order().map_err(KernelError::from)?;
         let mut results = HashMap::new();
-
+ 
         // Execute each stage in order using the provided registry
         for stage_id in execution_order {
             // Use the registry passed as argument
-            let result = registry.execute_stage(&stage_id, context).await?;
-
-            results.insert(stage_id.clone(), result.clone());
-
-            // Check if the stage failed and we should abort
-            if let StageResult::Failure(_) = result {
-                println!("Pipeline aborted due to stage failure: {}", stage_id);
-                break;
+            // registry.execute_stage now returns KernelResult<StageResult>
+            // which wraps Result<StageResult, StageSystemError>
+            match registry.execute_stage(&stage_id, context).await {
+                Ok(stage_outcome) => {
+                    results.insert(stage_id.clone(), stage_outcome.clone());
+                    // The StageResult::Failure case for aborting is removed because
+                    // execute_stage_internal now returns Err(StageSystemError::StageExecutionFailed)
+                    // for actual errors from Stage::execute.
+                    // If StageResult::Failure were to be used for other "logical" non-error failures
+                    // that should still halt the pipeline, that logic would go here.
+                    // For now, only an Err from execute_stage halts the pipeline.
+                }
+                Err(kernel_err) => {
+                    // This means execute_stage_internal returned Err(StageSystemError),
+                    // which was mapped to KernelError by SharedStageRegistry::execute_stage.
+                    // This is a hard error from the stage execution itself (e.g. StageExecutionFailed).
+                    println!("Pipeline aborted due to stage error: {} - {}", stage_id, kernel_err);
+                    return Err(kernel_err); // Propagate the KernelError
+                }
             }
         }
-
+ 
         Ok(results)
     }
 

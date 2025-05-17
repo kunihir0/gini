@@ -1,11 +1,15 @@
 #![cfg(test)]
 
+use std::sync::Arc;
+// Removed: use async_trait::async_trait;
+// Removed: use tokio::sync::Mutex;
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Error;
+// use crate::kernel::error::Error; // Removed unused import
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginError as TraitsPluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin}; // Removed PluginError as TraitsPluginError
 use crate::stage_manager::{StageContext};
 use crate::stage_manager::manager::StageManager;
 use crate::stage_manager::pipeline::PipelineBuilder;
@@ -50,8 +54,8 @@ async fn test_lifecycle_management() {
     // Register plugins
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin_a)).expect("Failed to register plugin A");
-        registry.register_plugin(Box::new(plugin_b)).expect("Failed to register plugin B");
+        registry.register_plugin(Arc::new(plugin_a)).expect("Failed to register plugin A");
+        registry.register_plugin(Arc::new(plugin_b)).expect("Failed to register plugin B");
         execution_order.lock().unwrap().push("plugins_registered".to_string());
     }
 
@@ -154,8 +158,8 @@ async fn test_plugin_shutdown_order() {
     // Register plugins
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin_a)).expect("Failed to register A");
-        registry.register_plugin(Box::new(plugin_b)).expect("Failed to register B");
+        registry.register_plugin(Arc::new(plugin_a)).expect("Failed to register A");
+        registry.register_plugin(Arc::new(plugin_b)).expect("Failed to register B");
     }
 
     // Initialize plugins (initialize B, which should trigger A first)
@@ -236,8 +240,8 @@ async fn test_plugin_shutdown_error_handling() {
     // Register plugins
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(error_plugin)).expect("Failed to register error plugin");
-        registry.register_plugin(Box::new(success_plugin)).expect("Failed to register success plugin");
+        registry.register_plugin(Arc::new(error_plugin)).expect("Failed to register error plugin");
+        registry.register_plugin(Arc::new(success_plugin)).expect("Failed to register success plugin");
     }
 
     // Initialize plugins
@@ -270,12 +274,12 @@ async fn test_plugin_shutdown_error_handling() {
 
     // Verify the error message contains the failing plugin's info
     match shutdown_result.err().unwrap() {
-        Error::Plugin(msg) => {
-            eprintln!("Shutdown Error Message: {}", msg); // Debug print
-            assert!(msg.contains("Encountered errors during plugin shutdown"), "Error message prefix mismatch");
-            assert!(msg.contains("ShutdownErrorPlugin") && msg.contains("Simulated shutdown failure"), "Error message content mismatch");
+        PluginSystemError::ShutdownError{ plugin_id, message } => {
+            eprintln!("Shutdown Error Message: {}: {}", plugin_id, message); // Debug print
+            assert!(message.contains("Simulated shutdown failure"), "Error message content mismatch: {}", message);
+            assert_eq!(plugin_id, "ShutdownErrorPlugin", "Incorrect plugin ID in shutdown error");
         }
-        e => panic!("Expected Error::Plugin for shutdown failure, but got {:?}", e),
+        e => panic!("Expected PluginSystemError::ShutdownError for shutdown failure, but got {:?}", e),
     }
 
     // Verify that *both* plugins were attempted to be shut down (check the tracker)
@@ -318,7 +322,7 @@ async fn test_plugin_preflight_check_failure_handling() {
     // Register the plugin
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(failing_plugin)).expect("Failed to register failing plugin");
+        registry.register_plugin(Arc::new(failing_plugin)).expect("Failed to register failing plugin");
     }
 
     // Attempt to run the preflight check directly on the plugin instance for this test.
@@ -335,13 +339,13 @@ async fn test_plugin_preflight_check_failure_handling() {
          }
     };
 
-     // Verify the preflight check itself failed with the correct error type from traits::PluginError
+     // Verify the preflight check itself failed with the correct error type from PluginSystemError
      assert!(preflight_result.is_err(), "Preflight check should have failed");
      match preflight_result.err().unwrap() {
-         TraitsPluginError::PreflightCheckError(msg) => { // Use aliased error type
-             assert!(msg.contains("Simulated preflight check failure"), "Error message mismatch: {}", msg);
+         PluginSystemError::PreflightCheckFailed{ plugin_id: _, message } => { // Match new error variant
+             assert!(message.contains("Simulated preflight check failure"), "Error message mismatch: {}", message);
          }
-         e => panic!("Expected PreflightCheckError, got {:?}", e),
+         e => panic!("Expected PluginSystemError::PreflightCheckFailed, got {:?}", e),
      }
 
     // Verify the plugin is not marked as initialized (assuming preflight is checked before/during init)

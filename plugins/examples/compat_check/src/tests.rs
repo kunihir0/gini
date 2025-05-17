@@ -1,6 +1,6 @@
 use super::*; // Import items from the parent module (plugin.rs)
 use std::path::PathBuf; // Import PathBuf
-use gini_core::plugin_system::traits::PluginError; // Correct path for PluginError
+use gini_core::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use gini_core::stage_manager::context::StageContext; // Import StageContext
 // No need for std::env or serial_test anymore
 
@@ -15,7 +15,7 @@ fn create_test_context() -> StageContext {
 #[tokio::test]
 // Removed #[serial]
 async fn preflight_check_pass() {
-    let plugin = CompatCheckPlugin;
+    let plugin = CompatCheckPlugin { _marker: 0 };
     let mut context = create_test_context();
 
     // Set the context data to make the check pass
@@ -30,19 +30,19 @@ async fn preflight_check_pass() {
 #[tokio::test]
 // Removed #[serial]
 async fn preflight_check_fail_not_set() {
-    let plugin = CompatCheckPlugin;
+    let plugin = CompatCheckPlugin { _marker: 0 };
     let context = create_test_context(); // Context starts empty
 
     let result = plugin.preflight_check(&context).await; // Pass context
 
     // Assert that the check failed because the key wasn't set
-    assert!(matches!(result, Err(PluginError::PreflightCheckError(msg)) if msg.contains("not found")));
+    assert!(matches!(result, Err(PluginSystemError::PreflightCheckFailed{plugin_id: _, message}) if message.contains("not found")));
 }
 
 #[tokio::test]
 // Removed #[serial]
 async fn preflight_check_fail_wrong_value() {
-    let plugin = CompatCheckPlugin;
+    let plugin = CompatCheckPlugin { _marker: 0 };
     let mut context = create_test_context();
 
     // Set the context data to an incorrect value
@@ -51,5 +51,5 @@ async fn preflight_check_fail_wrong_value() {
     let result = plugin.preflight_check(&context).await; // Pass context
 
     // Assert that the check failed with the correct error type and message
-    assert!(matches!(result, Err(PluginError::PreflightCheckError(msg)) if msg.contains("incorrect value '0'")));
+    assert!(matches!(result, Err(PluginSystemError::PreflightCheckFailed{plugin_id: _, message}) if message.contains("incorrect value '0'")));
 }

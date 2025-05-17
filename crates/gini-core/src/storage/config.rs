@@ -10,9 +10,17 @@ use serde_yaml;
 #[cfg(feature = "toml-config")]
 use toml;
 
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::Error as KernelError; // Renamed for clarity
+use std::result::Result as StdResult; // Import StdResult
+use crate::storage::error::StorageSystemError; // Import StorageSystemError
 // use crate::storage::manager::StorageManager; // Import StorageManager trait
 use crate::storage::StorageProvider; // Keep for direct provider access if needed elsewhere
+
+/// Type alias for Result with KernelError for public ConfigManager methods
+type Result<T> = StdResult<T, KernelError>;
+/// Type alias for Result with StorageSystemError for internal operations
+type StorageResult<T> = StdResult<T, StorageSystemError>;
+
 
 /// Defines the scope for storage operations, determining the base directory.
 #[derive(Debug, Clone, PartialEq)]
@@ -100,14 +108,14 @@ impl ConfigData {
     }
     
     /// Set a configuration value
-    pub fn set<T: Serialize>(&mut self, key: &str, value: T) -> Result<()> {
+    pub fn set<T: Serialize>(&mut self, key: &str, value: T) -> StorageResult<()> { // Changed to StorageResult
         match serde_json::to_value(value) {
             Ok(json_value) => {
                 self.values.insert(key.to_string(), json_value);
                 Ok(())
             },
-            Err(e) => Err(Error::SerializationError {
-                format: "JSON".to_string(), // Assuming internal representation uses JSON values
+            Err(e) => Err(StorageSystemError::SerializationError { // Changed to StorageSystemError
+                format: "JSON".to_string(),
                 source: Box::new(e),
             }),
         }
@@ -136,17 +144,17 @@ impl ConfigData {
     }
     
     /// Serialize to string based on format
-    pub fn serialize(&self, format: ConfigFormat) -> Result<String> {
+    pub fn serialize(&self, format: ConfigFormat) -> StorageResult<String> { // Changed to StorageResult
         match format {
             ConfigFormat::Json => {
-                serde_json::to_string_pretty(&self).map_err(|e| Error::SerializationError {
+                serde_json::to_string_pretty(&self).map_err(|e| StorageSystemError::SerializationError { // Changed to StorageSystemError
                     format: "JSON".to_string(),
                     source: Box::new(e),
                 })
             },
             #[cfg(feature = "yaml-config")]
             ConfigFormat::Yaml => {
-                serde_yaml::to_string(&self).map_err(|e| Error::SerializationError {
+                serde_yaml::to_string(&self).map_err(|e| StorageSystemError::SerializationError { // Changed to StorageSystemError
                     format: "YAML".to_string(),
                     source: Box::new(e),
                 })
@@ -154,7 +162,7 @@ impl ConfigData {
             #[cfg(feature = "toml-config")]
             ConfigFormat::Toml => {
                 // Note: toml::Value doesn't directly support flatten, so we serialize the inner map
-                toml::to_string_pretty(&self.values).map_err(|e| Error::SerializationError {
+                toml::to_string_pretty(&self.values).map_err(|e| StorageSystemError::SerializationError { // Changed to StorageSystemError
                     format: "TOML".to_string(),
                     source: Box::new(e),
                 })
@@ -163,17 +171,17 @@ impl ConfigData {
     }
     
     /// Deserialize from string based on format
-    pub fn deserialize(data: &str, format: ConfigFormat) -> Result<Self> {
+    pub fn deserialize(data: &str, format: ConfigFormat) -> StorageResult<Self> { // Changed to StorageResult
         match format {
             ConfigFormat::Json => {
-                serde_json::from_str(data).map_err(|e| Error::DeserializationError {
+                serde_json::from_str(data).map_err(|e| StorageSystemError::DeserializationError { // Changed to StorageSystemError
                     format: "JSON".to_string(),
                     source: Box::new(e),
                 })
             },
             #[cfg(feature = "yaml-config")]
             ConfigFormat::Yaml => {
-                serde_yaml::from_str(data).map_err(|e| Error::DeserializationError {
+                serde_yaml::from_str(data).map_err(|e| StorageSystemError::DeserializationError { // Changed to StorageSystemError
                     format: "YAML".to_string(),
                     source: Box::new(e),
                 })
@@ -181,13 +189,16 @@ impl ConfigData {
             #[cfg(feature = "toml-config")]
             ConfigFormat::Toml => {
                 // Note: toml::Value doesn't directly support flatten, so we deserialize into the inner map
-                let values: HashMap<String, toml::Value> = toml::from_str(data).map_err(|e| Error::DeserializationError {
+                let values: HashMap<String, toml::Value> = toml::from_str(data).map_err(|e| StorageSystemError::DeserializationError { // Changed to StorageSystemError
                     format: "TOML".to_string(),
                     source: Box::new(e),
                 })?;
                 // Convert toml::Value to serde_json::Value
                 let json_values = values.into_iter().map(|(k, v)| {
-                    (k, serde_json::to_value(v).unwrap_or(serde_json::Value::Null)) // Handle potential conversion errors gracefully?
+                    // Consider if this unwrap_or could mask an important error.
+                    // If toml::Value -> serde_json::Value conversion is critical,
+                    // this might need to return a Result and be propagated.
+                    (k, serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
                 }).collect();
                 Ok(ConfigData { values: json_values })
             },
@@ -330,69 +341,62 @@ impl ConfigManager {
                      // Optionally, log a warning here or return a specific error?
                      // For now, return empty config as per original logic.
                      // Let's create it to be safe, as before.
-                     self.provider.create_dir_all(parent_dir)?;
+                     self.provider.create_dir_all(parent_dir).map_err(KernelError::from)?;
                  }
              }
+ 
+             let empty_config = ConfigData::new();
+ 
+             // Cache the empty config (write lock)
+             self.cache.write().unwrap().insert(cache_key, empty_config.clone()); // Use write lock
+ 
+             return Ok(empty_config);
+         }
+ 
+         // Ensure it's actually a file before trying to read
+         if !self.provider.is_file(&path) {
+             return Err(KernelError::from(StorageSystemError::OperationFailed {
+                 operation: "load_config".to_string(),
+                 path: Some(path.clone()),
+                 message: format!("Path exists but is not a file: {}", path.display()),
+             }));
+         }
+ 
+         // Determine format from file extension
+         let format = ConfigFormat::from_path(&path)
+             .ok_or_else(|| KernelError::from(StorageSystemError::UnsupportedConfigFormat(path.to_string_lossy().into_owned())))?;
+ 
+         // Load the file content using the stored provider
+         let content = self.provider.read_to_string(&path).map_err(KernelError::from)?;
+ 
+         // Parse based on format
+         let config = ConfigData::deserialize(&content, format).map_err(KernelError::from)?;
+         
+         // Cache the loaded config (write lock)
+         self.cache.write().unwrap().insert(cache_key, config.clone()); // Use write lock
 
-            let empty_config = ConfigData::new();
-
-            // Cache the empty config (write lock)
-            self.cache.write().unwrap().insert(cache_key, empty_config.clone()); // Use write lock
-
-            return Ok(empty_config);
-        }
-
-        // Ensure it's actually a file before trying to read
-        if !self.provider.is_file(&path) {
-            return Err(Error::StorageOperationFailed {
-                operation: "load_config".to_string(),
-                path: Some(path.clone()),
-                message: format!("Path exists but is not a file: {}", path.display()),
-            });
-        }
-
-        // Determine format from file extension
-        let format = ConfigFormat::from_path(&path)
-            .ok_or_else(|| Error::ConfigFormatError { path: path.clone() })?;
-
-        // Load the file content using the stored provider
-        let content = self.provider.read_to_string(&path).map_err(|e| {
-            // Add context to potential IO error
-            if let Error::IoError { source, .. } = e {
-                Error::io(source, "read_to_string", Some(path.clone()))
-            } else {
-                e // Pass through other errors
-            }
-        })?;
-
-        // Parse based on format
-        let config = ConfigData::deserialize(&content, format)?;
-        
-        // Cache the loaded config (write lock)
-        self.cache.write().unwrap().insert(cache_key, config.clone()); // Use write lock
-
-        Ok(config)
-    }
-    
-    /// Save configuration to disk
-    pub fn save_config(&self, name: &str, config: &ConfigData, scope: ConfigScope) -> Result<()> {
-        let path = self.resolve_config_path(name, scope);
-        
-        // Ensure the directory exists using the stored provider
-        if let Some(parent) = path.parent() {
-            self.provider.create_dir_all(parent)?;
-        }
-
-        // Determine format from file extension or use default
-        let format = ConfigFormat::from_path(&path).unwrap_or(self.default_format()); // Use method to read lock
-
-        // Serialize based on format
-        let content = config.serialize(format)?;
-
-        // Write to disk using the stored provider
-        self.provider.write_string(&path, &content)?;
-
-        // Update cache
+         Ok(config)
+     }
+     
+     /// Save configuration to disk
+     pub fn save_config(&self, name: &str, config: &ConfigData, scope: ConfigScope) -> Result<()> {
+         let path = self.resolve_config_path(name, scope);
+         
+         // Ensure the directory exists using the stored provider
+         if let Some(parent) = path.parent() {
+             self.provider.create_dir_all(parent).map_err(KernelError::from)?;
+         }
+ 
+         // Determine format from file extension or use default
+         let format = ConfigFormat::from_path(&path).unwrap_or(self.default_format());
+ 
+         // Serialize based on format
+         let content = config.serialize(format).map_err(KernelError::from)?;
+ 
+         // Write to disk using the stored provider
+         self.provider.write_string(&path, &content).map_err(KernelError::from)?;
+ 
+         // Update cache
         let cache_key = match scope {
             ConfigScope::Application => format!("app:{}", name),
             ConfigScope::Plugin(PluginConfigScope::Default) => format!("plugin:default:{}", name),
@@ -471,20 +475,20 @@ impl ConfigManager {
         if !self.provider.exists(&dir_path) {
             // Attempt to create the directory if it doesn't exist? Or just return empty?
             // Let's create it for consistency with load/save.
-            self.provider.create_dir_all(&dir_path)?;
+            self.provider.create_dir_all(&dir_path).map_err(KernelError::from)?;
             return Ok(vec![]); // Return empty if just created
         }
         if !self.provider.is_dir(&dir_path) {
-            return Err(Error::StorageOperationFailed {
+            return Err(KernelError::from(StorageSystemError::OperationFailed {
                 operation: "list_configs".to_string(),
                 path: Some(dir_path.clone()),
                 message: "Path exists but is not a directory".to_string(),
-            });
+            }));
         }
         println!("[list_configs] Listing in directory: {:?}", dir_path); // DEBUG
 
         // List files in directory using stored provider
-        let entries = self.provider.read_dir(&dir_path)?;
+        let entries = self.provider.read_dir(&dir_path).map_err(KernelError::from)?;
         println!("[list_configs] Found entries: {:?}", entries); // DEBUG
 
         // Filter for configuration files

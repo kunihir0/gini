@@ -1,3 +1,42 @@
+//! # Gini Core Stage Manager
+//!
+//! This module provides the framework for defining, organizing, and executing
+//! sequences of operations, known as "stages," within the Gini application.
+//! It allows for the creation of complex workflows or pipelines by managing
+//! stage dependencies, execution order, and providing a shared context.
+//!
+//! ## Core Concepts & Components:
+//!
+//! - **[`Stage`] Trait**: The fundamental trait that all stages must implement.
+//!   It defines methods for stage metadata (name, description), execution logic
+//!   ([`execute`](Stage::execute)), and optional dry-run capabilities.
+//! - **[`StageContext`](context::StageContext)**: An object passed to each stage during execution,
+//!   providing access to shared resources, application state, and inter-stage
+//!   communication mechanisms.
+//! - **[`StageManager`](manager::StageManager)**: The central orchestrator responsible for managing
+//!   the lifecycle of stages, including registration, dependency resolution,
+//!   pipeline construction, and execution.
+//! - **[`StagePipeline`](pipeline::StagePipeline)**: Represents an ordered sequence of stages
+//!   to be executed. Pipelines can be dynamically built and configured.
+//! - **[`StageRegistry`](registry::StageRegistry)**: A collection of all available stages,
+//!   allowing them to be discovered and utilized by the `StageManager`.
+//! - **[`StageResult`]**: An enum indicating the outcome of a stage's execution
+//!   (e.g., success, failure, skipped).
+//! - **Submodules**:
+//!     - `context`: Defines the `StageContext`.
+//!     - `core_stages`: Provides common, built-in stage implementations.
+//!     - `dependency`: Handles stage dependency definition and resolution.
+//!     - `dry_run`: Logic related to dry-run execution of stages.
+//!     - `error`: Defines error types specific to the stage manager ([`StageError`](error::StageError)).
+//!     - `manager`: Contains the `StageManager`.
+//!     - `pipeline`: Defines the `StagePipeline`.
+//!     - `registry`: Contains the `StageRegistry`.
+//!     - `requirement`: Logic for stage requirements and capabilities.
+//!
+//! The stage manager enables a modular and extensible approach to defining
+//! application workflows, promoting separation of concerns and reusability of
+//! operational units.
+pub mod error;
 pub mod registry;
 pub mod pipeline;
 pub mod context;
@@ -7,7 +46,7 @@ pub mod manager;
 pub mod requirement;
 pub mod core_stages; // Make the new module public
 
-use crate::kernel::error::Result;
+// Removed: use crate::kernel::error::Result;
 use std::fmt;
 use async_trait::async_trait; // Import async_trait
 
@@ -29,7 +68,7 @@ pub trait Stage: Send + Sync {
     }
     
     /// Execute the stage with the given context
-    async fn execute(&self, context: &mut context::StageContext) -> Result<()>; // Make execute async
+    async fn execute(&self, context: &mut context::StageContext) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>;
     
     /// Generate a description of what this stage would do in dry run mode
     fn dry_run_description(&self, _context: &context::StageContext) -> String {

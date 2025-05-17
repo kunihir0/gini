@@ -1,17 +1,23 @@
 use gini_core::plugin_system::{
-    Plugin, PluginDependency, PluginPriority, traits::PluginError, version::VersionRange,
+    Plugin, PluginDependency, PluginPriority, version::VersionRange,
 };
+use gini_core::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use gini_core::stage_manager::{StageContext, requirement::StageRequirement}; // Removed unused Stage
 use gini_core::stage_manager::registry::StageRegistry; // Added
 use gini_core::kernel::bootstrap::Application;
-use gini_core::kernel::Result as KernelResult; // Removed unused KernelError import
+// use gini_core::kernel::Result as KernelResult; // Removed unused import
 use async_trait::async_trait;
  // Keep for potential other uses, or remove if truly unused later
 
 // Define a key for the context data
 const COMPAT_CHECK_CONTEXT_KEY: &str = "compat_check_value";
 
-struct CompatCheckPlugin;
+struct CompatCheckPlugin {
+    // Add a field to ensure it's not a Zero-Sized Type (ZST)
+    // This prevents Box::into_raw from potentially returning a sentinel like 0x1 for ZSTs,
+    // which would then be dereferenced by FFI functions, leading to UB.
+    _marker: u8,
+}
 
 #[async_trait]
 impl Plugin for CompatCheckPlugin {
@@ -44,13 +50,13 @@ impl Plugin for CompatCheckPlugin {
         vec![] // No specific stage requirements for this example
     }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> Result<(), PluginSystemError> {
         // No complex initialization needed for this example
         println!("CompatCheckPlugin initialized (placeholder).");
         Ok(())
     }
 
-    async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginSystemError> {
         println!("Running preflight check for CompatCheckPlugin...");
 
         // Get the check value from the context
@@ -67,7 +73,7 @@ impl Plugin for CompatCheckPlugin {
                     COMPAT_CHECK_CONTEXT_KEY, val
                 );
                 println!("{}", err_msg);
-                Err(PluginError::PreflightCheckError(err_msg))
+                Err(PluginSystemError::PreflightCheckFailed{ plugin_id: self.name().to_string(), message: err_msg })
             }
             None => {
                  let err_msg = format!(
@@ -75,12 +81,12 @@ impl Plugin for CompatCheckPlugin {
                     COMPAT_CHECK_CONTEXT_KEY
                 );
                 println!("{}", err_msg);
-                Err(PluginError::PreflightCheckError(err_msg))
+                Err(PluginSystemError::PreflightCheckFailed{ plugin_id: self.name().to_string(), message: err_msg })
             }
         }
     }
 
-    fn shutdown(&self) -> KernelResult<()> {
+    fn shutdown(&self) -> Result<(), PluginSystemError> {
         // No complex shutdown needed for this example
         println!("CompatCheckPlugin shut down (placeholder).");
         Ok(())
@@ -96,7 +102,7 @@ impl Plugin for CompatCheckPlugin {
     }
 
     // Add register_stages implementation
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> {
+    fn register_stages(&self, _registry: &mut StageRegistry) -> Result<(), PluginSystemError> {
         println!("CompatCheckPlugin provides no stages to register.");
         Ok(())
     }
@@ -298,7 +304,7 @@ pub extern "C" fn _plugin_init() -> *mut PluginVTable {
      // Use catch_unwind to prevent panics from crossing FFI boundaries.
     let result = panic::catch_unwind(|| {
         // Create the plugin instance
-        let plugin_instance = Box::new(CompatCheckPlugin);
+        let plugin_instance = Box::new(CompatCheckPlugin { _marker: 0 });
 
         // Create the VTable
         let vtable = PluginVTable {

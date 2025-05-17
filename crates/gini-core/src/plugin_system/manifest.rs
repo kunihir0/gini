@@ -1,7 +1,55 @@
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::traits::PluginPriority;
-// Removed: use serde::Deserialize;
+use serde::Deserialize;
 use crate::plugin_system::dependency::PluginDependency; // Import PluginDependency
+use std::path::PathBuf; // Added for plugin_base_dir
+
+/// Defines the type of access a plugin requires or provides for a resource.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub enum ResourceAccessType {
+    /// Claims exclusive control/write access. No other plugin can claim Exclusive or SharedWrite.
+    #[serde(rename = "exclusive_write")]
+    ExclusiveWrite,
+
+    /// Claims shared read access. Compatible with other SharedRead claims.
+    #[serde(rename = "shared_read")]
+    SharedRead,
+
+    /// Indicates the plugin provides a unique entity identified by `identifier` of `resource_type`.
+    /// e.g., A plugin `provides_unique_id` for a `stage_id`. Conflicts if another plugin also `provides_unique_id` for the same stage_id.
+    #[serde(rename = "provides_unique_id")]
+    ProvidesUniqueId,
+}
+
+impl ResourceAccessType {
+    /// Returns a string representation of the access type.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResourceAccessType::ExclusiveWrite => "ExclusiveWrite",
+            ResourceAccessType::SharedRead => "SharedRead",
+            ResourceAccessType::ProvidesUniqueId => "ProvidesUniqueId",
+        }
+    }
+}
+
+/// Describes a resource a plugin claims or provides.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ResourceClaim {
+    /// Type of the resource (e.g., "file_path", "network_port", "stage_id", "config_scope").
+    /// Standardized strings should be used.
+    #[serde(rename = "type")]
+    pub resource_type: String,
+
+    /// Unique identifier for the resource within its type.
+    /// For "file_path": "/var/log/app.log"
+    /// For "network_port": "8080"
+    /// For "stage_id": "data_processing_stage"
+    /// For "config_scope": "global.settings.network"
+    pub identifier: String,
+
+    /// Describes how the plugin interacts with the resource.
+    pub access: ResourceAccessType,
+}
 
 /// Represents a plugin manifest that describes a plugin
 #[derive(Debug, Clone)] // Removed Deserialize
@@ -56,6 +104,13 @@ pub struct PluginManifest {
 
     /// List of plugins/versions this plugin is incompatible with
     pub incompatible_with: Vec<PluginDependency>, // Use PluginDependency
+
+    /// Resource claims made by the plugin.
+    pub resources: Vec<ResourceClaim>,
+
+    /// The base directory of the plugin, where its manifest.json is located.
+    /// This is set by the PluginLoader during manifest scanning.
+    pub plugin_base_dir: PathBuf,
 }
 
 // Removed DependencyInfo struct definition
@@ -81,6 +136,8 @@ impl PluginManifest {
             tags: Vec::new(),
             conflicts_with: Vec::new(), // Initialize new field
             incompatible_with: Vec::new(), // Initialize new field (Vec<PluginDependency>)
+            resources: Vec::new(),
+            plugin_base_dir: PathBuf::new(), // Initialize with an empty path
         }
     }
 
@@ -257,6 +314,22 @@ impl ManifestBuilder {
         for tag in tags {
             self.manifest.add_tag(tag);
         }
+        self
+    }
+
+    /// Adds a resource claim to the manifest.
+    ///
+    /// # Arguments
+    ///
+    /// * `resource_type`: Type of the resource (e.g., "file_path", "network_port").
+    /// * `identifier`: Unique identifier for the resource (e.g., "/path/to/file", "8080").
+    /// * `access`: The type of access required for the resource.
+    pub fn resource(mut self, resource_type: &str, identifier: &str, access: ResourceAccessType) -> Self {
+        self.manifest.resources.push(ResourceClaim {
+            resource_type: resource_type.to_string(),
+            identifier: identifier.to_string(),
+            access,
+        });
         self
     }
 

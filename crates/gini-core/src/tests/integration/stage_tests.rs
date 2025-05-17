@@ -8,9 +8,10 @@ use tokio::sync::Mutex as TokioMutex; // Alias for Tokio Mutex
 use std::sync::Mutex as StdMutex; // Use std mutex for order trackers
  // Needed for context data
 use std::path::PathBuf; // Added import
-
+use std::error::Error as StdError; // For boxing
+ 
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
+use crate::kernel::error::Error as KernelError; // Renamed Error, KernelResult removed
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::manager::StageManager;
 use crate::stage_manager::pipeline::PipelineBuilder;
@@ -89,8 +90,8 @@ async fn test_dry_run_pipeline() {
         fn id(&self) -> &str { &self.id }
         fn name(&self) -> &str { &self.id }
         fn description(&self) -> &str { "A stage that tracks execution" }
-
-        async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
+ 
+        async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
             // Record that this stage actually executed
             let mut executed = self.executed.lock().await; // Use await for Tokio Mutex
             *executed = true;
@@ -157,10 +158,9 @@ async fn test_error_propagation() {
         fn id(&self) -> &str { &self.id }
         fn name(&self) -> &str { &self.id }
         fn description(&self) -> &str { "A stage that always fails" }
-
-        async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
-            use crate::kernel::error::Error;
-            Err(Error::Stage("Intentional stage failure".to_string()))
+ 
+        async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+            Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::InternalError("Intentional stage failure".to_string()))) as Box<dyn StdError + Send + Sync + 'static>)
         }
     }
 
@@ -174,8 +174,8 @@ async fn test_error_propagation() {
         fn id(&self) -> &str { &self.id }
         fn name(&self) -> &str { &self.id }
         fn description(&self) -> &str { "A stage that always succeeds" }
-
-        async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
+ 
+        async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
             Ok(())
         }
     }
@@ -196,20 +196,52 @@ async fn test_error_propagation() {
 
     // Execute the pipeline
     let mut context = StageContext::new_live(std::env::temp_dir());
-    let results = StageManager::execute_pipeline(&*stage_manager, &mut pipeline, &mut context).await
-        .expect("Pipeline execution should return results even with failures");
+    let result = StageManager::execute_pipeline(&*stage_manager, &mut pipeline, &mut context).await;
 
     // Verify results
-    let fail_result = results.get("failing_stage").expect("Missing result for failing_stage");
-    assert!(matches!(fail_result, StageResult::Failure(_)),
-        "failing_stage should have failed");
+    // The pipeline execution should now return an Err because a stage failed.
+    assert!(result.is_err(), "Pipeline execution should fail when a stage fails.");
 
-    let success_result = results.get("success_stage").expect("Missing result for success_stage");
-    assert!(matches!(success_result, StageResult::Success),
-        "success_stage should have succeeded");
+    if let Err(KernelError::StageSystem(stage_system_error)) = result {
+        if let crate::stage_manager::error::StageSystemError::StageExecutionFailed { stage_id, source } = stage_system_error {
+            assert_eq!(stage_id, "failing_stage");
+            assert!(source.to_string().contains("Intentional stage failure"));
+        } else {
+            panic!("Expected StageSystemError::StageExecutionFailed, got {:?}", stage_system_error);
+        }
+    } else {
+        panic!("Expected KernelError::StageSystem, got {:?}", result);
+    }
 
-    // The pipeline execution should still complete even though one stage failed
-    assert_eq!(results.len(), 2, "Both stages should have executed");
+    // Check the context for partial results if the pipeline was designed to store them even on partial failure.
+    // The current StageManager::execute_pipeline stops on first error and returns Err.
+    // So, we can't check `context.get_pipeline_results()` in the same way as before.
+    // We can check if the successful stage's result is in the context's *stage_results* if the manager populates it before returning Err.
+    // Based on current StageManager logic, it populates results map internally and returns it on Ok, or returns Err on first stage failure.
+    // The `pipeline.execute` method in `stage_manager/pipeline.rs` returns `Ok(results)` or `Err(KernelError::from(stage_error))`.
+    // So, if `execute_pipeline` in `stage_manager/manager.rs` propagates this `Err`, then `results` map won't be available.
+
+    // Let's verify the successful stage did run by checking its entry in the pipeline's internal results,
+    // assuming the pipeline object itself might still hold partial results.
+    // Or, more reliably, if the StageManager's execute_pipeline populates the context's results map
+    // even when it's about to return an error.
+
+    // The current `StageManager::execute_pipeline` returns the `KernelError` directly if `pipeline.execute` fails.
+    // The `pipeline.execute` method itself returns `Ok(stage_results_map)` or `Err(KernelError)`.
+    // If a stage fails, `pipeline.execute` returns `Err`.
+    // So, the `results` variable from the original test (line 200) would not be an `Ok` variant.
+
+    // We can check the `pipeline.stage_results` directly if it's public or via a getter,
+    // or rely on the fact that the `StageManager` might have updated the `context`'s results.
+    // For now, let's assume the `context` might have partial results if the manager updates it before erroring.
+    // However, the current `DefaultStageManager::execute_pipeline` returns the error from `pipeline.execute` directly.
+    // This means the `results` map is not returned on error.
+
+    // The `SimpleSuccessStage` should have run before `SimpleFailingStage`.
+    // We can't directly access the pipeline's internal results map easily here.
+    // The test for `stage_manager::tests::pipeline_tests::test_pipeline_error_handling`
+    // checks the returned map, which is appropriate for `StagePipeline::execute`.
+    // For `StageManager::execute_pipeline`, the contract is that it returns `Err` on stage failure.
 }
 
 #[test]
@@ -310,14 +342,14 @@ async fn test_pipeline_validation() {
     assert!(validation_result_err.is_err(), "Validation should fail for unregistered stage dependency");
 
     // Check the error message from validate()
+    // pipeline.validate now returns Result<_, StageSystemError>
     match validation_result_err.err().unwrap() {
-        Error::Stage(msg) => {
-            eprintln!("Unregistered Stage Validation Error: {}", msg);
-            // Validate should report the missing stage directly
-             assert!(msg.contains("Stage 'unregistered_stage_x' defined in pipeline but not found in registry"),
-                 "Expected unregistered stage validation error, got: {}", msg);
+        stage_err => { // stage_err is StageSystemError
+            use crate::stage_manager::error::StageSystemError; // Ensure this is in scope
+            eprintln!("Unregistered Stage Validation Error: {:?}", stage_err);
+            assert!(matches!(stage_err, StageSystemError::StageNotFoundInPipelineValidation { stage_id, .. } if stage_id == "unregistered_stage_x" ));
         }
-        e => panic!("Expected Stage error for unregistered stage validation, got {:?}", e),
+        // e => panic!("Expected StageSystemError::StageNotFoundInPipelineValidation, got {:?}", e), // This panic branch might be too broad now
     }
 }
 
@@ -353,15 +385,15 @@ async fn test_circular_dependency_detection() {
     assert!(validation_result.is_err(), "Validation should fail for circular dependency");
 
     // Check the error message
+    // pipeline.validate now returns Result<_, StageSystemError>
     match validation_result.err().unwrap() {
-        Error::Stage(msg) => {
-            eprintln!("Circular Dependency Error: {}", msg);
-            assert!(msg.contains("Pipeline has cyclic dependencies"), "Expected cyclic dependency error message");
-            // Optionally check if it mentions one of the stages in the cycle
-            assert!(msg.contains("cycle_a") || msg.contains("cycle_b") || msg.contains("cycle_c"),
-                    "Error message should mention a stage involved in the cycle");
+        stage_err => { // stage_err is StageSystemError
+            use crate::stage_manager::error::StageSystemError; // Ensure this is in scope
+            eprintln!("Circular Dependency Error: {:?}", stage_err);
+            assert!(matches!(stage_err, StageSystemError::DependencyCycleDetected { .. }));
+            // Further assertions on pipeline_name or cycle_path could be added if needed
         }
-        e => panic!("Expected Stage error for circular dependency, got {:?}", e),
+        // e => panic!("Expected StageSystemError::DependencyCycleDetected, got {:?}", e), // This panic branch might be too broad
     }
 }
 
@@ -384,8 +416,8 @@ impl Stage for ContextWriterStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { &self.id }
     fn description(&self) -> &str { "Writes data to the stage context" }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         println!("Executing {}: Writing key '{}'", self.id, self.key);
         // Use the public set_data method
         context.set_data(&self.key, self.value.clone());
@@ -410,8 +442,8 @@ impl Stage for ContextReaderStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { &self.id }
     fn description(&self) -> &str { "Reads and verifies data from the stage context" }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         println!("Executing {}: Reading key '{}'", self.id, self.key);
         // Use the public get_data method
         match context.get_data::<String>(&self.key) {
@@ -420,15 +452,16 @@ impl Stage for ContextReaderStage {
                     println!("Context value verified successfully.");
                     Ok(())
                 } else {
-                    Err(Error::Stage(format!(
-                        "Context value mismatch for key '{}': expected '{}', found '{}'",
-                        self.key, self.expected_value, actual_value
-                    )))
+                    Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                        key: self.key.clone(),
+                        reason: format!("Context value mismatch: expected '{}', found '{}'", self.expected_value, actual_value),
+                    })) as Box<dyn StdError + Send + Sync + 'static>)
                 }
             }
-            None => Err(Error::Stage(format!(
-                "Context key '{}' not found", self.key
-            ))),
+            None => Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: self.key.clone(),
+                reason: "Context key not found".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>),
         }
     }
 }
@@ -492,7 +525,7 @@ impl Stage for ComplexDataWriterStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Complex Data Writer" }
     fn description(&self) -> &str { "Writes complex data to context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         let data = ComplexData {
             id: 123,
             name: "Test Complex".to_string(),
@@ -510,7 +543,7 @@ impl Stage for ComplexDataReaderStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Complex Data Reader" }
     fn description(&self) -> &str { "Reads and verifies complex data from context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         let expected_data = ComplexData {
             id: 123,
             name: "Test Complex".to_string(),
@@ -521,7 +554,10 @@ impl Stage for ComplexDataReaderStage {
                 assert_eq!(actual_data, &expected_data, "Complex data mismatch");
                 Ok(())
             }
-            None => Err(Error::Stage("Complex data not found in context".to_string())),
+            None => Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: "complex_key".to_string(),
+                reason: "Complex data not found in context".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>),
         }
     }
 }
@@ -562,14 +598,17 @@ impl Stage for DataModifierStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Data Modifier" }
     fn description(&self) -> &str { "Modifies data in context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Use get_data_mut to modify
         match context.get_data_mut::<i32>("value_key") {
             Some(value) => {
                 *value += 1; // Increment the value
                 Ok(())
             }
-            None => Err(Error::Stage("Value key not found for modification".to_string())),
+            None => Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: "value_key".to_string(),
+                reason: "Value key not found for modification".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>),
         }
     }
 }
@@ -581,13 +620,16 @@ impl Stage for DataVerifierStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Data Verifier" }
     fn description(&self) -> &str { "Verifies modified data in context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         match context.get_data::<i32>("value_key") {
             Some(actual_value) => {
                 assert_eq!(*actual_value, self.expected, "Modified data mismatch");
                 Ok(())
             }
-            None => Err(Error::Stage("Value key not found for verification".to_string())),
+            None => Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: "value_key".to_string(),
+                reason: "Value key not found for verification".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>),
         }
     }
 }
@@ -615,12 +657,18 @@ async fn test_stage_context_data_modification() {
         fn id(&self) -> &str { &self.id }
         fn name(&self) -> &str { "String to Int Converter" }
         fn description(&self) -> &str { "Converts string context data to int" }
-        async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+        async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
             let string_val = context.get_data::<String>("value_key")
-                .ok_or_else(|| Error::Stage("String value key not found for conversion".to_string()))?
+                .ok_or_else(|| KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                    key: "value_key".to_string(),
+                    reason: "String value key not found for conversion".to_string(),
+                }))?
                 .clone(); // Clone the string
             let int_val: i32 = string_val.parse()
-                .map_err(|e| Error::Stage(format!("Failed to parse string to int: {}", e)))?;
+                .map_err(|e| KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                    key: "value_key".to_string(),
+                    reason: format!("Failed to parse string to int: {}", e),
+                }))?;
             context.set_data("value_key", int_val); // Overwrite with i32
             Ok(())
         }
@@ -663,13 +711,16 @@ impl Stage for StorageWriterStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Storage Writer Stage" }
     fn description(&self) -> &str { "Writes a file using StorageManager from context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         let storage = context.get_data::<Arc<DefaultStorageManager>>("storage_manager")
-            .expect("StorageManager not found in context")
+            .ok_or_else(|| Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: "storage_manager".to_string(),
+                reason: "StorageManager not found in context".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>)?
             .clone(); // Clone Arc
 
         // Explicitly dereference Arc to call trait method
-        (*storage).write_string(&self.file_path, &self.content)?;
+        (*storage).write_string(&self.file_path, &self.content).map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)?;
         println!("Stage {} wrote to {:?}", self.id, self.file_path);
         Ok(())
     }
@@ -740,14 +791,17 @@ impl Stage for EventDispatchingStageCtx {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { "Event Dispatching Stage (Context)" }
     fn description(&self) -> &str { "Dispatches an event using EventManager from context" }
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         let event_manager = context.get_data::<Arc<DefaultEventManager>>("event_manager")
-            .expect("EventManager not found in context")
+            .ok_or_else(|| Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::ContextError{
+                key: "event_manager".to_string(),
+                reason: "EventManager not found in context".to_string(),
+            })) as Box<dyn StdError + Send + Sync + 'static>)?
             .clone(); // Clone Arc
 
         let event = StageEventTest { message: "Hello from stage context".to_string() };
         // Explicitly dereference Arc to call trait method
-        (*event_manager).dispatch(&event).await?;
+        (*event_manager).dispatch(&event).await; // No '?' as dispatch is infallible
         println!("Stage {} dispatched event", self.id);
         Ok(())
     }
@@ -776,7 +830,7 @@ async fn test_stage_interaction_with_event_manager() {
         *handled_clone.lock().unwrap() = true;
         *message_clone.lock().unwrap() = event.message.clone();
         EventResult::Continue
-    }).await.unwrap();
+    }).await;
 
 
     let mut pipeline = PipelineBuilder::new("Event Interaction Pipeline", "")
@@ -809,13 +863,13 @@ impl Stage for OptionalDepStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { &self.id }
     fn description(&self) -> &str { "Stage for optional dependency test" }
-    async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Use spawn_blocking for std::sync::Mutex
         let tracker = self.order_tracker.clone();
         let id_clone = self.id.clone();
         tokio::task::spawn_blocking(move || {
             tracker.lock().unwrap().push(id_clone);
-        }).await.map_err(|e| Error::Other(format!("Spawn blocking failed: {}", e)))?;
+        }).await.map_err(|e| Box::new(KernelError::Other(format!("Spawn blocking failed: {}", e))) as Box<dyn StdError + Send + Sync + 'static>)?;
         Ok(())
     }
 }

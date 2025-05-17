@@ -1,9 +1,10 @@
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::StagePipeline;
 use crate::stage_manager::registry::SharedStageRegistry;
-use crate::kernel::error::Result;
+use crate::kernel::error::Result as KernelResult; // Renamed for clarity
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::error::Error as StdError; // For boxing
 use tokio::sync::Mutex;
 use std::path::PathBuf;
 
@@ -33,8 +34,8 @@ impl Stage for MockDryRunStage {
     fn description(&self) -> &str { "Mock stage for dry run tests" }
     fn supports_dry_run(&self) -> bool { self.supports_dry_run }
     fn dry_run_description(&self, _context: &StageContext) -> String { self.dry_run_desc.clone() }
-
-    async fn execute(&self, _context: &mut StageContext) -> Result<()> {
+ 
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Only record execution if actually run (not dry run)
         let mut tracker_lock = self.tracker.lock().await;
         tracker_lock.push(self.id.clone());
@@ -71,9 +72,9 @@ async fn setup_dry_run_test(
 
     (pipeline, shared_registry, tracker)
 }
-
+ 
 #[tokio::test]
-async fn test_dry_run_execution() -> Result<()> {
+async fn test_dry_run_execution() -> KernelResult<()> {
     let (mut pipeline, registry, tracker) = setup_dry_run_test(vec![
         ("stage_a", true),
         ("stage_b", true),
@@ -98,9 +99,9 @@ async fn test_dry_run_execution() -> Result<()> {
 
     Ok(())
 }
-
+ 
 #[tokio::test]
-async fn test_dry_run_with_unsupported_stage() -> Result<()> {
+async fn test_dry_run_with_unsupported_stage() -> KernelResult<()> {
     // Stage B does not support dry run (though Stage trait default is true, we override)
     // The pipeline execution itself should still succeed in dry run mode,
     // as the stage's execute method is not called. Validation might catch this
@@ -128,9 +129,9 @@ async fn test_dry_run_with_unsupported_stage() -> Result<()> {
 
     Ok(())
 }
-
+ 
 #[tokio::test]
-async fn test_live_run_execution() -> Result<()> {
+async fn test_live_run_execution() -> KernelResult<()> {
     // Verify that a live run actually executes the stages
     let (mut pipeline, registry, tracker) = setup_dry_run_test(vec![
         ("stage_a", true),

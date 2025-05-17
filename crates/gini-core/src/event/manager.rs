@@ -6,7 +6,8 @@ use crate::event::{Event, EventId, EventResult};
 // Ensure BoxFuture is correctly imported or defined if it's local
 use crate::event::dispatcher::{self, BoxFuture};
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Result;
+use crate::kernel::error::Result; // Keep for KernelComponent trait methods
+// Specific event manager methods will no longer use kernel::error::Result
 
 /// Type alias for boxed event
 pub type BoxedEvent = Box<dyn Event>;
@@ -22,23 +23,23 @@ pub trait EventManager: KernelComponent + Send + Sync { // Add Send + Sync bound
         &self,
         event_name: &'static str,
         handler: Box<dyn for<'a> Fn(&'a dyn Event) -> BoxFuture<'a> + Send + Sync>
-    ) -> Result<EventId>;
+    ) -> EventId;
 
     // Removed register_type_handler (generic)
     // Removed register_sync_handler (generic wrapper)
     // Removed register_sync_type_handler (generic wrapper)
 
     /// Unregister a handler by its ID
-    async fn unregister_handler(&self, id: EventId) -> Result<bool>; // Is async
+    async fn unregister_handler(&self, id: EventId) -> bool; // Is async
 
     /// Dispatch an event
-    async fn dispatch(&self, event: &dyn Event) -> Result<EventResult>; // Is async
+    async fn dispatch(&self, event: &dyn Event) -> EventResult; // Is async
 
     /// Queue an event for asynchronous processing
-    async fn queue_event(&self, event: BoxedEvent) -> Result<()>; // Is async
+    async fn queue_event(&self, event: BoxedEvent); // Is async
 
     /// Process all queued events
-    async fn process_queue(&self) -> Result<usize>; // Is async
+    async fn process_queue(&self) -> usize; // Is async
 }
 
 /// Default implementation of EventManager
@@ -70,7 +71,7 @@ impl DefaultEventManager {
         &self,
         event_name: &'static str,
         handler: F
-    ) -> Result<EventId>
+    ) -> EventId
     where
         F: Fn(&dyn Event) -> EventResult + Send + Sync + 'static,
     {
@@ -82,7 +83,7 @@ impl DefaultEventManager {
     pub async fn register_sync_type_handler<E, F>(
         &self,
         handler: F
-    ) -> Result<EventId>
+    ) -> EventId
     where
         E: Event + 'static,
         F: Fn(&E) -> EventResult + Send + Sync + 'static,
@@ -98,7 +99,7 @@ impl KernelComponent for DefaultEventManager {
     fn name(&self) -> &'static str { self.name }
     async fn initialize(&self) -> Result<()> { Ok(()) }
     async fn start(&self) -> Result<()> { Ok(()) }
-    async fn stop(&self) -> Result<()> { self.process_queue().await?; Ok(()) }
+    async fn stop(&self) -> Result<()> { self.process_queue().await; Ok(()) } // No '?' as process_queue is infallible
     // Removed as_any and as_any_mut as they are no longer part of KernelComponent trait
 }
 
@@ -108,7 +109,7 @@ impl EventManager for DefaultEventManager {
         &self,
         event_name: &'static str,
         handler: Box<dyn for<'a> Fn(&'a dyn Event) -> BoxFuture<'a> + Send + Sync>
-    ) -> Result<EventId> {
+    ) -> EventId {
         self.dispatcher.register_handler(event_name, handler).await
     }
 
@@ -116,19 +117,19 @@ impl EventManager for DefaultEventManager {
     // Removed register_sync_handler impl (moved to concrete struct)
     // Removed register_sync_type_handler impl (moved to concrete struct)
 
-    async fn unregister_handler(&self, id: EventId) -> Result<bool> { // Is async
+    async fn unregister_handler(&self, id: EventId) -> bool { // Is async
         self.dispatcher.unregister_handler(id).await
     }
 
-    async fn dispatch(&self, event: &dyn Event) -> Result<EventResult> { // Is async
+    async fn dispatch(&self, event: &dyn Event) -> EventResult { // Is async
         self.dispatcher.dispatch(event).await
     }
 
-    async fn queue_event(&self, event: BoxedEvent) -> Result<()> { // Is async
+    async fn queue_event(&self, event: BoxedEvent) { // Is async
         self.dispatcher.queue_event(event).await
     }
 
-    async fn process_queue(&self) -> Result<usize> { // Is async
+    async fn process_queue(&self) -> usize { // Is async
         self.dispatcher.process_queue().await
     }
 }

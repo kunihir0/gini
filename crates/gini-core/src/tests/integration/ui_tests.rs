@@ -24,29 +24,38 @@ async fn test_ui_message_creation() {
 }
 
 // Add necessary imports if not already present
-use crate::ui_bridge::{UiBridge, UiProvider, UiMessage, UiUpdateType, MessageSeverity};
+use crate::ui_bridge::{UnifiedUiManager, UnifiedUiInterface, UiMessage, UserInput, UiUpdateType, MessageSeverity, error::UiBridgeError};
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::fmt::Debug;
 // SystemTime is already imported
 
-// --- Mock UI Provider for Testing ---
+// --- Mock UI Interface for Testing ---
 
 #[derive(Debug)]
-struct MockUiProvider {
+struct MockUiInterface {
     name: &'static str,
     init_called: Arc<Mutex<bool>>,
     finalize_called: Arc<Mutex<bool>>,
+    update_called: Arc<Mutex<bool>>,
+    handle_message_called: Arc<Mutex<bool>>,
+    send_input_called: Arc<Mutex<bool>>,
     messages_received: Arc<Mutex<VecDeque<UiMessage>>>, // Use VecDeque to check order easily
+    inputs_sent: Arc<Mutex<VecDeque<UserInput>>>,
 }
 
 #[allow(dead_code)] // Allow dead code for test helper methods
-impl MockUiProvider {
+impl MockUiInterface {
     fn new(name: &'static str) -> Self {
         Self {
             name,
             init_called: Arc::new(Mutex::new(false)),
             finalize_called: Arc::new(Mutex::new(false)),
+            update_called: Arc::new(Mutex::new(false)),
+            handle_message_called: Arc::new(Mutex::new(false)),
+            send_input_called: Arc::new(Mutex::new(false)),
             messages_received: Arc::new(Mutex::new(VecDeque::new())),
+            inputs_sent: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -58,96 +67,118 @@ impl MockUiProvider {
     fn was_finalized(&self) -> bool {
         *self.finalize_called.lock().unwrap()
     }
+    
+    fn was_updated(&self) -> bool {
+        *self.update_called.lock().unwrap()
+    }
 
     fn get_received_messages(&self) -> VecDeque<UiMessage> {
         self.messages_received.lock().unwrap().clone()
     }
+    
+    fn get_sent_inputs(&self) -> VecDeque<UserInput> {
+        self.inputs_sent.lock().unwrap().clone()
+    }
 }
 
-impl UiProvider for MockUiProvider {
-    fn name(&self) -> &'static str {
+impl UnifiedUiInterface for MockUiInterface {
+    fn name(&self) -> &str { // Changed from &'static str
         self.name
     }
 
-    fn initialize(&mut self) -> Result<(), String> {
-        println!("MockUiProvider '{}' initialized", self.name);
+    fn initialize(&mut self) -> Result<(), UiBridgeError> {
+        log::debug!("MockUiInterface '{}' initialized", self.name);
         *self.init_called.lock().unwrap() = true;
         Ok(())
     }
 
-    fn handle_message(&mut self, message: &UiMessage) -> Result<(), String> {
-        println!("MockUiProvider '{}' received message: {:?}", self.name, message.update_type);
+    fn handle_message(&mut self, message: &UiMessage) -> Result<(), UiBridgeError> {
+        log::debug!("MockUiInterface '{}' received message: {:?}", self.name, message.update_type);
+        *self.handle_message_called.lock().unwrap() = true;
         self.messages_received.lock().unwrap().push_back(message.clone());
         Ok(())
     }
-
-    fn update(&mut self) -> Result<(), String> {
-        // No-op for mock
+    
+    fn send_input(&mut self, input: UserInput) -> Result<(), UiBridgeError> {
+        log::debug!("MockUiInterface '{}' send_input called with: {:?}", self.name, input);
+        *self.send_input_called.lock().unwrap() = true;
+        self.inputs_sent.lock().unwrap().push_back(input);
         Ok(())
     }
 
-    fn finalize(&mut self) -> Result<(), String> {
-        println!("MockUiProvider '{}' finalized", self.name);
+    fn update(&mut self) -> Result<(), UiBridgeError> {
+        log::debug!("MockUiInterface '{}' update called", self.name);
+        *self.update_called.lock().unwrap() = true;
+        Ok(())
+    }
+
+    fn finalize(&mut self) -> Result<(), UiBridgeError> {
+        log::debug!("MockUiInterface '{}' finalized", self.name);
         *self.finalize_called.lock().unwrap() = true;
         Ok(())
     }
 
     fn supports_interactive(&self) -> bool {
-        false // Mock doesn't support interactive mode
+        true // Mock supports interactive mode for testing send_input
     }
 }
 
 
-// --- Test: UI Provider Registration and Default ---
+// --- Test: UI Interface Registration and Default ---
 #[test]
-async fn test_ui_provider_registration_and_default() {
-    let mut bridge = UiBridge::new(); // Creates with default "console" provider
+async fn test_ui_interface_registration_and_default() {
+    let manager = UnifiedUiManager::new(); // Creates with default "console" interface
 
-    // Verify initial default provider
-    assert_eq!(bridge.get_default_provider_name(), Some("console".to_string()), "Initial default should be console");
+    // Verify initial default interface
+    assert_eq!(manager.get_default_interface_name(), Some("console".to_string()), "Initial default should be console");
 
-    // Create and register a mock provider
-    let mock_provider = MockUiProvider::new("mock_ui");
-    let mock_provider_name = mock_provider.name().to_string();
-    bridge.register_provider(Box::new(mock_provider)).expect("Failed to register mock provider");
+    // Create and register a mock interface
+    let mock_interface = MockUiInterface::new("mock_ui");
+    let mock_interface_name = mock_interface.name().to_string();
+    manager.register_interface(Box::new(mock_interface)).expect("Failed to register mock interface");
 
-    // Verify default is still console (register doesn't automatically set default if one exists)
-    assert_eq!(bridge.get_default_provider_name(), Some("console".to_string()), "Default should still be console after registering mock");
+    // Verify default is still console (register doesn't automatically set default if one exists and current default is Some)
+    // This behavior depends on the implementation of register_interface.
+    // The current implementation sets as default only if no default exists.
+    // Since "console" is the initial default, it should remain "console".
+    assert_eq!(manager.get_default_interface_name(), Some("console".to_string()), "Default should still be console after registering mock");
 
-    // Set the mock provider as default
-    bridge.set_default_provider(&mock_provider_name).expect("Failed to set mock provider as default");
+    // Set the mock interface as default
+    manager.set_default_interface(&mock_interface_name).expect("Failed to set mock interface as default");
 
-    // Verify the default provider name is now the mock provider's name
-    assert_eq!(bridge.get_default_provider_name(), Some(mock_provider_name.clone()), "Default provider name should be updated to mock");
+    // Verify the default interface name is now the mock interface's name
+    assert_eq!(manager.get_default_interface_name(), Some(mock_interface_name.clone()), "Default interface name should be updated to mock");
 
-    // Test setting a non-existent provider as default
-    let result = bridge.set_default_provider("non_existent_provider");
-    assert!(result.is_err(), "Setting a non-existent provider as default should fail");
-    assert_eq!(bridge.get_default_provider_name(), Some(mock_provider_name), "Default provider should remain mock after failed set");
+    // Test setting a non-existent interface as default
+    let result = manager.set_default_interface("non_existent_interface");
+    assert!(result.is_err(), "Setting a non-existent interface as default should fail");
+    assert_eq!(manager.get_default_interface_name(), Some(mock_interface_name), "Default interface should remain mock after failed set");
 }
 
 
-// --- Test: UI Bridge Message Dispatch ---
+// --- Test: UnifiedUiManager Message Dispatch ---
 #[test]
-async fn test_ui_bridge_message_dispatch() {
-    let mut bridge = UiBridge::new();
-    let mock_provider = MockUiProvider::new("message_dispatch_mock");
-    let mock_name = mock_provider.name().to_string();
-    let messages_tracker = mock_provider.messages_received.clone(); // Clone Arc for later access
+async fn test_unified_ui_manager_message_dispatch() {
+    let manager = UnifiedUiManager::new();
+    let mock_interface = MockUiInterface::new("message_dispatch_mock");
+    let mock_name = mock_interface.name().to_string();
+    let messages_tracker = mock_interface.messages_received.clone(); // Clone Arc for later access
 
-    // Register and set mock as default
-    bridge.register_provider(Box::new(mock_provider)).unwrap();
-    bridge.set_default_provider(&mock_name).unwrap();
+    // Register and set mock as default (though broadcast goes to all, not just default)
+    manager.register_interface(Box::new(mock_interface)).unwrap();
+    manager.set_default_interface(&mock_name).unwrap();
 
     // Send messages using helper methods
-    bridge.log("TestSource", "Log message", MessageSeverity::Info).unwrap();
-    bridge.status("TestSource", "Status update").unwrap();
-    bridge.progress("TestSource", 0.5).unwrap();
-    bridge.dialog("TestSource", "Dialog text", MessageSeverity::Warning).unwrap();
+    manager.log("TestSource", "Log message", MessageSeverity::Info).unwrap();
+    manager.status("TestSource", "Status update").unwrap();
+    manager.progress("TestSource", 0.5).unwrap();
+    manager.dialog("TestSource", "Dialog text", MessageSeverity::Warning).unwrap();
 
-    // Verify messages received by the mock provider
+    // Verify messages received by the mock interface
     let received = messages_tracker.lock().unwrap();
-    assert_eq!(received.len(), 4, "Should have received 4 messages");
+    // Note: The default "console" interface also receives these messages.
+    // We are only checking our mock_interface.
+    assert_eq!(received.len(), 4, "Mock interface should have received 4 messages");
 
     // Check message types and content (order matters due to VecDeque)
     assert!(matches!(received[0].update_type, UiUpdateType::Log(ref m, s) if m == "Log message" && s == MessageSeverity::Info));
@@ -164,34 +195,42 @@ async fn test_ui_bridge_message_dispatch() {
 }
 
 
-// --- Test: UI Provider Lifecycle Calls ---
+// --- Test: UI Interface Lifecycle Calls via UnifiedUiManager ---
 #[test]
-async fn test_ui_provider_lifecycle_calls() {
-    let mut bridge = UiBridge::new();
-    let mock_provider = MockUiProvider::new("lifecycle_mock");
+async fn test_ui_interface_lifecycle_calls() {
+    let manager = UnifiedUiManager::new(); // Manager is not mutable here due to Arc<Mutex<>> fields
+    let mock_interface = MockUiInterface::new("lifecycle_mock");
 
-    // Clone trackers before moving the provider into the bridge
-    let init_tracker = mock_provider.init_called.clone();
-    let finalize_tracker = mock_provider.finalize_called.clone();
+    // Clone trackers before moving the interface into the manager
+    let init_tracker = mock_interface.init_called.clone();
+    let update_tracker = mock_interface.update_called.clone(); // Added update tracker
+    let finalize_tracker = mock_interface.finalize_called.clone();
 
-    // Register the provider
-    bridge.register_provider(Box::new(mock_provider)).unwrap();
+    // Register the interface
+    manager.register_interface(Box::new(mock_interface)).unwrap();
 
     // Verify initial state
-    assert!(!*init_tracker.lock().unwrap(), "Initialize should not be called before bridge.initialize()");
-    assert!(!*finalize_tracker.lock().unwrap(), "Finalize should not be called before bridge.finalize()");
+    assert!(!*init_tracker.lock().unwrap(), "Initialize should not be called before manager.initialize_all()");
+    assert!(!*update_tracker.lock().unwrap(), "Update should not be called yet");
+    assert!(!*finalize_tracker.lock().unwrap(), "Finalize should not be called before manager.finalize_all()");
 
-    // Call initialize on the bridge
-    bridge.initialize().expect("Bridge initialize failed");
+    // Call initialize_all on the manager
+    manager.initialize_all().expect("Manager initialize_all failed");
 
     // Verify initialize was called
-    assert!(*init_tracker.lock().unwrap(), "Initialize should be called after bridge.initialize()");
-    assert!(!*finalize_tracker.lock().unwrap(), "Finalize should still be false after initialize");
+    assert!(*init_tracker.lock().unwrap(), "Initialize should be called after manager.initialize_all()");
+    assert!(!*update_tracker.lock().unwrap(), "Update should still be false after initialize_all");
+    assert!(!*finalize_tracker.lock().unwrap(), "Finalize should still be false after initialize_all");
 
-    // Call finalize on the bridge
-    bridge.finalize().expect("Bridge finalize failed");
+    // Call update_all on the manager
+    manager.update_all().expect("Manager update_all failed");
+    assert!(*update_tracker.lock().unwrap(), "Update should be called after manager.update_all()");
+
+
+    // Call finalize_all on the manager
+    manager.finalize_all().expect("Manager finalize_all failed");
 
     // Verify finalize was called
-    assert!(*init_tracker.lock().unwrap(), "Initialize should still be true after finalize");
-    assert!(*finalize_tracker.lock().unwrap(), "Finalize should be called after bridge.finalize()");
+    assert!(*init_tracker.lock().unwrap(), "Initialize should still be true after finalize_all");
+    assert!(*finalize_tracker.lock().unwrap(), "Finalize should be called after manager.finalize_all()");
 }

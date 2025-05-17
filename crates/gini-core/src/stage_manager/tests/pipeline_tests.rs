@@ -1,9 +1,10 @@
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::StagePipeline;
 use crate::stage_manager::registry::SharedStageRegistry; // Import SharedStageRegistry
-use crate::kernel::error::{Result, Error};
+use crate::kernel::error::{Error as KernelError}; // Renamed for clarity
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::error::Error as StdError; // For boxing
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex;
  // Import HashMap
@@ -79,14 +80,17 @@ impl Stage for MockStage {
     fn description(&self) -> &str {
         &self.description
     }
-
-    async fn execute(&self, _context: &mut StageContext) -> Result<()> {
+ 
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Record this stage was executed
         self.tracker.record_execution(self.id()).await;
 
         // Return Ok or Err based on stored error message
         if let Some(msg) = &self.error_message {
-            Err(Error::Stage(msg.clone()))
+            Err(Box::new(KernelError::StageSystem(crate::stage_manager::error::StageSystemError::StageExecutionFailed{
+                stage_id: self.id.clone(),
+                source: msg.clone().into(), // Convert String to Box<dyn Error>
+            })) as Box<dyn StdError + Send + Sync + 'static>)
         } else {
             Ok(())
         }
@@ -168,19 +172,21 @@ async fn test_pipeline_error_handling() {
     pipeline.add_stage("stage.3").unwrap();
 
     // Execute pipeline
-    let result_map = pipeline.execute(&mut context, &shared_registry).await;
+    let result = pipeline.execute(&mut context, &shared_registry).await;
 
-    // Check overall result (should be Ok containing the map, but map contains failure)
-    assert!(result_map.is_ok(), "Pipeline execution should return Ok result map even on stage failure");
-    let results = result_map.unwrap();
+    // Check overall result (should be Err because stage.2 failed)
+    assert!(result.is_err(), "Pipeline execution should return Err when a stage fails.");
 
-    // Check individual stage results
-    assert_eq!(results.len(), 2, "Should contain results for executed stages only");
-    assert!(matches!(results.get("stage.1"), Some(StageResult::Success)));
-    // Adjust assertion to match the full error string from e.to_string()
-    assert!(matches!(results.get("stage.2"), Some(StageResult::Failure(msg)) if msg == "Stage error: Test error in stage 2"));
-    assert!(results.get("stage.3").is_none(), "Stage 3 should not have a result");
-
+    if let Err(KernelError::StageSystem(stage_system_error)) = result {
+        if let crate::stage_manager::error::StageSystemError::StageExecutionFailed { stage_id, source } = stage_system_error {
+            assert_eq!(stage_id, "stage.2");
+            assert!(source.to_string().contains("Test error in stage 2"));
+        } else {
+            panic!("Expected StageSystemError::StageExecutionFailed, got {:?}", stage_system_error);
+        }
+    } else {
+        panic!("Expected KernelError::StageSystem, got {:?}", result);
+    }
 
     // Check execution (only stages up to and including error should execute)
     let executed = tracker.get_execution_order().await;
@@ -201,10 +207,13 @@ async fn test_pipeline_add_stage_validation() {
     // Validation should fail because the stage isn't in the registry
     let validation_result = pipeline.validate(&shared_registry).await;
     assert!(validation_result.is_err(), "Validation should fail for nonexistent stage");
-    if let Err(Error::Stage(msg)) = validation_result {
-         assert!(msg.contains("nonexistent") && msg.contains("not found in registry"));
+    
+    // Expecting StageSystemError::StageNotFoundInPipelineValidation directly from pipeline.validate
+    if let Err(stage_err) = validation_result {
+        use crate::stage_manager::error::StageSystemError; // Ensure this is in scope
+        assert!(matches!(stage_err, StageSystemError::StageNotFoundInPipelineValidation { stage_id, .. } if stage_id == "nonexistent"));
     } else {
-        panic!("Expected Stage error, got: {:?}", validation_result);
+        panic!("Expected StageSystemError::StageNotFoundInPipelineValidation, got: {:?}", validation_result);
     }
 }
 

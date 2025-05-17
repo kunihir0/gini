@@ -1,4 +1,6 @@
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::Result; // Removed unused Error
+use crate::plugin_system::manifest::{PluginManifest, ResourceAccessType};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 
 /// Types of plugin conflicts
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +157,7 @@ impl ConflictManager {
     /// Resolve a conflict
     pub fn resolve_conflict(&mut self, index: usize, strategy: ResolutionStrategy) -> Result<()> {
         if index >= self.conflicts.len() {
-            return Err(Error::Plugin(format!("Conflict index out of bounds: {}", index)));
+            return Err(PluginSystemError::ConflictError { message: format!("Conflict index out of bounds: {}", index) }.into());
         }
         
         self.conflicts[index].resolve(strategy);
@@ -196,16 +198,66 @@ impl ConflictManager {
         to_disable
     }
     
-    /// Detect conflicts between plugins (stub implementation)
-    pub fn detect_conflicts(&mut self, _plugin_ids: &[String]) -> Result<()> {
-        // This is a stub implementation that would be expanded in a real system
-        // In a real implementation, we would:
-        // 1. Check for plugins that declare themselves as incompatible
-        // 2. Check for plugins that provide the same resources
-        // 3. Check for conflicting dependency versions
-        // 4. Check for plugins that use the same extension points
-        // etc.
-        
+    /// Detect conflicts between plugins based on their manifests.
+    /// This method will populate the internal list of conflicts.
+    pub fn detect_conflicts(&mut self, manifests: &[PluginManifest]) -> Result<()> {
+        self.conflicts.clear(); // Clear previous detections if any
+
+        // Iterate through all pairs of manifests
+        for i in 0..manifests.len() {
+            for j in (i + 1)..manifests.len() {
+                let m1 = &manifests[i];
+                let m2 = &manifests[j];
+
+                // Check for resource claim conflicts
+                for claim1 in &m1.resources {
+                    for claim2 in &m2.resources {
+                        if claim1.resource_type == claim2.resource_type &&
+                           claim1.identifier == claim2.identifier {
+                            // Potential conflict on the same resource instance
+                            let conflict_exists = match (&claim1.access, &claim2.access) {
+                                // Both claim exclusive write
+                                (ResourceAccessType::ExclusiveWrite, ResourceAccessType::ExclusiveWrite) => true,
+                                // One claims exclusive, another tries to provide (e.g. stage ID)
+                                (ResourceAccessType::ExclusiveWrite, ResourceAccessType::ProvidesUniqueId) => true,
+                                (ResourceAccessType::ProvidesUniqueId, ResourceAccessType::ExclusiveWrite) => true,
+                                // Both claim to provide the same unique ID (e.g., two plugins define the same stage_id)
+                                (ResourceAccessType::ProvidesUniqueId, ResourceAccessType::ProvidesUniqueId) => true,
+                                // ExclusiveWrite vs SharedRead: Treat as conflict for now
+                                (ResourceAccessType::ExclusiveWrite, ResourceAccessType::SharedRead) => true,
+                                (ResourceAccessType::SharedRead, ResourceAccessType::ExclusiveWrite) => true,
+                                // SharedRead vs SharedRead: No conflict
+                                (ResourceAccessType::SharedRead, ResourceAccessType::SharedRead) => false,
+                                // SharedRead vs ProvidesUniqueId: Not a conflict
+                                (ResourceAccessType::SharedRead, ResourceAccessType::ProvidesUniqueId) => false,
+                                (ResourceAccessType::ProvidesUniqueId, ResourceAccessType::SharedRead) => false,
+                                // NOTE: If new ResourceAccessType variants are added, this match must be updated.
+                                // Consider adding a `_ => false,` arm if default non-conflict is desired for unhandled pairs,
+                                // but explicit handling is safer.
+                            };
+
+                            if conflict_exists {
+                                let description = format!(
+                                    "Resource conflict on type '{}', identifier '{}'. Plugin '{}' claims access '{}', and Plugin '{}' claims access '{}'.",
+                                    claim1.resource_type,
+                                    claim1.identifier,
+                                    m1.id,
+                                    claim1.access.as_str(), // Use as_str()
+                                    m2.id,
+                                    claim2.access.as_str()  // Use as_str()
+                                );
+                                self.add_conflict(PluginConflict::new(
+                                    &m1.id,
+                                    &m2.id,
+                                    ConflictType::ResourceConflict,
+                                    &description,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }

@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use std::sync::Arc; // Added for Arc
 // use crate::stage_manager::Stage; // Import the Stage trait
 use crate::kernel::component::KernelComponent;
 use crate::plugin_system::traits::Plugin;
@@ -32,8 +33,8 @@ async fn test_plugin_loading_and_stage_execution() {
     let plugin_registry_arc = plugin_manager.registry();
     {
         let mut registry_lock = plugin_registry_arc.lock().await;
-        registry_lock.register_plugin(Box::new(plugin1)).expect("Failed to register Plugin1");
-        registry_lock.register_plugin(Box::new(plugin2)).expect("Failed to register Plugin2");
+        registry_lock.register_plugin(Arc::new(plugin1)).expect("Failed to register Plugin1");
+        registry_lock.register_plugin(Arc::new(plugin2)).expect("Failed to register Plugin2");
     }
 
     // Manually initialize plugins to register their stages
@@ -91,7 +92,7 @@ async fn test_plugin_stage_registration() {
     // Register the plugin
     {
         let mut registry_lock = plugin_manager.registry().lock().await;
-        registry_lock.register_plugin(Box::new(plugin)).expect("Failed to register plugin");
+        registry_lock.register_plugin(Arc::new(plugin)).expect("Failed to register plugin");
     }
 
     // Track the number of stages before plugin initialization (core stages should be present)
@@ -140,8 +141,8 @@ async fn test_plugin_stage_execution() {
     let plugin_registry_arc = plugin_manager.registry();
     {
         let mut registry_lock = plugin_registry_arc.lock().await;
-        registry_lock.register_plugin(Box::new(plugin_a)).expect("Failed to register plugin A");
-        registry_lock.register_plugin(Box::new(plugin_b)).expect("Failed to register plugin B");
+        registry_lock.register_plugin(Arc::new(plugin_a)).expect("Failed to register plugin A");
+        registry_lock.register_plugin(Arc::new(plugin_b)).expect("Failed to register plugin B");
     }
 
     // Manually initialize plugins to register their stages
@@ -193,7 +194,7 @@ async fn test_plugin_system_stage_manager_integration() {
     let plugin_registry_arc = plugin_manager.registry();
     {
         let mut registry_lock = plugin_registry_arc.lock().await;
-        registry_lock.register_plugin(Box::new(test_plugin)).expect("Failed to register test plugin");
+        registry_lock.register_plugin(Arc::new(test_plugin)).expect("Failed to register test plugin");
     }
 
     // Manually initialize plugins to register their stages

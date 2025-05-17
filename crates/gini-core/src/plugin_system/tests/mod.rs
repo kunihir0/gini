@@ -7,3 +7,4 @@ pub mod traits_tests;
 pub mod preflight_tests;
 pub mod loading_tests;
 pub mod manager_tests; // Added manager tests
+pub mod ffi_failure_tests;

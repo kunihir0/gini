@@ -94,7 +94,7 @@ async fn main() {
         let mut registry = registry_arc.lock().await; // Lock the registry
 
         // Instantiate and register core-logging
-        let logging_plugin = Box::new(LoggingPlugin); // Corrected name
+        let logging_plugin = Arc::new(LoggingPlugin); // Corrected name
         if let Err(e) = registry.register_plugin(logging_plugin) {
             eprintln!("Fatal: Failed to register core-logging plugin: {}", e);
             // Decide if we should exit here. For core plugins, probably yes.
@@ -103,7 +103,7 @@ async fn main() {
         println!("  - Registered: core-logging");
 
         // Instantiate and register core-environment-check
-        let env_check_plugin = Box::new(EnvironmentCheckPlugin); // Corrected name
+        let env_check_plugin = Arc::new(EnvironmentCheckPlugin); // Corrected name
         if let Err(e) = registry.register_plugin(env_check_plugin) {
             eprintln!("Fatal: Failed to register core-environment-check plugin: {}", e);
             return;
@@ -277,10 +277,14 @@ async fn main() {
         None => {
             // No command specified, proceed with default app run
             println!("No command specified, running default application loop...");
-            // Create and register the CLI connector
-            let cli_connector = Arc::new(cli::CliConnector); // Instantiate the connector
-            app.ui_manager_mut().register_connector(cli_connector); // Register it
-            println!("CLI connector registered.");
+            // Create and register the CLI interface
+            let cli_interface = Box::new(cli::CliInterface); // Instantiate the interface
+            if let Err(e) = app.ui_manager_mut().register_interface(cli_interface) {
+                eprintln!("Failed to register CLI interface: {}", e);
+                // Decide if this is fatal. For now, log and continue, but the UI might not work.
+            } else {
+                println!("CLI interface registered.");
+            }
 
             // Run the application's main loop
             let run_result = app.run().await;

@@ -1,9 +1,51 @@
+//! # Gini Core UI Bridge
+//!
+//! This module facilitates communication between the `gini-core` application and
+//! various user interface (UI) implementations. It provides a standardized way for
+//! the core to send updates and information to the UI, and for the UI to send
+//! user input or commands back to the core.
+//!
+//! ## Key Components & Concepts:
+//!
+//! - **[`UiProvider`] Trait**: Defines the contract for different UI implementations
+//!   (e.g., console, graphical). Implementors of this trait handle the actual
+//!   rendering of UI elements and capturing of user input.
+//! - **[`UiBridge`] Struct**: Manages a collection of `UiProvider` instances. It is
+//!   responsible for dispatching messages from the core to all registered UI
+//!   providers.
+//! - **[`UiMessage`] Struct**: The standard format for messages sent from the core
+//!   to the UI. It includes various [`UiUpdateType`]s (e.g., text, progress) and
+//!   [`MessageSeverity`].
+//! - **[`UserInput`] Struct**: Represents input received from the user via a UI.
+//! - **[`UiConnector`] Trait & [`UIManager`](unified_interface::UIManager)**:
+//!   The `UIManager` (re-exported from the `unified_interface` submodule) and its
+//!   associated `UiConnector` trait provide a higher-level interface for managing
+//!   UI interactions and state, potentially coordinating multiple `UiBridge` instances
+//!   or providing more complex UI logic.
+//! - **Submodules**:
+//!     - `messages`: Defines the structure of messages like `UiMessage`, `UserInput`,
+//!       `UiUpdateType`, and `MessageSeverity`.
+//!     - `unified_interface`: Contains the `UIManager` and `UiConnector` for a more
+//!       abstracted UI management layer.
+//!     - `error`: Defines UI bridge specific error types like [`UiBridgeError`](error::UiBridgeError).
+//!
+//! The UI bridge aims to decouple the core application logic from specific UI
+//! technologies, allowing for flexibility in how the application is presented
+//! to and interacts with the user.
 pub mod messages;
-pub mod manager; // Added manager module
+// pub mod manager; // Removed manager module
+pub mod error;
+pub mod unified_interface;
 
-pub use manager::UIManager; // Export UIManager
+// pub use manager::UIManager; // Removed UIManager export
+pub use unified_interface::UnifiedUiInterface; // Export UnifiedUiInterface
+use crate::ui_bridge::error::UiBridgeError; // Import UiBridgeError
+use log; // Import log crate
+use crate::kernel::component::KernelComponent;
+use crate::kernel::error as KernelErrorPkg; // Alias to avoid conflict with local error module
+use async_trait::async_trait;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex}; // Added Arc
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fmt::Debug; // Import Debug
@@ -22,26 +64,10 @@ pub enum UserInput {
     // Add other input types as necessary (e.g., selection from a list)
 }
 
-/// Trait for UI connectors that bridge the core and a specific UI.
-/// Connectors are responsible for displaying information (`handle_message`)
-/// and sending user interactions (`send_input`) back to the core.
-pub trait UiConnector: Send + Sync + Debug {
-    /// Returns the unique name of the connector (e.g., "cli", "web").
-    fn name(&self) -> &str;
-
-    /// Handles a message sent from the core application to the UI.
-    /// Implementations should display this message appropriately in their UI.
-    fn handle_message(&self, message: UiMessage); // Changed message to be owned
-
-    /// Sends user input received from the UI to the core application.
-    /// This might involve internal queuing or direct processing depending
-    /// on the application architecture.
-    /// Returns Ok(()) on success, or an error message string on failure.
-    fn send_input(&self, input: UserInput) -> Result<(), String>;
-}
-
 // --- End Added Definitions ---
 
+
+// Old UiConnector trait removed.
 
 /// UI message severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,26 +123,7 @@ pub struct UiMessage {
     pub timestamp: SystemTime,
 }
 
-/// Trait for UI providers
-pub trait UiProvider: Send + Sync {
-    /// Get the name of this provider
-    fn name(&self) -> &'static str;
-    
-    /// Initialize the UI
-    fn initialize(&mut self) -> Result<(), String>;
-    
-    /// Handle a UI message
-    fn handle_message(&mut self, message: &UiMessage) -> Result<(), String>;
-    
-    /// Update the UI
-    fn update(&mut self) -> Result<(), String>;
-    
-    /// Finalize/clean up the UI
-    fn finalize(&mut self) -> Result<(), String>;
-    
-    /// Check if this UI provider supports interactive mode
-    fn supports_interactive(&self) -> bool;
-}
+// Old UiProvider trait removed.
 
 /// Basic console UI provider
 #[derive(Debug)]
@@ -144,18 +151,18 @@ impl ConsoleUiProvider {
     }
 }
 
-impl UiProvider for ConsoleUiProvider {
-    fn name(&self) -> &'static str {
+impl UnifiedUiInterface for ConsoleUiProvider {
+    fn name(&self) -> &str { // Changed from &'static str
         "console"
     }
-    
-    fn initialize(&mut self) -> Result<(), String> {
+
+    fn initialize(&mut self) -> Result<(), UiBridgeError> {
         self.initialized = true;
         println!("Console UI initialized");
         Ok(())
     }
-    
-    fn handle_message(&mut self, message: &UiMessage) -> Result<(), String> {
+
+    fn handle_message(&mut self, message: &UiMessage) -> Result<(), UiBridgeError> {
         let msg_type = match &message.update_type {
             UiUpdateType::Progress(val) => format!("Progress: {:.1}%", val * 100.0),
             UiUpdateType::Status(msg) => format!("Status: {}", msg),
@@ -168,198 +175,289 @@ impl UiProvider for ConsoleUiProvider {
         
         Ok(())
     }
-    
-    fn update(&mut self) -> Result<(), String> {
+
+    fn send_input(&mut self, input: UserInput) -> Result<(), UiBridgeError> {
+        // ConsoleUiProvider is primarily for output and does not process input by default.
+        // This could be extended if interactive console input is desired.
+        log::debug!("ConsoleUiProvider received send_input call with: {:?}. This is a no-op for now.", input);
+        Ok(())
+    }
+
+    fn update(&mut self) -> Result<(), UiBridgeError> {
         // Nothing to do for console UI
         Ok(())
     }
-    
-    fn finalize(&mut self) -> Result<(), String> {
+
+    fn finalize(&mut self) -> Result<(), UiBridgeError> {
         self.initialized = false;
         println!("Console UI finalized");
         Ok(())
     }
-    
+
     fn supports_interactive(&self) -> bool {
-        false
+        false // Console is not interactive by default in this setup
     }
 }
 
-/// Bridge between application logic and UI
-pub struct UiBridge {
-    providers: HashMap<String, Mutex<Box<dyn UiProvider>>>,
-    default_provider: Option<String>,
-    message_buffer: Mutex<Vec<UiMessage>>,
+/// Manages multiple UI interfaces and facilitates communication between the core application and them.
+#[derive(Debug, Clone)] // Added Clone
+pub struct UnifiedUiManager {
+    interfaces: Arc<Mutex<HashMap<String, Arc<Mutex<Box<dyn UnifiedUiInterface>>>>>>,
+    default_interface: Arc<Mutex<Option<String>>>,
+    message_buffer: Arc<Mutex<Vec<UiMessage>>>,
+    // TODO: Add a channel or callback mechanism for UserInput if preferred over direct method call.
 }
 
-impl UiBridge {
-    /// Create a new UI bridge with console provider
+impl UnifiedUiManager {
+    /// Create a new UI manager. Initially, it contains a default console UI.
     pub fn new() -> Self {
-        let mut bridge = Self {
-            providers: HashMap::new(),
-            default_provider: None,
-            message_buffer: Mutex::new(Vec::new()),
-        };
-        
-        // Add default console provider
-        let console_provider = Box::new(ConsoleUiProvider::new());
-        let console_name = console_provider.name().to_string();
-        bridge.providers.insert(console_name.clone(), Mutex::new(console_provider));
-        bridge.default_provider = Some(console_name);
-        
-        bridge
+        let mut interfaces_map = HashMap::new();
+        let console_interface = Arc::new(Mutex::new(Box::new(ConsoleUiProvider::new()) as Box<dyn UnifiedUiInterface>));
+        let console_name = console_interface.lock().unwrap().name().to_string(); // Lock to get name
+        interfaces_map.insert(console_name.clone(), console_interface);
+
+        Self {
+            interfaces: Arc::new(Mutex::new(interfaces_map)),
+            default_interface: Arc::new(Mutex::new(Some(console_name))),
+            message_buffer: Arc::new(Mutex::new(Vec::new())),
+        }
     }
     
-    /// Register a UI provider
-    pub fn register_provider(&mut self, provider: Box<dyn UiProvider>) -> Result<(), String> {
-        let name = provider.name().to_string();
-        self.providers.insert(name.clone(), Mutex::new(provider));
+    /// Register a UI interface.
+    pub fn register_interface(&self, interface: Box<dyn UnifiedUiInterface>) -> Result<(), UiBridgeError> {
+        let name = interface.name().to_string();
+        let mut interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("register_interface - lock: {}", e) })?;
+        if interfaces_guard.contains_key(&name) {
+            return Err(UiBridgeError::RegistrationFailed(format!("Interface with name '{}' already exists.", name)));
+        }
+        interfaces_guard.insert(name.clone(), Arc::new(Mutex::new(interface)));
         
-        // Set as default if no default exists
-        if self.default_provider.is_none() {
-            self.default_provider = Some(name);
+        let mut default_interface_guard = self.default_interface.lock().map_err(|e| UiBridgeError::LockError { entity: "default_interface".to_string(), operation: format!("register_interface - default lock: {}", e) })?;
+        if default_interface_guard.is_none() {
+            *default_interface_guard = Some(name);
         }
         
         Ok(())
     }
     
-    /// Set the default provider
-    pub fn set_default_provider(&mut self, name: &str) -> Result<(), String> {
-        if self.providers.contains_key(name) {
-            self.default_provider = Some(name.to_string());
+    /// Set the default UI interface.
+    pub fn set_default_interface(&self, name: &str) -> Result<(), UiBridgeError> {
+        let interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("set_default_interface - lock: {}", e) })?;
+        if interfaces_guard.contains_key(name) {
+            let mut default_interface_guard = self.default_interface.lock().map_err(|e| UiBridgeError::LockError { entity: "default_interface".to_string(), operation: format!("set_default_interface - default lock: {}", e) })?;
+            *default_interface_guard = Some(name.to_string());
             Ok(())
         } else {
-            Err(format!("UI provider not found: {}", name))
+            Err(UiBridgeError::InterfaceNotFound(name.to_string()))
         }
     }
     
-    /// Send a message to all UI providers
-    pub fn send_message(&self, message: UiMessage) -> Result<(), String> {
+    /// Broadcasts a message to all registered UI interfaces.
+    pub fn broadcast_message(&self, message: UiMessage) -> Result<(), UiBridgeError> {
         // Buffer the message
-        if let Ok(mut buffer) = self.message_buffer.lock() {
-            buffer.push(message.clone());
+        self.message_buffer.lock().map_err(|e|
+            UiBridgeError::LockError {
+                entity: "MessageBuffer".to_string(),
+                operation: format!("send_message - buffer lock: {}", e)
+            }
+        )?.push(message.clone());
+        
+        // Buffer the message
+        self.message_buffer.lock().map_err(|e|
+            UiBridgeError::LockError {
+                entity: "MessageBuffer".to_string(),
+                operation: format!("broadcast_message - buffer lock: {}", e)
+            }
+        )?.push(message.clone());
+        
+        // Try to send to all interfaces
+        let interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("broadcast_message - lock: {}", e) })?;
+        for (name, interface_arc_mutex) in interfaces_guard.iter() {
+            match interface_arc_mutex.lock() {
+                Ok(mut interface) => {
+                    if let Err(e) = interface.handle_message(&message) {
+                        log::error!("Failed to send message to UI interface '{}': {}", name, e);
+                        // Individual interface errors are logged, broadcast_message itself doesn't fail for this.
+                    }
+                },
+                Err(e) => {
+                    log::error!("Failed to lock UI interface '{}' for broadcast_message: {}", name, e);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Submits user input received from a specific UI interface.
+    /// The manager is responsible for routing this input to the core application logic.
+    pub fn submit_user_input(&self, input: UserInput, source_interface_name: &str) -> Result<(), UiBridgeError> {
+        // TODO: Implement actual input handling logic.
+        // This might involve sending it to an event bus, a dedicated input handler,
+        // or a callback registered by the core application.
+        log::info!("User input received from '{}': {:?}", source_interface_name, input);
+        // For now, we just log it. Depending on the design, this might return an error
+        // if the input cannot be processed (e.g., no active listener).
+        Ok(())
+    }
+    
+    /// Initialize all registered UI interfaces.
+    // Changed to take &self as KernelComponent methods take &self
+    pub fn initialize_all(&self) -> Result<(), UiBridgeError> {
+        let interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("initialize_all - lock: {}", e) })?;
+        for (name, interface_arc_mutex) in interfaces_guard.iter() {
+            let mut interface = interface_arc_mutex.lock().map_err(|e|
+                UiBridgeError::LockError {
+                    entity: format!("UnifiedUiInterface '{}'", name),
+                    operation: format!("initialize_all - interface lock failed: {}", e)
+                }
+            )?;
+            interface.initialize().map_err(|e|
+                UiBridgeError::LifecycleMethodFailed {
+                    interface_name: name.to_string(),
+                    method: "initialize".to_string(),
+                    source: Box::new(e)
+                }
+            )?;
+        }
+        Ok(())
+    }
+    
+    /// Update all registered UI interfaces.
+    // Changed to take &self
+    pub fn update_all(&self) -> Result<(), UiBridgeError> {
+        let mut collected_errors: Vec<UiBridgeError> = Vec::new();
+        let interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("update_all - lock: {}", e) })?;
+        for (name, interface_arc_mutex) in interfaces_guard.iter() {
+            match interface_arc_mutex.lock() {
+                Ok(mut interface) => {
+                    if let Err(e) = interface.update() {
+                        collected_errors.push(UiBridgeError::LifecycleMethodFailed {
+                            interface_name: name.to_string(),
+                            method: "update".to_string(),
+                            source: Box::new(e)
+                        });
+                    }
+                },
+                Err(e) => {
+                    collected_errors.push(UiBridgeError::LockError {
+                        entity: format!("UnifiedUiInterface '{}'", name),
+                        operation: format!("update_all - interface lock failed: {}", e)
+                    });
+                }
+            }
+        }
+        
+        if collected_errors.is_empty() {
+            Ok(())
         } else {
-            return Err("Failed to lock message buffer".to_string());
+            Err(UiBridgeError::MultipleInterfaceFailures(collected_errors))
         }
-        
-        // Try to send to all providers
-        for (name, provider_mutex) in &self.providers {
-            match provider_mutex.lock() {
-                Ok(mut provider) => {
-                    if let Err(e) = provider.handle_message(&message) {
-                        eprintln!("Failed to send message to UI provider '{}': {}", name, e);
+    }
+    
+    /// Finalize all registered UI interfaces.
+    // Changed to take &self
+    pub fn finalize_all(&self) -> Result<(), UiBridgeError> {
+        let mut collected_errors: Vec<UiBridgeError> = Vec::new();
+        let interfaces_guard = self.interfaces.lock().map_err(|e| UiBridgeError::LockError { entity: "interfaces map".to_string(), operation: format!("finalize_all - lock: {}", e) })?;
+        for (name, interface_arc_mutex) in interfaces_guard.iter() {
+            match interface_arc_mutex.lock() {
+                Ok(mut interface) => {
+                    if let Err(e) = interface.finalize() {
+                        collected_errors.push(UiBridgeError::LifecycleMethodFailed {
+                            interface_name: name.to_string(),
+                            method: "finalize".to_string(),
+                            source: Box::new(e)
+                        });
                     }
                 },
                 Err(e) => {
-                    eprintln!("Failed to lock UI provider '{}': {}", name, e);
+                    collected_errors.push(UiBridgeError::LockError {
+                        entity: format!("UnifiedUiInterface '{}'", name),
+                        operation: format!("finalize_all - interface lock failed: {}", e)
+                    });
                 }
             }
         }
         
-        Ok(())
-    }
-    
-    /// Initialize all providers
-    pub fn initialize(&mut self) -> Result<(), String> {
-        for (name, provider_mutex) in &self.providers {
-            match provider_mutex.lock() {
-                Ok(mut provider) => {
-                    if let Err(e) = provider.initialize() {
-                        return Err(format!("Failed to initialize UI provider '{}': {}", name, e));
-                    }
-                },
-                Err(e) => {
-                    return Err(format!("Failed to lock UI provider '{}': {}", name, e));
-                }
-            }
+        if collected_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(UiBridgeError::MultipleInterfaceFailures(collected_errors))
         }
-        Ok(())
     }
     
-    /// Update all UI providers
-    pub fn update(&mut self) -> Result<(), String> {
-        for (name, provider_mutex) in &self.providers {
-            match provider_mutex.lock() {
-                Ok(mut provider) => {
-                    if let Err(e) = provider.update() {
-                        eprintln!("Failed to update UI provider '{}': {}", name, e);
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to lock UI provider '{}': {}", name, e);
-                }
-            }
-        }
-        
-        Ok(())
-    }
-    
-    /// Finalize all providers
-    pub fn finalize(&mut self) -> Result<(), String> {
-        for (name, provider_mutex) in &self.providers {
-            match provider_mutex.lock() {
-                Ok(mut provider) => {
-                    if let Err(e) = provider.finalize() {
-                        eprintln!("Failed to finalize UI provider '{}': {}", name, e);
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to lock UI provider '{}': {}", name, e);
-                }
-            }
-        }
-        
-        Ok(())
-    }
-    
-    /// Create a progress message
-    pub fn progress(&self, source: &str, progress: f32) -> Result<(), String> {
-        self.send_message(UiMessage {
-            update_type: UiUpdateType::Progress(progress),
+    /// Helper to create and broadcast a progress message.
+    pub fn progress(&self, source: &str, progress_value: f32) -> Result<(), UiBridgeError> {
+        self.broadcast_message(UiMessage {
+            update_type: UiUpdateType::Progress(progress_value),
             source: source.to_string(),
             timestamp: SystemTime::now(),
         })
     }
     
-    /// Create a status message
-    pub fn status(&self, source: &str, message: &str) -> Result<(), String> {
-        self.send_message(UiMessage {
-            update_type: UiUpdateType::Status(message.to_string()),
+    /// Helper to create and broadcast a status message.
+    pub fn status(&self, source: &str, message_text: &str) -> Result<(), UiBridgeError> {
+        self.broadcast_message(UiMessage {
+            update_type: UiUpdateType::Status(message_text.to_string()),
             source: source.to_string(),
             timestamp: SystemTime::now(),
         })
     }
     
-    /// Create a log message
-    pub fn log(&self, source: &str, message: &str, severity: MessageSeverity) -> Result<(), String> {
-        self.send_message(UiMessage {
-            update_type: UiUpdateType::Log(message.to_string(), severity),
+    /// Helper to create and broadcast a log message.
+    pub fn log(&self, source: &str, message_text: &str, severity_level: MessageSeverity) -> Result<(), UiBridgeError> {
+        self.broadcast_message(UiMessage {
+            update_type: UiUpdateType::Log(message_text.to_string(), severity_level),
             source: source.to_string(),
             timestamp: SystemTime::now(),
         })
     }
     
-    /// Create a dialog message
-    pub fn dialog(&self, source: &str, message: &str, severity: MessageSeverity) -> Result<(), String> {
-        self.send_message(UiMessage {
-            update_type: UiUpdateType::Dialog(message.to_string(), severity),
+    /// Helper to create and broadcast a dialog message.
+    pub fn dialog(&self, source: &str, message_text: &str, severity_level: MessageSeverity) -> Result<(), UiBridgeError> {
+        self.broadcast_message(UiMessage {
+            update_type: UiUpdateType::Dialog(message_text.to_string(), severity_level),
             source: source.to_string(),
             timestamp: SystemTime::now(),
         })
     }
 
-    /// Get the name of the current default provider
-    pub fn get_default_provider_name(&self) -> Option<String> {
-        self.default_provider.clone()
+    /// Get the name of the current default UI interface.
+    pub fn get_default_interface_name(&self) -> Option<String> {
+        self.default_interface.lock().unwrap().clone() // Lock to access
     }
 }
 
-impl Default for UiBridge {
+impl Default for UnifiedUiManager {
     fn default() -> Self {
         Self::new()
     }
-
 }
+
+#[async_trait]
+impl KernelComponent for UnifiedUiManager {
+    fn name(&self) -> &'static str {
+        "UnifiedUiManager"
+    }
+
+    async fn initialize(&self) -> KernelErrorPkg::Result<()> {
+        log::info!("Initializing UnifiedUiManager...");
+        self.initialize_all().map_err(KernelErrorPkg::Error::from)
+    }
+
+    async fn start(&self) -> KernelErrorPkg::Result<()> {
+        log::info!("Starting UnifiedUiManager (running update_all)...");
+        // Typically, start might involve more, but for now, update_all is a placeholder.
+        self.update_all().map_err(KernelErrorPkg::Error::from)
+    }
+
+    async fn stop(&self) -> KernelErrorPkg::Result<()> {
+        log::info!("Stopping UnifiedUiManager...");
+        self.finalize_all().map_err(KernelErrorPkg::Error::from)
+    }
+}
+
 
 // Test module declaration
 #[cfg(test)]

@@ -1,4 +1,33 @@
+//! # Gini Core Event System
+//!
+//! This module provides the core infrastructure for event handling within the Gini framework.
+//! It defines fundamental traits like [`Event`] and [`AsyncEventHandler`], common event-related
+//! types such as [`EventPriority`] and [`EventResult`], and re-exports key components from
+//! its submodules: [`dispatcher`], [`manager`], and [`types`].
+//!
+//! ## Key Components:
+//!
+//! - **[`Event`] Trait**: The base trait that all system events must implement. It defines
+//!   methods for event identification, priority, cancelability, and cloning.
+//! - **[`AsyncEventHandler`] Trait**: A trait for defining asynchronous handlers that can
+//!   process events.
+//! - **[`EventPriority`] Enum**: Defines different priority levels for events, influencing
+//!   their processing order.
+//! - **[`EventResult`] Enum**: Represents the outcome of an event handler's execution.
+//! - **[`EventId`] Type**: A unique identifier for event types.
+//! - **Submodules**:
+//!     - `dispatcher`: Contains the [`EventDispatcher`](dispatcher::EventDispatcher)
+//!       responsible for low-level event dispatch and handler registration.
+//!     - `manager`: Provides the [`EventManager`](manager::EventManager), a higher-level
+//!       component for managing the overall event flow and lifecycle.
+//!     - `types`: Includes concrete event type definitions used within `gini-core`.
+//!     - `error`: Defines error types specific to the event system.
+//!
+//! The event system is designed to facilitate decoupled communication between different
+//! parts of the application, allowing modules to react to occurrences without direct
+//! dependencies on the event producers.
 pub mod dispatcher;
+pub mod error; // New submodule
 pub mod manager;
 pub mod types;
 
@@ -76,6 +105,7 @@ pub type EventHandler = Box<dyn AsyncEventHandler>;
 pub use dispatcher::{EventDispatcher, SharedEventDispatcher, create_dispatcher};
 pub use manager::{EventManager, DefaultEventManager, BoxedEvent};
 pub use types::{SystemEvent, PluginEvent, StageEvent};
+pub use error::EventSystemError; // Re-export EventSystemError
 
 // Test module declaration
 #[cfg(test)]

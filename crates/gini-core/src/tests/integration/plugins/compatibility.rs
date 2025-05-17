@@ -1,13 +1,15 @@
 #![cfg(test)]
 
 use async_trait::async_trait;
+use std::sync::Arc; // Added for Arc
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
 use crate::kernel::constants::API_VERSION;
-use crate::kernel::error::{Error, Result as KernelResult};
+use crate::kernel::error::{Result as KernelResult}; // Removed unused Error
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError as TraitsPluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::StageContext;
 use crate::stage_manager::registry::StageRegistry;
@@ -52,10 +54,10 @@ impl Plugin for IncompatiblePlugin {
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, _app: &mut Application) -> crate::kernel::error::Result<()> { Ok(()) }
-    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), TraitsPluginError> { Ok(()) }
-    fn shutdown(&self) -> crate::kernel::error::Result<()> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
@@ -70,21 +72,22 @@ async fn test_plugin_api_compatibility() {
 
     let result = {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(incompatible_plugin))
+        registry.register_plugin(Arc::new(incompatible_plugin))
     };
 
     assert!(result.is_err(), "Registration of incompatible plugin should fail");
     match result.err().unwrap() {
-        Error::Plugin(msg) => {
+        PluginSystemError::LoadingError { plugin_id, path: _, source } => {
+            let msg = source.to_string();
             eprintln!("API Compatibility Error Message: {}", msg);
+            assert_eq!(plugin_id, plugin_name, "Error should be for the correct plugin ID");
             assert!(
-                msg.contains("is not compatible with API version") || msg.contains("API version mismatch"),
+                msg.contains("not compatible with API version") || msg.contains("API version"),
                 "Expected API incompatibility error message, but got: {}", msg
             );
-            assert!(msg.contains(plugin_name), "Error message should contain plugin name '{}'", plugin_name);
             assert!(msg.contains(API_VERSION), "Error message should mention the core API version '{}'", API_VERSION);
         }
-        e => panic!("Expected Error::Plugin for API incompatibility, but got {:?}", e),
+        e => panic!("Expected PluginSystemError::LoadingError for API incompatibility, but got {:?}", e),
     }
 
     {
@@ -133,10 +136,10 @@ async fn test_register_all_plugins_api_compatibility_detailed() -> KernelResult<
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(compatible_plugin))?;
-        assert!(registry.register_plugin(Box::new(incompatible_plugin_newer)).is_err(), "Registering newer incompatible should fail");
-        assert!(registry.register_plugin(Box::new(incompatible_plugin_older)).is_err(), "Registering older incompatible should fail");
-        registry.register_plugin(Box::new(compatible_plugin_range))?;
+        registry.register_plugin(Arc::new(compatible_plugin))?;
+        assert!(registry.register_plugin(Arc::new(incompatible_plugin_newer)).is_err(), "Registering newer incompatible should fail");
+        assert!(registry.register_plugin(Arc::new(incompatible_plugin_older)).is_err(), "Registering older incompatible should fail");
+        registry.register_plugin(Arc::new(compatible_plugin_range))?;
     }
 
     let mut app = Application::new().unwrap();

@@ -1,22 +1,18 @@
 use std::str::FromStr;
 use std::fmt;
 use semver::{Version, VersionReq}; // Import semver types
+use thiserror::Error; // Import thiserror
 
 /// Error type for version parsing
-#[derive(Debug)]
+#[derive(Debug, Error)] // Add thiserror derive
 pub enum VersionError {
+    #[error("Invalid version format")]
     InvalidFormat,
+    #[error("Version parse error: {0}")]
     ParseError(String),
 }
 
-impl fmt::Display for VersionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            VersionError::InvalidFormat => write!(f, "Invalid version format"),
-            VersionError::ParseError(msg) => write!(f, "Version parse error: {}", msg),
-        }
-    }
-}
+// Display is now handled by thiserror
 
 /// Represents a semantic version for the API
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

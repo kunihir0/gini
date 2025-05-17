@@ -1,0 +1,14 @@
+[package]
+name = "invalid-vtable-plugin"
+version = "0.1.0"
+edition = "2021"
+
+# This crate is the root of its own workspace for testing purposes
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+name = "invalid_vtable_plugin" # Explicitly set the library name for the .so file
+
+[dependencies]
+# No gini-core dependency needed for this simple failing plugin.

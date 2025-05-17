@@ -1,6 +1,7 @@
-use crate::kernel::error::Result;
+// Removed: use crate::kernel::error::Result as KernelResult;
 use crate::stage_manager::{Stage, StageContext};
 use crate::stage_manager::registry::StageRegistry;
+use std::error::Error as StdError; // For boxing
 use async_trait::async_trait;
 
 // Mock Stage for testing
@@ -45,8 +46,8 @@ impl Stage for MockStage {
     fn supports_dry_run(&self) -> bool {
         self.supports_dry_run
     }
-
-    async fn execute(&self, _context: &mut StageContext) -> Result<()> {
+ 
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Simple mock implementation that does nothing
         Ok(())
     }

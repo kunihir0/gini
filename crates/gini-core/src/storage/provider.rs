@@ -1,7 +1,11 @@
 use std::fmt::Debug; // Add Debug import
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use crate::kernel::error::Result;
+use crate::storage::error::StorageSystemError; // Changed import
+use std::result::Result as StdResult; // Added for type alias
+
+/// Type alias for Result with StorageSystemError
+type Result<T> = StdResult<T, StorageSystemError>;
 
 /// Trait for storage providers that can read and write data
 pub trait StorageProvider: Send + Sync + Debug { // Add Debug requirement

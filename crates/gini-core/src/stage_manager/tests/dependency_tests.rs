@@ -1,9 +1,11 @@
 use crate::stage_manager::pipeline::StagePipeline;
 use crate::stage_manager::registry::SharedStageRegistry;
 use crate::stage_manager::{Stage, StageContext}; // Added StageResult
-use crate::kernel::error::{Result, Error};
+use crate::kernel::error::{Error as KernelError, Result as KernelResult}; // Renamed for clarity
+use crate::stage_manager::error::StageSystemError; // Import StageSystemError
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::error::Error as StdError; // For boxing
 use std::sync::atomic::{AtomicU32, Ordering}; // Added Ordering
 use tokio::sync::Mutex;
 use std::path::PathBuf; // Added PathBuf
@@ -44,7 +46,7 @@ impl Stage for MockStage {
     fn id(&self) -> &str { &self.id }
     fn name(&self) -> &str { &self.id } // Simple name for testing
     fn description(&self) -> &str { "Mock stage for dependency tests" }
-    async fn execute(&self, _context: &mut StageContext) -> Result<()> {
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         self.tracker.record_execution(self.id()).await; // Record execution
         Ok(())
     }
@@ -79,9 +81,9 @@ async fn setup_pipeline_with_deps(
     }
     (pipeline, shared_registry, tracker) // Return tracker
 }
-
+ 
 #[tokio::test]
-async fn test_simple_dependency() -> Result<()> {
+async fn test_simple_dependency() -> KernelResult<()> {
     // Capture tracker from the setup function's return tuple
     let (mut pipeline, registry, tracker) = setup_pipeline_with_deps(
         vec!["stage_a", "stage_b"],
@@ -98,9 +100,9 @@ async fn test_simple_dependency() -> Result<()> {
     assert_eq!(order, vec!["stage_a", "stage_b"]);
     Ok(())
 }
-
+ 
 #[tokio::test]
-async fn test_multiple_dependencies() -> Result<()> {
+async fn test_multiple_dependencies() -> KernelResult<()> {
     // Capture tracker
     let (mut pipeline, registry, tracker) = setup_pipeline_with_deps(
         vec!["a", "b", "c", "d"],
@@ -121,9 +123,9 @@ async fn test_multiple_dependencies() -> Result<()> {
     assert_eq!(order[3], "d");
     Ok(())
 }
-
+ 
 #[tokio::test]
-async fn test_no_dependencies() -> Result<()> {
+async fn test_no_dependencies() -> KernelResult<()> {
     // Capture tracker
     let (mut pipeline, registry, tracker) = setup_pipeline_with_deps(
         vec!["x", "y", "z"],
@@ -153,20 +155,20 @@ async fn test_dependency_cycle_detection() {
     // Validate should detect the cycle
     let validation_result = pipeline.validate(&registry).await;
     assert!(validation_result.is_err());
-    if let Err(Error::Stage(msg)) = validation_result {
-        assert!(msg.contains("cyclic dependencies"));
+    if let Err(StageSystemError::DependencyCycleDetected { .. }) = validation_result { // Expect StageSystemError directly
+        // Correct error type
     } else {
-        panic!("Expected cyclic dependency error from validate");
+        panic!("Expected StageSystemError::DependencyCycleDetected, got: {:?}", validation_result);
     }
 
     // Execute should also fail due to internal validation before running
     let mut context = StageContext::new_live(PathBuf::from("./dummy_cycle"));
     let exec_result = pipeline.execute(&mut context, &registry).await;
     assert!(exec_result.is_err());
-     if let Err(Error::Stage(msg)) = exec_result {
-         assert!(msg.contains("cyclic dependencies")); // execute calls validate internally
-     } else {
-         panic!("Expected cyclic dependency error from execute");
+    if let Err(KernelError::StageSystem(StageSystemError::DependencyCycleDetected { .. })) = exec_result {
+        // Correct error type, execute calls validate internally
+    } else {
+        panic!("Expected KernelError::StageSystem(StageSystemError::DependencyCycleDetected) from execute, got: {:?}", exec_result);
      }
 }
 
@@ -177,10 +179,11 @@ async fn test_add_dependency_on_non_added_stage() {
      // Try to add dependency on "stage_b" which isn't added to the pipeline yet
      let result = pipeline.add_dependency("stage_a", "stage_b");
      assert!(result.is_err());
-     if let Err(Error::Stage(msg)) = result {
-         assert!(msg.contains("Dependency stage 'stage_b' must be added"));
+     if let Err(StageSystemError::DependencyStageNotInPipeline { stage_id, dependency_id, .. }) = result { // Expect StageSystemError directly
+         assert_eq!(stage_id, "stage_a"); // This check is correct for the error variant
+         assert_eq!(dependency_id, "stage_b"); // This check is correct for the error variant
      } else {
-         panic!("Expected specific error for missing dependency stage");
+         panic!("Expected StageSystemError::DependencyStageNotInPipeline, got: {:?}", result);
      }
 }
 
@@ -191,9 +194,12 @@ async fn test_add_dependency_for_non_added_stage() {
      // Try to add dependency *for* "stage_a" which isn't added to the pipeline yet
      let result = pipeline.add_dependency("stage_a", "stage_b");
      assert!(result.is_err());
-     if let Err(Error::Stage(msg)) = result {
-         assert!(msg.contains("Stage 'stage_a' must be added"));
+     if let Err(StageSystemError::DependencyStageNotInPipeline { stage_id, dependency_id, .. }) = result { // Expect StageSystemError directly
+         assert_eq!(stage_id, "stage_a");
+         // The error is that 'stage_a' is not in the pipeline when trying to add a dependency *for* it.
+         // The `dependency_id` field in this error variant refers to the stage that `stage_id` would depend on.
+         assert_eq!(dependency_id, "stage_b");
      } else {
-         panic!("Expected specific error for missing stage");
+         panic!("Expected StageSystemError::DependencyStageNotInPipeline, got: {:?}", result);
      }
 }

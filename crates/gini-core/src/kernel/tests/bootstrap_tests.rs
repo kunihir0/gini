@@ -76,17 +76,24 @@ async fn test_application_run_lifecycle() {
 
     // Check the specific error - it should fail when trying to re-register core stages
     match result2 {
-         Err(Error::Stage(msg)) => { // Expect Stage error now
-             assert!(msg.contains("Stage already exists"), "Error message should indicate stage already exists");
-             // Check for any of the core stages, as the order isn't guaranteed
-             assert!(
-                 msg.contains("core::plugin_preflight_check") ||
-                 msg.contains("core::plugin_initialization") ||
-                 msg.contains("core::plugin_post_initialization"),
-                 "Error message should mention a core stage ID"
-             );
+         Err(Error::StageSystem(stage_err)) => { // Expect StageSystemError now
+            let actual_message = stage_err.to_string(); // Get string representation first
+            if let crate::stage_manager::error::StageSystemError::StageAlreadyExists { ref stage_id } = stage_err {
+                let expected_message_part = "already exists in the registry";
+                assert!(actual_message.contains(stage_id.as_str()) && actual_message.contains(expected_message_part),
+                    "Error message '{}' did not contain expected stage_id '{}' or substring '{}'", actual_message, stage_id, expected_message_part);
+
+                assert!(
+                    *stage_id == "core::plugin_preflight_check" ||
+                    *stage_id == "core::plugin_initialization" ||
+                    *stage_id == "core::plugin_post_initialization",
+                    "Error stage_id '{}' was not one of the expected core stage IDs", stage_id
+                );
+            } else {
+                panic!("Expected StageSystemError::StageAlreadyExists, got {:?}", stage_err);
+            }
          }
-         _ => panic!("Expected Stage error due to re-registration attempt, got {:?}", result2),
+         _ => panic!("Expected StageSystemError due to re-registration attempt, got {:?}", result2),
      }
 
 

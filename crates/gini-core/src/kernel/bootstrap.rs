@@ -4,7 +4,7 @@ use std::any::TypeId; // Remove braces
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Error, Result, KernelLifecyclePhase};
 use crate::kernel::constants;
 use crate::kernel::component::{KernelComponent, DependencyRegistry};
 
@@ -13,7 +13,7 @@ use crate::event::DefaultEventManager; // Remove braces
 use crate::stage_manager::manager::DefaultStageManager; // Remove braces
 use crate::plugin_system::DefaultPluginManager; // Remove braces
 use crate::storage::DefaultStorageManager; // Remove braces
-use crate::ui_bridge::UIManager; // Added UIManager import
+use crate::ui_bridge::UnifiedUiManager; // Changed from UIManager
 
 /// Main application struct coordinating components via dependency injection
 pub struct Application {
@@ -25,14 +25,18 @@ pub struct Application {
     // Keep track of component initialization order (using concrete TypeIds)
     component_init_order: Vec<TypeId>,
     // UI Manager to handle UI connections
-    ui_manager: UIManager, // Added ui_manager field
+    // The UnifiedUiManager itself is not Arc<Mutex<>> here because Application owns it directly.
+    // If it were a shared component accessed by others *through the registry*, it would be Arc<Mutex<UnifiedUiManager>>.
+    // However, for direct ownership and mutable access via ui_manager_mut, this is fine.
+    // It will be registered as Arc<UnifiedUiManager> in the dependency registry.
+    ui_manager: UnifiedUiManager,
 }
 
 // Updated impl Application block using simplified DependencyRegistry
 impl Application {
     /// Creates a new application instance with default components using XDG paths.
     pub fn new() -> Result<Self> { // Removed base_path_override
-        println!("Initializing {} v{}", constants::APP_NAME, constants::APP_VERSION);
+        log::info!("Initializing {} v{}", constants::APP_NAME, constants::APP_VERSION);
 
         // Base path and config dir logic removed - handled by StorageManager::new()
 
@@ -42,8 +46,8 @@ impl Application {
         // Register default components using their concrete types
         // Instantiate StorageManager using the new XDG-aware constructor
         let storage_manager = Arc::new(DefaultStorageManager::new()?); // Call new() which returns Result
-        println!("Using config directory: {}", storage_manager.config_dir().display());
-        println!("Using data directory: {}", storage_manager.data_dir().display());
+        log::info!("Using config directory: {}", storage_manager.config_dir().display());
+        log::info!("Using data directory: {}", storage_manager.data_dir().display());
         registry.register_instance(storage_manager.clone()); // Register Arc<DefaultStorageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStorageManager>()); // Store concrete TypeId
 
@@ -63,8 +67,13 @@ impl Application {
         registry.register_instance(stage_manager.clone()); // Register Arc<DefaultStageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStageManager>()); // Store concrete TypeId
 
-        // Instantiate UIManager
-        let ui_manager = UIManager::new();
+        // Instantiate UnifiedUiManager
+        let ui_manager_owned = UnifiedUiManager::new();
+        // Register an Arc of a clone of the owned instance.
+        // The Application struct will hold the original owned instance.
+        registry.register_instance(Arc::new(ui_manager_owned.clone()));
+        init_order.push(TypeId::of::<UnifiedUiManager>());
+
 
         Ok(Application {
             // base_path, // Removed
@@ -72,7 +81,7 @@ impl Application {
             initialized: false,
             dependencies: Arc::new(Mutex::new(registry)),
             component_init_order: init_order,
-            ui_manager, // Assign ui_manager instance
+            ui_manager: ui_manager_owned, // Store the owned instance
         })
     }
 
@@ -88,24 +97,30 @@ impl Application {
     /// Runs the application initialization and main loop (placeholder).
     pub async fn run(&mut self) -> Result<()> {
         if self.initialized {
-            return Err(Error::Init("Application already running".to_string()));
+            return Err(Error::KernelLifecycleError {
+                phase: KernelLifecyclePhase::RunPreCheck,
+                component_name: None,
+                type_id_str: None,
+                message: "Application already initialized".to_string(),
+                source: None,
+            });
         }
 
         self.initialize().await?;
         self.start().await?;
 
         self.initialized = true;
-        println!("Application initialized and started successfully.");
+        log::info!("Application initialized and started successfully.");
         // Print XDG paths from StorageManager
         if let Some(sm) = self.get_component::<DefaultStorageManager>().await {
-             println!("Config directory: {}", sm.config_dir().display());
-             println!("Data directory: {}", sm.data_dir().display());
+             log::info!("Config directory: {}", sm.config_dir().display());
+             log::info!("Data directory: {}", sm.data_dir().display());
         } else {
-             println!("Warning: Could not retrieve StorageManager to display paths.");
+             log::warn!("Could not retrieve StorageManager to display paths.");
         }
 
 
-        println!("Application running... (Simulating work)");
+        log::info!("Application running... (Simulating work)");
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         self.shutdown().await?;
@@ -114,62 +129,82 @@ impl Application {
 
     /// Initialize all registered components in the predefined order.
     async fn initialize(&mut self) -> Result<()> {
-        println!("Initializing components...");
+        log::info!("Initializing components...");
         let registry = self.dependencies.lock().await; // Lock registry
 
         for type_id in &self.component_init_order {
             // Use get_component_by_id which returns Option<Arc<dyn KernelComponent>>
             if let Some(component_arc) = registry.get_component_by_id(type_id) {
-                 println!("Initializing component: {}", component_arc.name());
+                 log::info!("Initializing component: {}", component_arc.name());
                  component_arc.initialize().await?; // Call method on Arc<dyn KernelComponent>
             } else {
                  // This indicates a logic error
-                 eprintln!("Error: Component instance not found in registry for TypeId {:?} during initialization.", type_id);
-                 return Err(Error::Component(format!("Initialization failed: Instance missing for component {:?}", type_id)));
+                 log::error!("Component instance not found in registry for TypeId {:?} during initialization.", type_id);
+                 return Err(Error::KernelLifecycleError {
+                    phase: KernelLifecyclePhase::Initialize,
+                    component_name: None, // Name might not be available if instance is missing
+                    type_id_str: Some(format!("{:?}", type_id)),
+                    message: "Instance missing from registry".to_string(),
+                    source: None,
+                });
             }
         }
-        println!("Component initialization complete.");
+        log::info!("Component initialization complete.");
         Ok(())
     }
 
      /// Start all initialized components in the predefined order.
     async fn start(&mut self) -> Result<()> {
-        println!("Starting components...");
+        log::info!("Starting components...");
         let registry = self.dependencies.lock().await; // Lock registry
 
         for type_id in &self.component_init_order {
              // Use get_component_by_id
             if let Some(component_arc) = registry.get_component_by_id(type_id) {
-                 println!("Starting component: {}", component_arc.name());
+                 log::info!("Starting component: {}", component_arc.name());
                  component_arc.start().await?; // Call method on Arc<dyn KernelComponent>
             } else {
-                 eprintln!("Error: Component instance not found in registry for TypeId {:?} during start.", type_id);
-                 return Err(Error::Component(format!("Start failed: Instance missing for component {:?}", type_id)));
+                 log::error!("Component instance not found in registry for TypeId {:?} during start.", type_id);
+                 return Err(Error::KernelLifecycleError {
+                    phase: KernelLifecyclePhase::Start,
+                    component_name: None, // Name might not be available
+                    type_id_str: Some(format!("{:?}", type_id)),
+                    message: "Instance missing from registry".to_string(),
+                    source: None,
+                });
             }
         }
-        println!("Component start complete.");
+        log::info!("Component start complete.");
         Ok(())
     }
 
     /// Shutdown all components in reverse order of initialization.
     async fn shutdown(&mut self) -> Result<()> {
-        println!("Shutting down components...");
+        log::info!("Shutting down components...");
         let registry = self.dependencies.lock().await; // Lock registry
 
         // Shutdown in reverse initialization order
         for type_id in self.component_init_order.iter().rev() {
              // Use get_component_by_id
              if let Some(component_arc) = registry.get_component_by_id(type_id) {
-                 println!("Stopping component: {}", component_arc.name());
+                 log::info!("Stopping component: {}", component_arc.name());
                  if let Err(e) = component_arc.stop().await { // Call method on Arc<dyn KernelComponent>
-                     eprintln!("Error stopping component {}: {}", component_arc.name(), e);
+                     log::error!("Error stopping component {}: {}", component_arc.name(), e);
+                     // Propagate the first error encountered during shutdown
+                     return Err(Error::KernelLifecycleError {
+                         phase: KernelLifecyclePhase::Shutdown,
+                         component_name: Some(component_arc.name().to_string()),
+                         type_id_str: Some(format!("{:?}", type_id)),
+                         message: "Component failed to stop".to_string(),
+                         source: Some(Box::new(e)),
+                     });
                  }
              } else {
-                 eprintln!("Warning: Component instance not found in registry for TypeId {:?} during stop.", type_id);
+                 log::warn!("Component instance not found in registry for TypeId {:?} during stop.", type_id);
              }
          }
         self.initialized = false; // Mark as not running
-        println!("Component shutdown complete.");
+        log::info!("Component shutdown complete.");
         Ok(())
     }
 
@@ -212,7 +247,7 @@ impl Application {
     }
 
     /// Returns a mutable reference to the UI manager.
-    pub fn ui_manager_mut(&mut self) -> &mut UIManager {
+    pub fn ui_manager_mut(&mut self) -> &mut UnifiedUiManager {
         &mut self.ui_manager
     }
 }

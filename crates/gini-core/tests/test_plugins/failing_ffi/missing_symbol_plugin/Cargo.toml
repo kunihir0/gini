@@ -1,0 +1,16 @@
+[package]
+name = "missing-symbol-plugin"
+version = "0.1.0"
+edition = "2021"
+
+# This crate is the root of its own workspace for testing purposes
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+name = "missing_symbol_plugin" # Explicitly set the library name for the .so file
+
+[dependencies]
+# No gini-core dependency needed for this simple failing plugin,
+# as it won't successfully initialize to the point of needing core types.
+# We only need to define the FFI interface.

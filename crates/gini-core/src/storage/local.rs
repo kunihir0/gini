@@ -3,8 +3,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write}; // Remove unused Error as IoError import
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile; // Import NamedTempFile
-use crate::kernel::error::{Error, Result};
+use crate::storage::error::StorageSystemError; // Changed import
 use crate::storage::provider::StorageProvider;
+use std::result::Result as StdResult; // Added for type alias
+
+/// Type alias for Result with StorageSystemError
+type Result<T> = StdResult<T, StorageSystemError>;
 
 /// Local filesystem storage provider
 #[derive(Clone)]
@@ -23,7 +27,14 @@ impl LocalStorageProvider {
         self.base_path.join(path)
     }
     
-    // Remove the old io_error helper, use Error::io directly
+    // Helper to map std::io::Error to StorageSystemError::Io
+    fn map_io_error(&self, err: std::io::Error, operation: &str, path: PathBuf) -> StorageSystemError {
+        match err.kind() {
+            std::io::ErrorKind::NotFound => StorageSystemError::FileNotFound(path),
+            std::io::ErrorKind::PermissionDenied => StorageSystemError::AccessDenied(path, operation.to_string()),
+            _ => StorageSystemError::io(err, operation, path),
+        }
+    }
 }
 
 impl StorageProvider for LocalStorageProvider {
@@ -45,22 +56,22 @@ impl StorageProvider for LocalStorageProvider {
     
     fn create_dir(&self, path: &Path) -> Result<()> {
         let full_path = self.resolve_path(path);
-        fs::create_dir(&full_path).map_err(|e| Error::io(e, "create_dir", Some(full_path)))
+        fs::create_dir(&full_path).map_err(|e| self.map_io_error(e, "create_dir", full_path))
     }
     
     fn create_dir_all(&self, path: &Path) -> Result<()> {
         let full_path = self.resolve_path(path);
-        fs::create_dir_all(&full_path).map_err(|e| Error::io(e, "create_dir_all", Some(full_path)))
+        fs::create_dir_all(&full_path).map_err(|e| self.map_io_error(e, "create_dir_all", full_path))
     }
     
     fn read_to_string(&self, path: &Path) -> Result<String> {
         let full_path = self.resolve_path(path);
-        fs::read_to_string(&full_path).map_err(|e| Error::io(e, "read_to_string", Some(full_path)))
+        fs::read_to_string(&full_path).map_err(|e| self.map_io_error(e, "read_to_string", full_path))
     }
     
     fn read_to_bytes(&self, path: &Path) -> Result<Vec<u8>> {
         let full_path = self.resolve_path(path);
-        fs::read(&full_path).map_err(|e| Error::io(e, "read_to_bytes", Some(full_path)))
+        fs::read(&full_path).map_err(|e| self.map_io_error(e, "read_to_bytes", full_path))
     }
     
     fn write_string(&self, path: &Path, contents: &str) -> Result<()> {
@@ -70,31 +81,29 @@ impl StorageProvider for LocalStorageProvider {
     fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<()> {
         let full_path = self.resolve_path(path);
         
-        // Get parent directory, error if none
         let parent_dir = match full_path.parent() {
-            Some(p) => p,
-            None => return Err(Error::StorageOperationFailed {
-                operation: "write_bytes".to_string(),
-                path: Some(full_path.clone()),
-                message: "Cannot write to path without parent directory".to_string(),
+            Some(p) => p.to_path_buf(), // Convert to PathBuf for ownership
+            None => return Err(StorageSystemError::InvalidPath {
+                path: full_path.clone(),
+                reason: "Cannot write to path without parent directory".to_string(),
             }),
         };
 
-        // Unconditionally ensure parent directory exists
-        self.create_dir_all(parent_dir)?;
+        // Ensure parent directory exists. create_dir_all expects a relative path to the provider's base.
+        // We need to strip base_path if parent_dir is absolute, or handle it carefully.
+        // For simplicity, assuming create_dir_all handles absolute paths correctly or paths are relative.
+        // If parent_dir is already resolved (absolute), we pass it directly.
+        // If create_dir_all is called on an already existing dir, it's a no-op.
+        fs::create_dir_all(&parent_dir).map_err(|e| self.map_io_error(e, "create_dir_all_for_write", parent_dir.clone()))?;
 
-        // Create a named temporary file in the same directory as the target file
-        let temp_file = NamedTempFile::new_in(parent_dir)
-            .map_err(|e| Error::io(e, "create_temp_file", Some(parent_dir.to_path_buf())))?;
+        let temp_file = NamedTempFile::new_in(&parent_dir)
+            .map_err(|e| self.map_io_error(e, "create_temp_file", parent_dir.clone()))?;
 
-        // Write contents to the temporary file
-        // Use write_all for robustness
         temp_file.as_file().write_all(contents)
-             .map_err(|e| Error::io(e, "write_to_temp_file", Some(temp_file.path().to_path_buf())))?;
+             .map_err(|e| self.map_io_error(e, "write_to_temp_file", temp_file.path().to_path_buf()))?;
 
-        // Persist the temporary file, atomically replacing the target file
         temp_file.persist(&full_path)
-            .map_err(|e| Error::io(e.error, "persist_temp_file", Some(full_path.clone())))?; // e is PersistError
+            .map_err(|e| self.map_io_error(e.error, "persist_temp_file", full_path.clone()))?;
 
         Ok(())
     }
@@ -104,81 +113,80 @@ impl StorageProvider for LocalStorageProvider {
         let full_to = self.resolve_path(to);
         fs::copy(&full_from, &full_to)
             .map(|_| ())
-            .map_err(|e| Error::io(e, "copy", Some(full_from))) // Report error with source path
+            .map_err(|e| self.map_io_error(e, "copy", full_from))
     }
     
     fn rename(&self, from: &Path, to: &Path) -> Result<()> {
         let full_from = self.resolve_path(from);
         let full_to = self.resolve_path(to);
         fs::rename(&full_from, &full_to)
-            .map_err(|e| Error::io(e, "rename", Some(full_from))) // Report error with source path
+            .map_err(|e| self.map_io_error(e, "rename", full_from))
     }
     
     fn remove_file(&self, path: &Path) -> Result<()> {
         let full_path = self.resolve_path(path);
-        fs::remove_file(&full_path).map_err(|e| Error::io(e, "remove_file", Some(full_path)))
+        fs::remove_file(&full_path).map_err(|e| self.map_io_error(e, "remove_file", full_path))
     }
     
     fn remove_dir(&self, path: &Path) -> Result<()> {
         let full_path = self.resolve_path(path);
-        fs::remove_dir(&full_path).map_err(|e| Error::io(e, "remove_dir", Some(full_path)))
+        fs::remove_dir(&full_path).map_err(|e| self.map_io_error(e, "remove_dir", full_path))
     }
     
     fn remove_dir_all(&self, path: &Path) -> Result<()> {
         let full_path = self.resolve_path(path);
-        fs::remove_dir_all(&full_path).map_err(|e| Error::io(e, "remove_dir_all", Some(full_path)))
+        fs::remove_dir_all(&full_path).map_err(|e| self.map_io_error(e, "remove_dir_all", full_path))
     }
     
     fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>> {
         let full_path = self.resolve_path(path);
-        let entries = fs::read_dir(&full_path).map_err(|e| Error::io(e, "read_dir", Some(full_path.clone())))?;
+        let entries = fs::read_dir(&full_path).map_err(|e| self.map_io_error(e, "read_dir", full_path.clone()))?;
         let mut result = Vec::new();
         
         for entry in entries {
-            // Map error for individual entry reading
-            let entry = entry.map_err(|e| Error::io(e, "read_dir_entry", Some(full_path.clone())))?;
+            let entry = entry.map_err(|e| self.map_io_error(e, "read_dir_entry", full_path.clone()))?;
             let path = entry.path();
             
-            // Convert back to a relative path if possible
             if let Ok(rel_path) = path.strip_prefix(&self.base_path) {
                 result.push(rel_path.to_path_buf());
             } else {
-                // This case should ideally not happen if entry path is within base_path
                 result.push(path);
             }
-        } // End of for loop
+        }
         
         Ok(result)
-    } // End of read_dir method
+    }
     
     fn metadata(&self, path: &Path) -> Result<std::fs::Metadata> {
         let full_path = self.resolve_path(path);
-        fs::metadata(&full_path).map_err(|e| Error::io(e, "metadata", Some(full_path)))
+        fs::metadata(&full_path).map_err(|e| self.map_io_error(e, "metadata", full_path))
     }
     
     fn open_read(&self, path: &Path) -> Result<Box<dyn Read>> {
         let full_path = self.resolve_path(path);
-        let file = File::open(&full_path).map_err(|e| Error::io(e, "open_read", Some(full_path)))?;
-        Ok(Box::new(file))
+        File::open(&full_path)
+            .map(|file| Box::new(file) as Box<dyn Read>)
+            .map_err(|e| self.map_io_error(e, "open_read", full_path))
     }
     
     fn open_write(&self, path: &Path) -> Result<Box<dyn Write>> {
         let full_path = self.resolve_path(path);
-        let file = File::create(&full_path).map_err(|e| Error::io(e, "open_write", Some(full_path)))?;
-        Ok(Box::new(file))
+        File::create(&full_path)
+            .map(|file| Box::new(file) as Box<dyn Write>)
+            .map_err(|e| self.map_io_error(e, "open_write", full_path))
     }
     
     fn open_append(&self, path: &Path) -> Result<Box<dyn Write>> {
         let full_path = self.resolve_path(path);
-        let file = OpenOptions::new()
+        OpenOptions::new()
             .write(true)
             .append(true)
             .create(true)
             .open(&full_path)
-            .map_err(|e| Error::io(e, "open_append", Some(full_path)))?;
-        Ok(Box::new(file))
+            .map(|file| Box::new(file) as Box<dyn Write>)
+            .map_err(|e| self.map_io_error(e, "open_append", full_path))
     }
-} // End of impl StorageProvider
+}
 
 // Implement Debug for LocalStorageProvider (Moved outside impl StorageProvider)
 impl fmt::Debug for LocalStorageProvider {

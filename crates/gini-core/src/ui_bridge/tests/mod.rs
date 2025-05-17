@@ -2,160 +2,184 @@
 mod tests {
     use std::time::SystemTime;
     use std::sync::{Arc, Mutex};
+    use std::fmt::Debug;
 
-    use crate::ui_bridge::{UiBridge, UiMessage, UiUpdateType, MessageSeverity, UiProvider};
+    use crate::ui_bridge::{UnifiedUiManager, UiMessage, UserInput, UiUpdateType, MessageSeverity, UnifiedUiInterface, error::UiBridgeError};
 
-    /// Test basic UiBridge creation and default settings
+    /// Test basic UnifiedUiManager creation and default settings
     #[test]
-    fn test_ui_bridge_creation() {
-        let bridge = UiBridge::new();
+    fn test_unified_ui_manager_creation() {
+        let manager = UnifiedUiManager::new();
         
-        // Verify a default provider exists
-        assert!(!bridge.providers.is_empty());
+        // Verify a default interface exists
+        let interfaces_guard = manager.interfaces.lock().unwrap();
+        assert!(!interfaces_guard.is_empty(), "Manager should have at least one interface after creation.");
         
-        // Verify it's the "console" provider
-        assert_eq!(bridge.get_default_provider_name(), Some("console".to_string()));
+        // Verify it's the "console" interface
+        assert_eq!(manager.get_default_interface_name(), Some("console".to_string()));
     }
 
     /// Test sending a single message
     #[test]
-    fn test_send_message() {
-        let bridge = UiBridge::new();
+    fn test_broadcast_message() {
+        let manager = UnifiedUiManager::new();
         let message = UiMessage {
             update_type: UiUpdateType::Status("test message".to_string()),
             source: "test_source".to_string(),
             timestamp: SystemTime::now(),
         };
 
-        let result = bridge.send_message(message);
-        assert!(result.is_ok(), "Sending a message should succeed");
+        let result = manager.broadcast_message(message);
+        assert!(result.is_ok(), "Broadcasting a message should succeed");
     }
 
     /// Test convenience methods for sending different message types
     #[test]
     fn test_message_helper_methods() {
-        let bridge = UiBridge::new();
+        let manager = UnifiedUiManager::new();
         
         // Test progress message
-        let progress_result = bridge.progress("test_source", 0.5);
+        let progress_result = manager.progress("test_source", 0.5);
         assert!(progress_result.is_ok(), "Progress message failed");
         
         // Test status message
-        let status_result = bridge.status("test_source", "Status update");
+        let status_result = manager.status("test_source", "Status update");
         assert!(status_result.is_ok(), "Status message failed");
         
         // Test log message
-        let log_result = bridge.log("test_source", "Log entry", MessageSeverity::Info);
+        let log_result = manager.log("test_source", "Log entry", MessageSeverity::Info);
         assert!(log_result.is_ok(), "Log message failed");
         
         // Test dialog message
-        let dialog_result = bridge.dialog("test_source", "Dialog content", MessageSeverity::Warning);
+        let dialog_result = manager.dialog("test_source", "Dialog content", MessageSeverity::Warning);
         assert!(dialog_result.is_ok(), "Dialog message failed");
     }
 
-    /// Test registering a custom provider and setting it as default
-    #[test]
-    fn test_register_custom_provider() {
-        struct TestProvider {}
-        
-        impl UiProvider for TestProvider {
-            fn name(&self) -> &'static str { "test_provider" }
-            fn initialize(&mut self) -> Result<(), String> { Ok(()) }
-            fn handle_message(&mut self, _: &UiMessage) -> Result<(), String> { Ok(()) }
-            fn update(&mut self) -> Result<(), String> { Ok(()) }
-            fn finalize(&mut self) -> Result<(), String> { Ok(()) }
-            fn supports_interactive(&self) -> bool { true }
+    #[derive(Debug)] // Added Debug derive
+    struct TestInterface {
+        // Minimal state for testing if needed
+        init_called: bool,
+        finalize_called: bool,
+        update_called: bool,
+    }
+    
+    impl TestInterface {
+        fn new() -> Self {
+            Self {
+                init_called: false,
+                finalize_called: false,
+                update_called: false,
+            }
         }
+    }
         
-        let mut bridge = UiBridge::new();
+    impl UnifiedUiInterface for TestInterface {
+        fn name(&self) -> &str { "test_interface" }
+        fn initialize(&mut self) -> Result<(), UiBridgeError> { self.init_called = true; Ok(()) }
+        fn handle_message(&mut self, _: &UiMessage) -> Result<(), UiBridgeError> { Ok(()) }
+        fn send_input(&mut self, _input: UserInput) -> Result<(), UiBridgeError> { Ok(()) }
+        fn update(&mut self) -> Result<(), UiBridgeError> { self.update_called = true; Ok(()) }
+        fn finalize(&mut self) -> Result<(), UiBridgeError> { self.finalize_called = true; Ok(()) }
+        fn supports_interactive(&self) -> bool { true }
+    }
+
+    /// Test registering a custom interface and setting it as default
+    #[test]
+    fn test_register_custom_interface() {
+        let manager = UnifiedUiManager::new(); // manager is not mutable here
         
-        // Register the custom provider
-        let register_result = bridge.register_provider(Box::new(TestProvider {}));
-        assert!(register_result.is_ok(), "Provider registration failed");
+        // Register the custom interface
+        let register_result = manager.register_interface(Box::new(TestInterface::new()));
+        assert!(register_result.is_ok(), "Interface registration failed: {:?}", register_result.err());
         
         // Set it as default
-        let set_default_result = bridge.set_default_provider("test_provider");
-        assert!(set_default_result.is_ok(), "Setting default provider failed");
+        let set_default_result = manager.set_default_interface("test_interface");
+        assert!(set_default_result.is_ok(), "Setting default interface failed: {:?}", set_default_result.err());
         
         // Verify it's set as default
         assert_eq!(
-            bridge.get_default_provider_name(),
-            Some("test_provider".to_string()),
-            "Default provider should be updated"
+            manager.get_default_interface_name(),
+            Some("test_interface".to_string()),
+            "Default interface should be updated"
         );
     }
 
-    /// Test the message delivery to a mock provider
+    /// Test the message delivery to a mock interface
     #[test]
-    fn test_send_message_with_mock_provider() {
-        struct MockUiProvider {
+    fn test_broadcast_message_with_mock_interface() {
+        #[derive(Debug)]
+        struct MockUiInterface {
             handle_message_called: Arc<Mutex<bool>>,
+            last_message: Arc<Mutex<Option<UiMessage>>>,
         }
 
-        impl MockUiProvider {
-            fn new() -> (Self, Arc<Mutex<bool>>) {
+        impl MockUiInterface {
+            fn new() -> (Self, Arc<Mutex<bool>>, Arc<Mutex<Option<UiMessage>>>) {
                 let handle_message_called = Arc::new(Mutex::new(false));
-                (Self { handle_message_called: handle_message_called.clone() }, handle_message_called)
+                let last_message = Arc::new(Mutex::new(None));
+                (
+                    Self {
+                        handle_message_called: handle_message_called.clone(),
+                        last_message: last_message.clone(),
+                    },
+                    handle_message_called,
+                    last_message
+                )
             }
         }
 
-        impl UiProvider for MockUiProvider {
-            fn name(&self) -> &'static str {
-                "mock"
-            }
-
-            fn initialize(&mut self) -> Result<(), String> {
-                Ok(())
-            }
-
-            fn handle_message(&mut self, _message: &UiMessage) -> Result<(), String> {
+        impl UnifiedUiInterface for MockUiInterface {
+            fn name(&self) -> &str { "mock_interface" }
+            fn initialize(&mut self) -> Result<(), UiBridgeError> { Ok(()) }
+            fn handle_message(&mut self, message: &UiMessage) -> Result<(), UiBridgeError> {
                 *self.handle_message_called.lock().unwrap() = true;
+                *self.last_message.lock().unwrap() = Some(message.clone());
                 Ok(())
             }
-
-            fn update(&mut self) -> Result<(), String> {
-                Ok(())
-            }
-
-            fn finalize(&mut self) -> Result<(), String> {
-                Ok(())
-            }
-
-            fn supports_interactive(&self) -> bool {
-                false
-            }
+            fn send_input(&mut self, _input: UserInput) -> Result<(), UiBridgeError> { Ok(()) }
+            fn update(&mut self) -> Result<(), UiBridgeError> { Ok(()) }
+            fn finalize(&mut self) -> Result<(), UiBridgeError> { Ok(()) }
+            fn supports_interactive(&self) -> bool { false }
         }
 
-        let (mock_provider, handle_message_called) = MockUiProvider::new();
+        let (mock_interface, handle_message_called, _last_message) = MockUiInterface::new();
 
-        let mut bridge = UiBridge::new();
-        bridge.register_provider(Box::new(mock_provider)).unwrap();
-        bridge.set_default_provider("mock").unwrap();
+        let manager = UnifiedUiManager::new();
+        manager.register_interface(Box::new(mock_interface)).unwrap();
+        // No need to set default for broadcast
 
+        let message_content = "test message for mock".to_string();
         let message = UiMessage {
-            update_type: UiUpdateType::Status("test message".to_string()),
-            source: "test".to_string(),
+            update_type: UiUpdateType::Status(message_content.clone()),
+            source: "test_mock_source".to_string(),
             timestamp: SystemTime::now(),
         };
 
-        bridge.send_message(message).unwrap();
+        manager.broadcast_message(message.clone()).unwrap();
 
-        assert!(*handle_message_called.lock().unwrap(), "Message handler should have been called");
+        assert!(*handle_message_called.lock().unwrap(), "Message handler should have been called on mock interface");
+        // Optionally, check if the correct message was received
+        // let received_msg_opt = last_message.lock().unwrap();
+        // assert!(received_msg_opt.is_some(), "Mock interface should have received a message");
+        // if let Some(received_msg) = received_msg_opt.as_ref() {
+        //     assert_eq!(received_msg.source, message.source);
+        //     // Add more specific checks if needed
+        // }
     }
 
-    /// Test UiBridge initialization and update lifecycle
+    /// Test UnifiedUiManager lifecycle methods
     #[test]
     fn test_lifecycle_methods() {
-        let mut bridge = UiBridge::new();
+        let manager = UnifiedUiManager::new(); // manager is not mutable here
         
         // Test initialization
-        assert!(bridge.initialize().is_ok(), "UiBridge initialization failed");
+        assert!(manager.initialize_all().is_ok(), "UnifiedUiManager initialization failed");
         
         // Test update
-        assert!(bridge.update().is_ok(), "UiBridge update failed");
+        assert!(manager.update_all().is_ok(), "UnifiedUiManager update failed");
         
         // Test finalization
-        assert!(bridge.finalize().is_ok(), "UiBridge finalization failed");
+        assert!(manager.finalize_all().is_ok(), "UnifiedUiManager finalization failed");
     }
 
     /// Test UiMessage equality implementation

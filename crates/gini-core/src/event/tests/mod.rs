@@ -5,6 +5,8 @@ mod dispatcher_tests;
 mod manager_tests;
 #[cfg(test)]
 mod types_tests;
+#[cfg(test)]
+mod error_tests; // Add the new test module
 
 #[cfg(test)]
 mod tests {
@@ -40,10 +42,10 @@ mod tests {
             async move { EventResult::Continue }
         };
 
-        event_manager.register_handler("test_event", Box::new(move |event: &dyn Event| Box::pin(handler(event)))).await.unwrap();
+        event_manager.register_handler("test_event", Box::new(move |event: &dyn Event| Box::pin(handler(event)))).await;
 
         let event = TestEvent::new("test_event");
-        event_manager.dispatch(&event).await.unwrap();
+        event_manager.dispatch(&event).await;
 
         assert!(*called.lock().unwrap(), "Handler should have been called");
     }

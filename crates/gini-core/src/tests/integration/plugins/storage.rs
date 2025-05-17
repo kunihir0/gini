@@ -5,9 +5,10 @@ use async_trait::async_trait;
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Result as KernelResult;
+// use crate::kernel::error::Result as KernelResult; // Removed unused import
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError as TraitsPluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::StageContext; // Removed unused Stage
 use crate::stage_manager::registry::StageRegistry; // Added
@@ -39,7 +40,7 @@ impl Plugin for StorageInteractingPlugin {
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
     // init no longer needs to get the storage manager from app
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { // Add app parameter back (unused)
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { // Add app parameter back (unused)
         println!("Plugin {} init: Interacting with storage", self.name());
         // Use the stored storage manager Arc directly
         let storage = &self.storage;
@@ -50,26 +51,26 @@ impl Plugin for StorageInteractingPlugin {
         let content = format!("Data written by {}", self.name());
 
         // Write data using the StorageProvider trait methods (trait import added at top)
-        storage.write_string(&test_path, &content)?;
+        storage.write_string(&test_path, &content).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         println!("Plugin {} wrote to {:?}", self.name(), test_path);
 
         // Read data back
-        let read_content = storage.read_to_string(&test_path)?;
+        let read_content = storage.read_to_string(&test_path).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         println!("Plugin {} read back: {}", self.name(), read_content);
 
         // Verify content
         assert_eq!(read_content, content, "Read content should match written content");
 
         // Clean up
-        storage.remove_file(&test_path)?;
+        storage.remove_file(&test_path).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         println!("Plugin {} cleaned up {:?}", self.name(), test_path);
 
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) } // Imports added at top
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
@@ -97,7 +98,7 @@ async fn test_plugin_interaction_with_storage() {
      // Register the plugin
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin)).expect("Failed to register storage plugin");
+        registry.register_plugin(Arc::new(plugin)).expect("Failed to register storage plugin");
     }
 
     // Create a mock Application instance containing the necessary managers

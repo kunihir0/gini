@@ -76,11 +76,11 @@ async fn test_dispatch_event() {
     });
 
     // Register handler using the manager's public API
-    manager.register_handler("test.event", handler).await.expect("Failed to register handler");
+    manager.register_handler("test.event", handler).await;
 
     // Create and dispatch event
     let event = TestEvent::new("test.event", "manager dispatch test");
-    manager.dispatch(&event).await.expect("Failed to dispatch event");
+    manager.dispatch(&event).await;
 
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Handler should have been called");
 }
@@ -117,17 +117,17 @@ async fn test_queue_event() {
         EventResult::Continue
     });
 
-    manager.register_handler("test.event", handler).await.expect("Failed to register handler");
+    manager.register_handler("test.event", handler).await;
 
     // Queue events
     let event1 = Box::new(TestEvent::new("test.event", "queue test 1"));
     let event2 = Box::new(TestEvent::new("test.event", "queue test 2"));
 
-    manager.queue_event(event1).await.expect("Failed to queue event 1");
-    manager.queue_event(event2).await.expect("Failed to queue event 2");
+    manager.queue_event(event1).await;
+    manager.queue_event(event2).await;
 
     // Process queue
-    let processed = manager.process_queue().await.expect("Failed to process queue");
+    let processed = manager.process_queue().await;
 
     assert_eq!(processed, 2, "Both events should be processed");
     assert_eq!(counter.load(Ordering::SeqCst), 2, "Handler should be called twice");
@@ -145,20 +145,20 @@ async fn test_unregister_handler() {
         EventResult::Continue
     });
 
-    let id = manager.register_handler("test.event", handler).await.expect("Failed to register handler");
+    let id = manager.register_handler("test.event", handler).await;
 
     // Create and dispatch an event to verify handler works
     let event1 = TestEvent::new("test.event", "before unregister");
-    manager.dispatch(&event1).await.expect("Failed to dispatch event");
+    manager.dispatch(&event1).await;
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Handler should be called");
 
     // Unregister the handler
-    let result = manager.unregister_handler(id).await.expect("Failed to unregister handler");
+    let result = manager.unregister_handler(id).await;
     assert!(result, "Unregister should return true for successful unregistration");
 
     // Dispatch another event, handler should no longer be called
     let event2 = TestEvent::new("test.event", "after unregister");
-    manager.dispatch(&event2).await.expect("Failed to dispatch event");
+    manager.dispatch(&event2).await;
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Handler should not be called after unregistration");
 }
 
@@ -187,12 +187,12 @@ async fn test_multiple_handlers() {
             EventResult::Continue
         });
 
-        manager.register_handler("multi.event", handler).await.expect("Failed to register handler");
+        manager.register_handler("multi.event", handler).await;
     }
 
     // Dispatch event
     let event = TestEvent::new("multi.event", "multiple handlers test");
-    manager.dispatch(&event).await.expect("Failed to dispatch event");
+    manager.dispatch(&event).await;
 
     // Give a moment for async operations to complete
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -228,11 +228,11 @@ async fn test_event_data_handling() {
         EventResult::Continue
     });
 
-    manager.register_handler("test.event", handler).await.expect("Failed to register handler");
+    manager.register_handler("test.event", handler).await;
 
     // Dispatch an event with specific data
     let event = TestEvent::new("test.event", "specific test data");
-    manager.dispatch(&event).await.expect("Failed to dispatch event");
+    manager.dispatch(&event).await;
 
     // Give time for async operation to complete
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;

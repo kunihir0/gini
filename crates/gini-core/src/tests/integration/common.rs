@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
+use std::error::Error as StdError; // For boxing
 use async_trait::async_trait;
 use std::fs; // Added for test setup
 use tempfile::tempdir; // Added for test setup
@@ -12,9 +13,11 @@ use tempfile::tempdir; // Added for test setup
 // use std::sync::Mutex as StdMutex;
 
 use crate::kernel::bootstrap::Application;
-use crate::kernel::error::{Error, Result as KernelResult};
+// Removed: use crate::kernel::error::Error as KernelError;
+// Removed: use crate::kernel::error::Result as KernelResult;
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::manager::DefaultPluginManager;
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added for test setup
@@ -25,6 +28,11 @@ use crate::stage_manager::registry::StageRegistry; // Added for register_stages
 use crate::stage_manager::requirement::StageRequirement;
 use crate::storage::manager::DefaultStorageManager;
 use crate::storage::provider::StorageProvider;
+use crate::storage::error::StorageSystemError; // Import StorageSystemError
+use std::result::Result as StdResult; // Import StdResult for StorageProvider impl
+
+// Type alias for Result with StorageSystemError for TestStorageProvider
+type StorageProviderResult<T> = StdResult<T, StorageSystemError>;
 
 // ===== MOCK PLUGINS =====
 
@@ -71,7 +79,7 @@ impl Plugin for TestPlugin {
 
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         println!("{}::init called", self.name());
         // Record initialization order
         let name_clone = self.name.clone();
@@ -80,14 +88,14 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         println!("{} preflight check: OK", self.name());
         Ok(())
     }
 
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
-        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         Ok(())
     }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -162,7 +170,7 @@ impl Plugin for DependentPlugin {
 
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         println!("{}::init called", self.name());
         // Record initialization order
         let name_clone = self.name.clone(); // Clone name for async block
@@ -172,7 +180,7 @@ impl Plugin for DependentPlugin {
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         match self.preflight_behavior {
             PreflightBehavior::Success => {
                 println!("{} preflight check: OK", self.name());
@@ -180,14 +188,15 @@ impl Plugin for DependentPlugin {
             },
             PreflightBehavior::Failure => {
                 println!("{} preflight check: FAILED", self.name());
-                Err(PluginError::PreflightCheckError(format!(
-                    "Simulated preflight check failure for {}", self.name()
-                )))
+                Err(PluginSystemError::PreflightCheckFailed {
+                    plugin_id: self.name.clone(),
+                    message: format!("Simulated preflight check failure for {}", self.name()),
+                })
             }
         }
     }
 
-    fn shutdown(&self) -> KernelResult<()> {
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> {
         println!("{}::shutdown called", self.name());
         // Record shutdown order
         let name_clone = self.name.clone();
@@ -197,13 +206,14 @@ impl Plugin for DependentPlugin {
 
         match self.shutdown_behavior {
             ShutdownBehavior::Success => Ok(()),
-            ShutdownBehavior::Failure => Err(Error::Plugin(format!(
-                "Simulated shutdown failure for {}", self.name()
-            ))),
+            ShutdownBehavior::Failure => Err(PluginSystemError::ShutdownError {
+                plugin_id: self.name.clone(),
+                message: format!("Simulated shutdown failure for {}", self.name()),
+            }),
         }
     }
-    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
-        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         Ok(())
     } // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -255,15 +265,15 @@ impl Plugin for VersionedPlugin {
 
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         Ok(())
     }
 
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
-        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone())))?;
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> {
+        registry.register_stage(Box::new(TestStage::new(&format!("{}_Stage", self.name()), self.stages_executed.clone()))).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         Ok(())
     }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
@@ -299,8 +309,8 @@ impl Stage for TestStage {
     fn description(&self) -> &str {
         "Test stage for integration tests"
     }
-
-    async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
+ 
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         let mut tracker = self.execution_tracker.lock().await;
         tracker.insert(self.id.clone());
         println!("Executing stage: {}", self.id);
@@ -340,8 +350,8 @@ impl Stage for DependentStage {
     fn description(&self) -> &str {
         "Stage with dependencies for testing"
     }
-
-    async fn execute(&self, _context: &mut StageContext) -> KernelResult<()> {
+ 
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // This stage uses std::sync::Mutex for its tracker, but execute is async.
         // Use spawn_blocking to avoid blocking the async executor.
         let order_tracker = self.execution_order.clone();
@@ -349,8 +359,8 @@ impl Stage for DependentStage {
         tokio::task::spawn_blocking(move || {
             let mut order_guard = order_tracker.lock().unwrap();
             order_guard.push(id_clone);
-        }).await.map_err(|e| Error::Other(format!("Spawn blocking failed: {}", e)))?; // Handle potential join error
-
+        }).await.map_err(|e| Box::new(crate::kernel::error::Error::Other(format!("Spawn blocking failed: {}", e))) as Box<dyn StdError + Send + Sync + 'static>)?; // Handle potential join error
+ 
         println!("Executing dependent stage: {}", self.id);
         Ok(())
     }
@@ -390,111 +400,111 @@ impl StorageProvider for TestStorageProvider {
         false
     }
 
-    fn create_dir(&self, _path: &Path) -> KernelResult<()> {
+    fn create_dir(&self, _path: &Path) -> StorageProviderResult<()> {
         Ok(())
     }
 
-    fn create_dir_all(&self, _path: &Path) -> KernelResult<()> {
+    fn create_dir_all(&self, _path: &Path) -> StorageProviderResult<()> {
         Ok(())
     }
 
-    fn read_to_string(&self, path: &Path) -> KernelResult<String> {
+    fn read_to_string(&self, path: &Path) -> StorageProviderResult<String> {
         let binding = path.to_string_lossy().to_string();
         let storage = self.data.lock().unwrap(); // Use std lock
         match storage.get(&binding) {
             Some(bytes) => {
-                String::from_utf8(bytes.clone()).map_err(|e| Error::StorageOperationFailed {
+                String::from_utf8(bytes.clone()).map_err(|e| StorageSystemError::OperationFailed {
                     operation: "read_to_string".to_string(),
                     path: Some(path.to_path_buf()),
                     message: format!("UTF-8 conversion error: {}", e),
                 })
             },
-            None => Err(Error::FileNotFound { path: path.to_path_buf() }),
+            None => Err(StorageSystemError::FileNotFound(path.to_path_buf())),
         }
     }
 
-    fn read_to_bytes(&self, path: &Path) -> KernelResult<Vec<u8>> {
+    fn read_to_bytes(&self, path: &Path) -> StorageProviderResult<Vec<u8>> {
         let binding = path.to_string_lossy().to_string();
         let storage = self.data.lock().unwrap(); // Use std lock
         match storage.get(&binding) {
             Some(bytes) => Ok(bytes.clone()),
-            None => Err(Error::FileNotFound { path: path.to_path_buf() }),
+            None => Err(StorageSystemError::FileNotFound(path.to_path_buf())),
         }
     }
 
-    fn write_string(&self, path: &Path, contents: &str) -> KernelResult<()> {
+    fn write_string(&self, path: &Path, contents: &str) -> StorageProviderResult<()> {
         self.write_bytes(path, contents.as_bytes())
     }
 
-    fn write_bytes(&self, path: &Path, contents: &[u8]) -> KernelResult<()> {
+    fn write_bytes(&self, path: &Path, contents: &[u8]) -> StorageProviderResult<()> {
         let binding = path.to_string_lossy().to_string();
         let mut storage = self.data.lock().unwrap(); // Use std lock
         storage.insert(binding, contents.to_vec());
         Ok(())
     }
 
-    fn copy(&self, from: &Path, to: &Path) -> KernelResult<()> {
+    fn copy(&self, from: &Path, to: &Path) -> StorageProviderResult<()> {
         let data = self.read_to_bytes(from)?;
         self.write_bytes(to, &data)
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> KernelResult<()> {
+    fn rename(&self, from: &Path, to: &Path) -> StorageProviderResult<()> {
         let data = self.read_to_bytes(from)?;
         self.write_bytes(to, &data)?;
         self.remove_file(from)
     }
 
-    fn remove_file(&self, path: &Path) -> KernelResult<()> {
+    fn remove_file(&self, path: &Path) -> StorageProviderResult<()> {
         let binding = path.to_string_lossy().to_string();
         let mut storage = self.data.lock().unwrap(); // Use std lock
         storage.remove(&binding);
         Ok(())
     }
 
-    fn remove_dir(&self, _path: &Path) -> KernelResult<()> {
+    fn remove_dir(&self, _path: &Path) -> StorageProviderResult<()> {
         Ok(())
     }
 
-    fn remove_dir_all(&self, _path: &Path) -> KernelResult<()> {
+    fn remove_dir_all(&self, _path: &Path) -> StorageProviderResult<()> {
         Ok(())
     }
 
-    fn read_dir(&self, _path: &Path) -> KernelResult<Vec<PathBuf>> {
+    fn read_dir(&self, _path: &Path) -> StorageProviderResult<Vec<PathBuf>> {
         Ok(vec![])
     }
 
-    fn metadata(&self, path: &Path) -> KernelResult<std::fs::Metadata> {
+    fn metadata(&self, path: &Path) -> StorageProviderResult<std::fs::Metadata> {
         // This is tricky to mock correctly. Return an error for now.
-        Err(Error::StorageOperationFailed {
+        Err(StorageSystemError::OperationFailed {
             operation: "metadata".to_string(),
             path: Some(path.to_path_buf()),
             message: "Metadata not supported for TestStorageProvider".to_string(),
         })
     }
 
-    fn open_read(&self, path: &Path) -> KernelResult<Box<dyn Read>> {
+    fn open_read(&self, path: &Path) -> StorageProviderResult<Box<dyn Read>> {
         // Mock reading by returning bytes from the map wrapped in a Cursor
         let files = self.data.lock().unwrap(); // Use self.data
         let binding = path.to_string_lossy().to_string();
         if let Some(data) = files.get(&binding) {
             Ok(Box::new(std::io::Cursor::new(data.clone())))
         } else {
-            Err(Error::FileNotFound { path: path.to_path_buf() })
+            Err(StorageSystemError::FileNotFound(path.to_path_buf()))
         }
     }
 
-    fn open_write(&self, path: &Path) -> KernelResult<Box<dyn Write>> {
+    fn open_write(&self, path: &Path) -> StorageProviderResult<Box<dyn Write>> {
         // Mock writing is complex. For now, return an error.
-        Err(Error::StorageOperationFailed {
+        Err(StorageSystemError::OperationFailed {
             operation: "open_write".to_string(),
             path: Some(path.to_path_buf()),
             message: "open_write not fully supported for TestStorageProvider".to_string(),
         })
     }
 
-    fn open_append(&self, path: &Path) -> KernelResult<Box<dyn Write>> {
+    fn open_append(&self, path: &Path) -> StorageProviderResult<Box<dyn Write>> {
         // Mock appending is complex. For now, return an error.
-        Err(Error::StorageOperationFailed {
+        Err(StorageSystemError::OperationFailed {
             operation: "open_append".to_string(),
             path: Some(path.to_path_buf()),
             message: "open_append not fully supported for TestStorageProvider".to_string(),

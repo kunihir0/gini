@@ -3,16 +3,56 @@
 use tempfile::tempdir;
 use tokio::fs as tokio_fs;
 use serde_json::json; // Use serde_json for better manifest creation
+use std::path::PathBuf; // Added for PathBuf
+use std::fs; // Added for fs::copy
+use std::env; // Added for env::current_dir
+use std::sync::Arc; // Added for Arc
 
 use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
 use crate::kernel::error::Result as KernelResult;
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::traits::Plugin;
- // Added ApiVersion
+use crate::plugin_system::version::ApiVersion; // Added ApiVersion
 use crate::plugin_system::loader::PluginLoader; // Import PluginLoader
- // For VersionRange::from_str
+use crate::plugin_system::registry::PluginRegistry; // Added for tests
+// Removed: use crate::plugin_system::manifest::PluginManifest;
+
 
 use super::super::common::{setup_test_environment, TestPlugin};
+
+// Helper function to find the path to the compiled example plugin
+// Copied from manager_tests.rs and adapted
+fn get_example_plugin_path_for_loading_tests() -> Option<PathBuf> {
+    let current_dir = env::current_dir().expect("Failed to get current directory");
+    // Relative path from crates/gini-core/src/plugin_system/tests
+    // to workspace_root/target/debug/libcompat_check_example.so
+    // ../../../../target/debug/libcompat_check_example.so
+    let plugin_name = if cfg!(target_os = "windows") {
+        "compat_check_example.dll"
+    } else if cfg!(target_os = "macos") {
+        "libcompat_check_example.dylib"
+    } else {
+        "libcompat_check_example.so"
+    };
+
+    let paths_to_check = [
+        // Path relative to crates/gini-core
+        current_dir.join("../../target/debug").join(plugin_name),
+        // Path relative to workspace root (if tests are run from there)
+        current_dir.join("target/debug").join(plugin_name),
+        // A common structure if OUT_DIR is used and linked from target/debug
+        PathBuf::from("target/debug").join(plugin_name),
+    ];
+
+    for path in paths_to_check.iter() {
+        if path.exists() {
+            return Some(path.clone());
+        }
+    }
+    None
+}
+
 
 #[tokio::test]
 async fn test_scan_manifests_io_error_direct_loader() -> KernelResult<()> {
@@ -76,7 +116,7 @@ async fn test_static_plugin_initialization_succeeds() -> KernelResult<()> {
     let plugin_registry_arc = plugin_manager.registry();
     {
         let mut registry_lock = plugin_registry_arc.lock().await;
-        registry_lock.register_plugin(Box::new(plugin))?;
+        registry_lock.register_plugin(Arc::new(plugin))?; // Use Arc::new
         // Ensure it's enabled but not initialized
         assert!(registry_lock.is_enabled(&plugin_name));
         assert!(!registry_lock.initialized.contains(&plugin_name));
@@ -225,55 +265,50 @@ async fn test_scan_manifests_invalid_json_integration() -> KernelResult<()> {
 
 #[tokio::test]
 async fn test_register_all_plugins_success_integration() -> KernelResult<()> {
-    let tmp_dir = tempdir()?;
-    let plugin_base = tmp_dir.path();
+    let tmp_dir = tempdir().expect("Failed to create temp directory for test_register_all_plugins_success_integration");
+    let plugin_dir_path = tmp_dir.path();
 
-    // Plugin A (no deps)
-    let pa_dir = plugin_base.join("plugin_a");
-    tokio_fs::create_dir_all(&pa_dir).await?;
-    let pa_manifest_content = create_manifest_json_string("plugin_a", "1.0.0", None, Some(vec!["^1.0"]));
-    tokio_fs::write(pa_dir.join("manifest.json"), pa_manifest_content).await?;
+    // Create a manifest for a plugin that can be loaded
+    let plugin_id = "test_plugin_for_register";
+    let manifest_content = format!(r#"
+        {{
+            "id": "{}",
+            "name": "Test Plugin for Register",
+            "version": "1.0.0",
+            "description": "A test plugin.",
+            "author": "Test Author",
+            "api_versions": [">=0.1.0"],
+            "entry_point": "libcompat_check_example.so"
+        }}
+    "#, plugin_id);
 
-    // Plugin B (depends on A)
-    let pb_dir = plugin_base.join("plugin_b");
-    tokio_fs::create_dir_all(&pb_dir).await?;
-    let pb_manifest_content = create_manifest_json_string("plugin_b", "1.0.0", Some(vec![("plugin_a", "^1.0", true)]), Some(vec!["^1.0"]));
-    tokio_fs::write(pb_dir.join("manifest.json"), pb_manifest_content).await?;
+    let plugin_subdir = plugin_dir_path.join(plugin_id);
+    tokio_fs::create_dir_all(&plugin_subdir).await?;
+    tokio_fs::write(plugin_subdir.join("manifest.json"), manifest_content).await?;
+
+    // Copy the actual compiled example plugin to the location specified by entry_point
+    let example_plugin_src = get_example_plugin_path_for_loading_tests()
+        .expect("Example plugin .so not found. Build 'compat-check-example' first with: cargo build -p compat-check-example");
+    let so_dest_path = plugin_subdir.join("libcompat_check_example.so");
+    fs::copy(&example_plugin_src, &so_dest_path)?; // Use std::fs for sync copy
+
 
     let mut loader = PluginLoader::new();
-    loader.add_plugin_dir(plugin_base);
-    // Scan needs to happen *before* creating the registry if registry uses scanned manifests
+    loader.add_plugin_dir(plugin_dir_path);
     let scanned_manifests = loader.scan_for_manifests().await?;
-    assert_eq!(scanned_manifests.len(), 2, "Scan should find both manifests");
+    assert_eq!(scanned_manifests.len(), 1, "Should find one manifest");
+    assert_eq!(scanned_manifests[0].id, plugin_id);
 
-
-    let api_version = crate::plugin_system::version::ApiVersion::new(1, 0, 0); // Define kernel API version
-    // Use the real PluginRegistry
-    let mut registry = crate::plugin_system::registry::PluginRegistry::new(api_version.clone());
-
-
-    // NOTE: register_all_plugins expects the actual loading (_plugin_init) to happen.
-    // The current stub for load_plugin returns Err. This test *should* fail registration
-    // because of the load failure, even if deps and API are okay.
-    // The plan's expected outcome needs clarification based on the stub behavior.
-    // Assuming the plan *intended* to test resolution *before* loading:
-    // We expect Ok(0) because resolution passes, but loading fails for both.
-
-    let result = loader.register_all_plugins(&mut registry, &api_version).await; // Pass real registry
-
-    // Based on current load_plugin stub returning Err:
-    assert!(result.is_ok(), "register_all_plugins should return Ok even if individual loads fail");
-    let registered_count = result.unwrap();
-    assert_eq!(registered_count, 0, "Expected 0 plugins registered due to load_plugin stub failure");
-    // Check the real registry's count
-    assert_eq!(registry.plugin_count(), 0, "Real registry should have 0 plugins registered");
-
-    // If load_plugin stub were changed to succeed:
-    // assert!(result.is_ok());
-    // assert_eq!(result.unwrap(), 2);
-    // assert_eq!(registry.plugin_count(), 2);
-    // assert!(registry.has_plugin("plugin_a")); // Use real registry method
-    // assert!(registry.has_plugin("plugin_b")); // Use real registry method
+    let mut registry = PluginRegistry::new(ApiVersion::from_str("0.1.0").unwrap());
+    
+    // This will call loader.load_plugin internally
+    let count = loader.register_all_plugins(&mut registry, &ApiVersion::from_str("0.1.0").unwrap()).await?;
+    
+    // With PluginLoader::load_plugin implemented, we expect 1 plugin to be loaded.
+    assert_eq!(count, 1, "Expected 1 plugin to be loaded successfully");
+    assert_eq!(registry.plugin_count(), 1);
+    // The actual plugin name from the .so file is "CompatCheckExample"
+    assert!(registry.has_plugin("CompatCheckExample"));
 
     Ok(())
 }
@@ -289,12 +324,20 @@ async fn test_register_all_plugins_api_incompatible_integration() -> KernelResul
     tokio_fs::create_dir_all(&pa_dir).await?;
     let pa_manifest_content = create_manifest_json_string("plugin_a", "1.0.0", None, Some(vec!["^1.0"]));
     tokio_fs::write(pa_dir.join("manifest.json"), pa_manifest_content).await?;
+    // Create a dummy .so for plugin_a to allow it to attempt loading
+    let so_a_path = pa_dir.join("libplugin_a.so");
+    tokio_fs::write(&so_a_path, "").await?;
+
 
     // Plugin B (incompatible API)
     let pb_dir = plugin_base.join("plugin_b");
     tokio_fs::create_dir_all(&pb_dir).await?;
     let pb_manifest_content = create_manifest_json_string("plugin_b", "1.0.0", None, Some(vec!["^2.0"])); // Requires API v2
     tokio_fs::write(pb_dir.join("manifest.json"), pb_manifest_content).await?;
+    // Create a dummy .so for plugin_b
+    let so_b_path = pb_dir.join("libplugin_b.so");
+    tokio_fs::write(&so_b_path, "").await?;
+
 
     let mut loader = PluginLoader::new();
     loader.add_plugin_dir(plugin_base);
@@ -305,20 +348,18 @@ async fn test_register_all_plugins_api_incompatible_integration() -> KernelResul
     let mut registry = crate::plugin_system::registry::PluginRegistry::new(api_version.clone());
 
     // Plugin B should be skipped due to API incompatibility.
-    // Plugin A should pass compatibility but fail at the load_plugin stub.
-    let result = loader.register_all_plugins(&mut registry, &api_version).await; // Pass real registry
+    // Plugin A should pass compatibility but fail at the load_plugin stage if libplugin_a.so is empty/invalid.
+    // If libplugin_a.so was a *real* plugin, it would load.
+    // Since load_plugin is now implemented, an empty .so will cause a loading error.
+    let result = loader.register_all_plugins(&mut registry, &api_version).await;
 
-    assert!(result.is_ok(), "register_all_plugins should return Ok");
+    assert!(result.is_ok(), "register_all_plugins should return Ok even if individual loads fail");
     let registered_count = result.unwrap();
+    // Plugin A will attempt to load but fail because libplugin_a.so is empty.
+    // Plugin B will be skipped due to API incompatibility.
     assert_eq!(registered_count, 0, "Expected 0 plugins registered (A fails load, B incompatible)");
     assert_eq!(registry.plugin_count(), 0, "Registry count should be 0");
 
-    // If load_plugin stub were changed to succeed:
-    // assert!(result.is_ok());
-    // assert_eq!(result.unwrap(), 1); // Only A would register
-    // assert_eq!(registry.plugin_count(), 1);
-    // assert!(registry.has_plugin("plugin_a"));
-    // assert!(!registry.has_plugin("plugin_b"));
 
     Ok(())
 }
@@ -348,15 +389,12 @@ async fn test_register_all_plugins_dep_resolution_fail_integration() -> KernelRe
 
     assert!(result.is_err(), "Expected registration to fail due to missing dependency");
     match result.err().unwrap() {
-        KernelError::Plugin(plugin_err) => {
-            // Check that the error message indicates a dependency resolution failure.
-            // The exact formatting might change, so check for key parts.
-            assert!(plugin_err.contains("Dependency resolution failed"), "Error message should indicate dependency resolution failure. Got: {}", plugin_err);
-            assert!(plugin_err.contains("Missing required dependency"), "Error message should indicate a missing dependency. Got: {}", plugin_err);
-            assert!(plugin_err.contains("'plugin_b'"), "Error message should mention missing 'plugin_b'. Got: {}", plugin_err);
-            assert!(plugin_err.contains("'plugin_a'"), "Error message should mention requiring plugin 'plugin_a'. Got: {}", plugin_err);
+        KernelError::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+            let msg = dep_err.to_string();
+            // The DependencyError::MissingPlugin format is "Required plugin not found: {0}"
+            assert!(msg.contains("Required plugin not found: plugin_b"), "Error message mismatch. Got: {}", msg);
         },
-        other_err => panic!("Expected KernelError::Plugin, but got {:?}", other_err),
+        other_err => panic!("Expected KernelError::PluginSystem(PluginSystemError::DependencyResolution), but got {:?}", other_err),
     }
     assert_eq!(registry.plugin_count(), 0, "Registry should be empty after resolution failure");
 
@@ -369,11 +407,15 @@ async fn test_register_all_plugins_load_fail_integration() -> KernelResult<()> {
     let tmp_dir = tempdir()?;
     let plugin_base = tmp_dir.path();
 
-    // Plugin A (no deps, compatible API)
+    // Plugin A (no deps, compatible API, but its .so file will be empty/invalid)
     let pa_dir = plugin_base.join("plugin_a");
     tokio_fs::create_dir_all(&pa_dir).await?;
     let pa_manifest_content = create_manifest_json_string("plugin_a", "1.0.0", None, Some(vec!["^1.0"]));
     tokio_fs::write(pa_dir.join("manifest.json"), pa_manifest_content).await?;
+    // Create an empty .so file, which will cause libloading to fail
+    let so_a_path = pa_dir.join("libplugin_a.so");
+    tokio_fs::write(&so_a_path, "").await?;
+
 
     let mut loader = PluginLoader::new();
     loader.add_plugin_dir(plugin_base);
@@ -383,13 +425,13 @@ async fn test_register_all_plugins_load_fail_integration() -> KernelResult<()> {
     // Use the real PluginRegistry
     let mut registry = crate::plugin_system::registry::PluginRegistry::new(api_version.clone());
 
-    // This test relies *explicitly* on the load_plugin stub returning Err.
     // Resolution and compatibility checks should pass for plugin_a.
-    let result = loader.register_all_plugins(&mut registry, &api_version).await; // Pass real registry
+    // Loading should fail because libplugin_a.so is empty.
+    let result = loader.register_all_plugins(&mut registry, &api_version).await;
 
     assert!(result.is_ok(), "register_all_plugins should return Ok even if loading fails");
     let registered_count = result.unwrap();
-    assert_eq!(registered_count, 0, "Expected 0 plugins registered due to load_plugin stub failure");
+    assert_eq!(registered_count, 0, "Expected 0 plugins registered due to load_plugin failure");
     assert_eq!(registry.plugin_count(), 0, "Registry count should be 0");
 
     Ok(())
@@ -423,15 +465,12 @@ async fn test_register_all_plugins_dep_version_mismatch() -> KernelResult<()> {
 
     assert!(result.is_err(), "Expected registration to fail due to version mismatch");
     match result.err().unwrap() {
-        KernelError::Plugin(plugin_err) => {
-            assert!(plugin_err.contains("Dependency resolution failed"), "Error message mismatch");
-            assert!(plugin_err.contains("Version mismatch"), "Error message mismatch");
-            assert!(plugin_err.contains("'plugin_a'"), "Error message mismatch");
-            assert!(plugin_err.contains("'plugin_b'"), "Error message mismatch");
-            assert!(plugin_err.contains("Required: '^2.0'"), "Error message mismatch");
-            assert!(plugin_err.contains("Found: '1.0.0'"), "Error message mismatch");
-        },
-        other_err => panic!("Expected KernelError::Plugin, but got {:?}", other_err),
+        KernelError::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+           let msg = dep_err.to_string();
+           // The DependencyError::IncompatibleVersion format is "Plugin version mismatch: '{plugin_name}' requires version '{required_range}' but found '{actual_version}'"
+           assert!(msg.contains("Plugin version mismatch: 'plugin_a' requires version '^2.0' but found '1.0.0'"), "Error message mismatch. Got: {}", msg);
+       },
+       other_err => panic!("Expected KernelError::PluginSystem(PluginSystemError::DependencyResolution), but got {:?}", other_err),
     }
     assert_eq!(registry.plugin_count(), 0, "Registry should be empty after resolution failure");
 
@@ -468,13 +507,12 @@ async fn test_register_all_plugins_dep_version_parse_err() -> KernelResult<()> {
 
     assert!(result.is_err(), "Expected registration to fail due to version parse error");
      match result.err().unwrap() {
-        KernelError::Plugin(plugin_err) => {
-            assert!(plugin_err.contains("Dependency resolution failed"), "Error message mismatch");
-            assert!(plugin_err.contains("Failed to parse version"), "Error message mismatch");
-            assert!(plugin_err.contains("'invalid-version'"), "Error message mismatch");
-             assert!(plugin_err.contains("'plugin_a'"), "Error message mismatch"); // Should mention the plugin with the bad version
-        },
-        other_err => panic!("Expected KernelError::Plugin, but got {:?}", other_err),
+        KernelError::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+           let msg = dep_err.to_string();
+           let expected_msg = "Dependency error: Failed to parse version for dependency plugin_a: unexpected character 'i' while parsing major version number";
+           assert_eq!(msg, expected_msg, "Error message mismatch.");
+       },
+       other_err => panic!("Expected KernelError::PluginSystem(PluginSystemError::DependencyResolution), but got {:?}", other_err),
     }
     assert_eq!(registry.plugin_count(), 0, "Registry should be empty after resolution failure");
 
@@ -511,13 +549,14 @@ async fn test_register_all_plugins_cycle_detected() -> KernelResult<()> {
 
     assert!(result.is_err(), "Expected registration to fail due to cycle detection");
      match result.err().unwrap() {
-        KernelError::Plugin(plugin_err) => {
-            assert!(plugin_err.contains("Dependency resolution failed"), "Error message mismatch");
-            assert!(plugin_err.contains("Circular dependency detected"), "Error message mismatch");
-            // Check if cycle path is mentioned (specific path might vary based on HashMap iteration order)
-            assert!(plugin_err.contains("plugin_a") && plugin_err.contains("plugin_b"), "Error message should mention cycle participants");
+        KernelError::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+           let msg = dep_err.to_string();
+           // Updated Display format is "Circular dependency detected: A -> B -> ..."
+           assert!(msg.starts_with("Circular dependency detected:"), "Error message mismatch. Got: {}", msg);
+           // Check if cycle path is mentioned (specific path might vary based on HashMap iteration order)
+           assert!(msg.contains("plugin_a") && msg.contains("plugin_b"), "Error message should mention cycle participants. Got: {}", msg);
         },
-        other_err => panic!("Expected KernelError::Plugin, but got {:?}", other_err),
+        other_err => panic!("Expected KernelError::PluginSystem(PluginSystemError::DependencyResolution), but got {:?}", other_err),
     }
     assert_eq!(registry.plugin_count(), 0, "Registry should be empty after resolution failure");
 

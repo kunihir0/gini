@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::kernel::error::Result;
+use crate::plugin_system::error::PluginSystemError; // Import new error type
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::stage_manager::context::StageContext; // Added for preflight context if needed later
@@ -148,29 +148,30 @@ impl Ord for PluginPriority {
     }
 }
 
-/// Error type for plugin operations
-#[derive(Debug)]
-pub enum PluginError {
-    InitError(String),
-    LoadError(String),
-    ExecutionError(String),
-    DependencyError(String),
-    VersionError(String),
-    PreflightCheckError(String), // Added for preflight check failures
-}
-
-impl fmt::Display for PluginError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PluginError::InitError(msg) => write!(f, "Plugin initialization error: {}", msg),
-            PluginError::LoadError(msg) => write!(f, "Plugin loading error: {}", msg),
-            PluginError::ExecutionError(msg) => write!(f, "Plugin execution error: {}", msg),
-            PluginError::DependencyError(msg) => write!(f, "Plugin dependency error: {}", msg),
-            PluginError::VersionError(msg) => write!(f, "Plugin version error: {}", msg),
-            PluginError::PreflightCheckError(msg) => write!(f, "Plugin pre-flight check error: {}", msg),
-        }
-    }
-}
+// Deprecate and remove the old PluginError enum
+// /// Error type for plugin operations
+// #[derive(Debug)]
+// pub enum PluginError {
+//     InitError(String),
+//     LoadError(String),
+//     ExecutionError(String),
+//     DependencyError(String),
+//     VersionError(String),
+//     PreflightCheckError(String), // Added for preflight check failures
+// }
+//
+// impl fmt::Display for PluginError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             PluginError::InitError(msg) => write!(f, "Plugin initialization error: {}", msg),
+//             PluginError::LoadError(msg) => write!(f, "Plugin loading error: {}", msg),
+//             PluginError::ExecutionError(msg) => write!(f, "Plugin execution error: {}", msg),
+//             PluginError::DependencyError(msg) => write!(f, "Plugin dependency error: {}", msg),
+//             PluginError::VersionError(msg) => write!(f, "Plugin version error: {}", msg),
+//             PluginError::PreflightCheckError(msg) => write!(f, "Plugin pre-flight check error: {}", msg),
+//         }
+//     }
+// }
 
 use std::os::raw::{c_char, c_void};
 use std::slice;
@@ -433,21 +434,21 @@ pub trait Plugin: Send + Sync {
     fn incompatible_with(&self) -> Vec<PluginDependency>; // Use PluginDependency from dependency.rs
     
     /// Initialize the plugin
-    fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> Result<()>;
+    fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError>;
 
     /// Perform pre-flight checks.
     /// This method is called during the `PluginPreflightCheck` stage.
     /// Plugins can override this to perform checks before their main initialization.
     /// The default implementation does nothing and succeeds.
     /// The `context` provides access to shared resources if needed for checks.
-    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), crate::plugin_system::traits::PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
         // Default: No pre-flight check needed
         Ok(())
     }
 
     /// Register stages provided by this plugin with the StageRegistry.
-    fn register_stages(&self, registry: &mut StageRegistry) -> Result<()>;
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError>;
 
     /// Shutdown the plugin
-    fn shutdown(&self) -> Result<()>;
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError>;
 }

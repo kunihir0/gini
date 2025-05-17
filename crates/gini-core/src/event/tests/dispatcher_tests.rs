@@ -235,13 +235,13 @@ async fn test_shared_dispatcher_registration_and_dispatch() {
     });
 
     // Register handler via shared dispatcher's method
-    let handler_id = shared_dispatcher.register_handler("test.event", handler).await.unwrap();
+    let handler_id = shared_dispatcher.register_handler("test.event", handler).await;
     assert!(handler_id > 0);
 
 
     // Create and dispatch event via shared dispatcher
     let event = TestEvent::new("test.event", "shared dispatcher test");
-    let result = shared_dispatcher.dispatch(&event).await.unwrap();
+    let result = shared_dispatcher.dispatch(&event).await;
 
     assert_eq!(result, EventResult::Continue);
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -249,16 +249,16 @@ async fn test_shared_dispatcher_registration_and_dispatch() {
     // Clone dispatcher and check they share state
     let dispatcher_clone = shared_dispatcher.clone();
     let event2 = TestEvent::new("test.event", "shared dispatcher clone test");
-    let _result2 = dispatcher_clone.dispatch(&event2).await.unwrap();
+    let _result2 = dispatcher_clone.dispatch(&event2).await;
 
     assert_eq!(counter.load(Ordering::SeqCst), 2, "Clone should share handler registry");
 
     // Test unregistering via shared dispatcher
-    let unregistered = shared_dispatcher.unregister_handler(handler_id).await.unwrap();
+    let unregistered = shared_dispatcher.unregister_handler(handler_id).await;
     assert!(unregistered);
 
     let event3 = TestEvent::new("test.event", "after unregister");
-    shared_dispatcher.dispatch(&event3).await.unwrap();
+    shared_dispatcher.dispatch(&event3).await;
     assert_eq!(counter.load(Ordering::SeqCst), 2, "Handler should not run after unregistering via shared dispatcher");
 
 }

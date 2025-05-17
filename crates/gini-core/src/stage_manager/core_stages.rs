@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use tokio::sync::Mutex; // Already present, ensure it's used
 
 use crate::kernel::bootstrap::Application; // Needed for Plugin::init
-use crate::kernel::error::{Error, Result}; // Keep kernel::Result for stage execute return
+use crate::kernel::error::Error as KernelError; // Renamed for clarity, KernelResult removed
 use crate::plugin_system::registry::PluginRegistry;
 use crate::stage_manager::{Stage, StageContext};
+use crate::stage_manager::error::StageSystemError; // Import StageSystemError
 use crate::stage_manager::registry::SharedStageRegistry; // Add SharedStageRegistry import
 
 // Constants for context keys
@@ -28,20 +29,23 @@ impl Stage for PluginPreflightCheckStage {
     fn name(&self) -> &str { "Plugin Pre-flight Checks" }
     fn description(&self) -> &str { "Executes pre-initialization checks for all loaded plugins." }
 
-    async fn execute(&self, context: &mut StageContext) -> Result<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         println!("Executing Stage: {}", self.name());
 
         // Retrieve the plugin registry from the context
         let registry_arc_mutex = context
             .get_data::<Arc<Mutex<PluginRegistry>>>(PLUGIN_REGISTRY_KEY)
-            .ok_or_else(|| Error::Stage(format!("'{}' not found in StageContext", PLUGIN_REGISTRY_KEY)))?
+            .ok_or_else(|| StageSystemError::ContextError {
+                key: PLUGIN_REGISTRY_KEY.to_string(),
+                reason: "PluginRegistry not found".to_string()
+            })?
             .clone(); // Clone the Arc to work with it
 
         let registry = registry_arc_mutex.lock().await;
         let mut failures = HashSet::new();
         // If a fundamental error occurs (e.g. context access), this will be set.
         // Individual plugin preflight failures are logged and added to `failures` set.
-        let stage_execution_error: Option<Error> = None;
+        // let stage_execution_error: Option<KernelError> = None; // Removed as per plan, direct error or Ok(())
 
         println!("Running pre-flight checks for {} plugins...", registry.iter_plugins().count());
 
@@ -71,12 +75,10 @@ impl Stage for PluginPreflightCheckStage {
         
         // The stage itself succeeds if it could iterate through plugins.
         // Individual preflight failures are handled by the next stage.
-        // Propagate only critical stage execution errors, not individual plugin preflight errors.
-        if let Some(err) = stage_execution_error {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        // The stage itself succeeds if it could iterate through plugins.
+        // Individual preflight failures are handled by the next stage.
+        // Critical context errors are returned above.
+        Ok(())
     }
 
     fn dry_run_description(&self, context: &StageContext) -> String {
@@ -102,13 +104,16 @@ impl Stage for PluginInitializationStage {
     fn name(&self) -> &str { "Plugin Initialization" }
     fn description(&self) -> &str { "Initializes all plugins that passed previous checks." }
 
-    async fn execute(&self, context: &mut StageContext) -> Result<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         println!("Executing Stage: {}", self.name());
 
         // Retrieve immutable data first
         let registry_arc_mutex = context
             .get_data::<Arc<Mutex<PluginRegistry>>>(PLUGIN_REGISTRY_KEY)
-            .ok_or_else(|| Error::Stage(format!("'{}' not found in StageContext", PLUGIN_REGISTRY_KEY)))?
+            .ok_or_else(|| StageSystemError::ContextError {
+                key: PLUGIN_REGISTRY_KEY.to_string(),
+                reason: "PluginRegistry not found".to_string()
+            })?
             .clone();
         let preflight_failures = context
             .get_data::<HashSet<String>>(PREFLIGHT_FAILURES_KEY)
@@ -116,12 +121,18 @@ impl Stage for PluginInitializationStage {
             .unwrap_or_default();
         let stage_registry_arc = context
              .get_data::<SharedStageRegistry>("stage_registry_arc") // Use SharedStageRegistry type alias
-             .ok_or_else(|| Error::Stage("StageRegistry Arc not found in context for PluginInitializationStage".to_string()))?
+             .ok_or_else(|| StageSystemError::ContextError {
+                key: "stage_registry_arc".to_string(),
+                reason: "SharedStageRegistry not found".to_string()
+            })?
              .clone();
 
         // Now get mutable access to Application
         let app = context.get_data_mut::<Application>(APPLICATION_KEY)
-            .ok_or_else(|| Error::Stage(format!("'{}' (Application) not found or wrong type in StageContext", APPLICATION_KEY)))?;
+            .ok_or_else(|| StageSystemError::ContextError {
+                key: APPLICATION_KEY.to_string(),
+                reason: "Application not found or wrong type".to_string()
+            })?;
 
         // Lock the plugin registry
         let mut registry = registry_arc_mutex.lock().await;
@@ -139,7 +150,10 @@ impl Stage for PluginInitializationStage {
 
         // Call the registry's initialize_all method, passing the app and the StageRegistry Arc.
         // This method internally checks if plugins are enabled before initializing them.
-        registry.initialize_all(app, &stage_registry_arc.registry).await?; // Pass the inner Arc
+        // It returns Result<_, PluginSystemError>, which needs to be boxed if we want to propagate it directly.
+        // Or, map it to KernelError then box, or handle it here.
+        // For now, let's map to KernelError then box.
+        registry.initialize_all(app, &stage_registry_arc.registry).await.map_err(|e| Box::new(KernelError::from(e)) as Box<dyn std::error::Error + Send + Sync + 'static>)?;
 
         println!("Plugin initialization complete.");
         Ok(())
@@ -168,7 +182,7 @@ impl Stage for PluginPostInitializationStage {
     fn name(&self) -> &str { "Plugin Post-Initialization" }
     fn description(&self) -> &str { "Executes logic after all plugins have been initialized." }
 
-    async fn execute(&self, _context: &mut StageContext) -> Result<()> {
+    async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         println!("Executing Stage: {}", self.name());
         // TODO: Implement logic if any core post-init actions are needed,
         // or allow plugins to hook into this stage if necessary.

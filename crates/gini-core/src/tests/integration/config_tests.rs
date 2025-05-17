@@ -10,9 +10,10 @@ use std::fs;
 
 use crate::kernel::bootstrap::Application;
 // use crate::kernel::component::KernelComponent;
-use crate::kernel::error::{Error, Result as KernelResult};
+// use crate::kernel::error::{Error, Result as KernelResult}; // Removed unused imports
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::StageContext;
 use crate::stage_manager::registry::StageRegistry;
@@ -47,44 +48,46 @@ impl Plugin for ConfigUsingPlugin {
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
 
-    fn init(&self, app: &mut Application) -> KernelResult<()> {
+    fn init(&self, app: &mut Application) -> std::result::Result<(), PluginSystemError> {
         let storage_manager = app.storage_manager();
         let config = match storage_manager.get_plugin_config(self.name()) {
             Ok(config) => config,
             Err(_) => {
                 let mut default_config = ConfigData::new();
-                default_config.set("plugin_name", self.name())?;
-                default_config.set("initialized", true)?;
-                default_config.set("setting1", "default_value")?;
+                default_config.set("plugin_name", self.name()).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+                default_config.set("initialized", true).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+                default_config.set("setting1", "default_value").map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
                 storage_manager.save_plugin_config(
                     self.name(),
                     &default_config,
                     PluginConfigScope::Default
-                )?;
+                ).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
                 default_config
             }
         };
         let initialized = config.get::<bool>("initialized").unwrap_or(false);
         if !initialized {
-            return Err(Error::Plugin(format!(
-                "Plugin {} not properly initialized", self.name()
-            )));
+            return Err(PluginSystemError::InitializationError {
+                plugin_id: self.name().to_string(),
+                message: "Plugin not properly initialized (config missing 'initialized' or false)".to_string(),
+                source: None,
+            });
         }
         let mut updated_config = config.clone();
-        updated_config.set("last_used", SystemTime::now().elapsed().unwrap_or_default().as_secs())?;
+        updated_config.set("last_used", SystemTime::now().elapsed().unwrap_or_default().as_secs()).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         storage_manager.save_plugin_config(
             self.name(),
             &updated_config,
             PluginConfigScope::User
-        )?;
+        ).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         Ok(())
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginError> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 }
 
 #[test]
@@ -96,7 +99,7 @@ async fn test_plugin_configuration_management() {
     
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin))
+        registry.register_plugin(Arc::new(plugin))
             .expect("Failed to register config plugin");
     }
 

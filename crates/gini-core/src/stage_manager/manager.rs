@@ -1,11 +1,12 @@
 use std::fmt::Debug;
 use async_trait::async_trait;
 use std::collections::HashMap;
-
+ 
 use crate::kernel::component::KernelComponent;
-use crate::kernel::error::Result;
+use crate::kernel::error::{Result, Error as KernelError}; // Import KernelError for specific error creation
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::pipeline::{StagePipeline, PipelineBuilder};
+use crate::stage_manager::error::StageSystemError; // Import StageSystemError
 use crate::stage_manager::registry::SharedStageRegistry;
 use crate::stage_manager::core_stages::{ // Import core stages
     PluginPreflightCheckStage,
@@ -90,23 +91,23 @@ impl StageManager for DefaultStageManager {
     async fn register_stage(&self, stage: Box<dyn Stage>) -> Result<()> {
         self.shared_registry.register_stage(stage).await
     }
-
+ 
     async fn has_stage(&self, id: &str) -> Result<bool> {
-        self.shared_registry.has_stage(id).await
+        Ok(self.shared_registry.has_stage(id).await)
     }
-
+ 
     async fn get_stage_ids(&self) -> Result<Vec<String>> {
-        self.shared_registry.get_all_ids().await
+        Ok(self.shared_registry.get_all_ids().await)
     }
-
+ 
     async fn create_pipeline(&self, name: &str, description: &str, stage_ids: Vec<String>) -> Result<StagePipeline> {
         let mut builder = PipelineBuilder::new(name, description);
         for id in &stage_ids {
             // Check existence before adding to builder
-            if !self.shared_registry.has_stage(id).await? {
-                return Err(crate::kernel::error::Error::Stage(
-                    format!("Stage '{}' not found in registry during pipeline creation", id)
-                ));
+            if !self.shared_registry.has_stage(id).await {
+                return Err(KernelError::from(StageSystemError::StageNotFound {
+                    stage_id: id.to_string()
+                }));
             }
             builder = builder.add_stage(id);
         }
@@ -126,9 +127,9 @@ impl StageManager for DefaultStageManager {
 
     async fn validate_pipeline(&self, pipeline: &StagePipeline) -> Result<()> { // Make async
         // Pass the shared registry to the pipeline's validate method
-        pipeline.validate(&self.shared_registry).await
+        pipeline.validate(&self.shared_registry).await.map_err(KernelError::from)
     }
-
+ 
     async fn create_dry_run_pipeline(&self, name: &str, description: &str, stage_ids: Vec<String>) -> Result<StagePipeline> {
         // Create a regular pipeline
         self.create_pipeline(name, description, stage_ids).await

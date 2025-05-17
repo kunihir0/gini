@@ -1,5 +1,6 @@
 use std::fmt;
 use crate::plugin_system::version::VersionRange;
+use thiserror::Error; // Import thiserror
 
 /// Represents a dependency on another plugin
 #[derive(Debug, Clone)]
@@ -15,54 +16,30 @@ pub struct PluginDependency {
 }
 
 /// Error that can occur when resolving dependencies
-#[derive(Debug)]
+#[derive(Debug, Error)] // Add thiserror derive
 pub enum DependencyError {
     /// The required plugin was not found
+    #[error("Required plugin not found: {0}")]
     MissingPlugin(String),
     
     /// The plugin was found, but the version is incompatible
+    #[error("Plugin version mismatch: '{plugin_name}' requires version '{required_range}' but found '{actual_version}'")]
     IncompatibleVersion {
         plugin_name: String,
-        required_range: VersionRange,
+        required_range: VersionRange, // VersionRange already implements Display
         actual_version: String,
     },
     
     /// Dependency cycle detected
+    #[error("Circular dependency detected: {}", .0.join(" -> "))]
     CyclicDependency(Vec<String>),
     
     /// Other dependency resolution error
+    #[error("Dependency error: {0}")]
     Other(String),
 }
 
-impl fmt::Display for DependencyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DependencyError::MissingPlugin(name) => {
-                write!(f, "Required plugin not found: {}", name)
-            }
-            DependencyError::IncompatibleVersion { 
-                plugin_name, 
-                required_range, 
-                actual_version 
-            } => {
-                // Use the constraint string from VersionRange for display
-                write!(
-                    f,
-                    "Plugin version mismatch: '{}' requires version '{}' but found '{}'",
-                    plugin_name,
-                    required_range.constraint_string(), // Use constraint_string()
-                    actual_version
-                )
-            }
-            DependencyError::CyclicDependency(cycle) => {
-                write!(f, "Circular dependency detected: {}", cycle.join(" -> "))
-            }
-            DependencyError::Other(msg) => {
-                write!(f, "Dependency error: {}", msg)
-            }
-        }
-    }
-}
+// Display is now handled by thiserror
 
 impl PluginDependency {
     /// Create a new required dependency with a specific version range

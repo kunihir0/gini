@@ -1,7 +1,8 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Result}; // Removed unused Error
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 
 /// Adapter trait for providing type-safe interfaces between plugins
 pub trait Adapter: Send + Sync {
@@ -40,11 +41,11 @@ impl AdapterRegistry {
         let name = adapter.name().to_string();
         
         if self.adapters.contains_key(&type_id) {
-            return Err(Error::Plugin(format!("Adapter already registered for type ID: {:?}", type_id)));
+            return Err(PluginSystemError::AdapterError{ message: format!("Adapter already registered for type ID: {:?}", type_id) }.into());
         }
         
         if self.names.contains_key(&name) {
-            return Err(Error::Plugin(format!("Adapter already registered with name: {}", name)));
+            return Err(PluginSystemError::AdapterError{ message: format!("Adapter already registered with name: {}", name) }.into());
         }
         
         self.adapters.insert(type_id, Box::new(adapter));

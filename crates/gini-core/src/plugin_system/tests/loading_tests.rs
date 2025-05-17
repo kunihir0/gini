@@ -140,52 +140,9 @@ async fn test_load_from_non_existent_directory() -> Result<()> {
 // These might require compiling custom dummy .so files.
 // --- Unit Tests for PluginLoader ---
 
-use crate::plugin_system::loader::{PluginLoader, ResolutionError};
+use crate::plugin_system::loader::PluginLoader; // Removed ResolutionError
 // Removed unused imports: PluginManifest, VersionRange, FromStr
 use tokio::fs as tokio_fs; // Use alias for clarity
-
-// Helper to create a basic manifest for dependency tests
-#[test]
-fn test_resolution_error_display() {
-    let missing_dep_err = ResolutionError::MissingDependency {
-        plugin_id: "plugin_a".to_string(),
-        dependency_id: "plugin_b".to_string(),
-    };
-    assert_eq!(
-        format!("{}", missing_dep_err),
-        "Missing required dependency 'plugin_b' for plugin 'plugin_a'"
-    );
-
-    let version_mismatch_err = ResolutionError::VersionMismatch {
-        plugin_id: "plugin_a".to_string(),
-        dependency_id: "core".to_string(),
-        required_version: "^1.0".to_string(),
-        found_version: "0.9.0".to_string(),
-    };
-    assert_eq!(
-        format!("{}", version_mismatch_err),
-        "Version mismatch for dependency 'core' required by plugin 'plugin_a'. Required: '^1.0', Found: '0.9.0'"
-    );
-
-    let version_parse_err = ResolutionError::VersionParseError {
-        plugin_id: "bad_plugin".to_string(),
-        version: "1.invalid".to_string(),
-        error: "parse error".to_string(),
-    };
-    assert_eq!(
-        format!("{}", version_parse_err),
-        "Failed to parse version '1.invalid' for plugin 'bad_plugin': parse error"
-    );
-
-    let cycle_err = ResolutionError::CycleDetected {
-        plugin_id: "plugin_a".to_string(),
-        cycle_path: vec!["plugin_a".to_string(), "plugin_b".to_string(), "plugin_a".to_string()],
-    };
-    assert_eq!(
-        format!("{}", cycle_err),
-        "Circular dependency detected involving plugin 'plugin_a'. Cycle path: [\"plugin_a\", \"plugin_b\", \"plugin_a\"]"
-    );
-}
 
 // Removed test_plugin_loader_new_default as it accesses private fields
 

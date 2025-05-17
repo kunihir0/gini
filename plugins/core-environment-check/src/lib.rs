@@ -2,12 +2,14 @@
 use async_trait::async_trait;
 use gini_core::kernel::{
     bootstrap::Application,
-    error::Result as KernelResult, // Use kernel's Result and Error (Removed unused KernelError)
+    error::Result as KernelResult, // Use kernel's Result
+    // KernelError will be used via its full path if needed, or aliased if many uses.
 };
 use gini_core::plugin_system::{
     dependency::PluginDependency,
     // plugin_impl, // Keep commented out until location is confirmed
-    traits::{Plugin, PluginError, PluginPriority}, // Import Plugin, PluginError, PluginPriority
+    error::PluginSystemError, // Import PluginSystemError
+    traits::{Plugin, PluginPriority}, // Import Plugin, PluginPriority
     version::VersionRange,                          // Import VersionRange
 };
 use gini_core::stage_manager::{
@@ -25,6 +27,7 @@ use std::path::Path; // Added Path, removed unused PathBuf
 // use std::future::Future; // Removed unused import
 // use std::pin::Pin; // Removed unused import
 use std::str::FromStr; // For parsing VersionRange
+use std::error::Error as StdError; // For boxing
 
 // --- Data Structures ---
 
@@ -103,7 +106,7 @@ impl Plugin for EnvironmentCheckPlugin {
         }
     }
 
-    fn init(&self, _app: &mut Application) -> KernelResult<()> {
+    fn init(&self, _app: &mut Application) -> Result<(), PluginSystemError> {
         info!("Initializing Core Environment Check Plugin v{}", self.version());
         Ok(())
     }
@@ -132,23 +135,23 @@ impl Plugin for EnvironmentCheckPlugin {
         vec![]
     }
 
-    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginError> {
+    async fn preflight_check(&self, _context: &StageContext) -> Result<(), PluginSystemError> {
         Ok(())
     }
 
-    // Use KernelResult<()> as the return type
-    fn register_stages(&self, registry: &mut StageRegistry) -> KernelResult<()> {
+    // Use PluginSystemError as the return type
+    fn register_stages(&self, registry: &mut StageRegistry) -> Result<(), PluginSystemError> {
         info!("Registering stages for {}", self.name());
         // Register the stages defined in this plugin
-        registry.register_stage(Box::new(GatherOsInfoStage))?;
-        registry.register_stage(Box::new(GatherCpuInfoStage))?;
-        registry.register_stage(Box::new(GatherRamInfoStage))?; // Register the new RAM stage
-        registry.register_stage(Box::new(GatherGpuInfoStage))?; // Register the new GPU stage
-        registry.register_stage(Box::new(CheckIommuStage))?; // Register the new IOMMU stage
+        registry.register_stage(Box::new(GatherOsInfoStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+        registry.register_stage(Box::new(GatherCpuInfoStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+        registry.register_stage(Box::new(GatherRamInfoStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?; // Register the new RAM stage
+        registry.register_stage(Box::new(GatherGpuInfoStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?; // Register the new GPU stage
+        registry.register_stage(Box::new(CheckIommuStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?; // Register the new IOMMU stage
         Ok(())
     }
 
-    fn shutdown(&self) -> KernelResult<()> {
+    fn shutdown(&self) -> Result<(), PluginSystemError> {
         info!("Shutting down Core Environment Check Plugin");
         Ok(())
     }
@@ -172,11 +175,11 @@ impl Stage for GatherOsInfoStage {
     fn description(&self) -> &str {
         "Gathers OS and distribution information from /etc/os-release."
     }
-
+ 
     // Implement the async execute method
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Call the wrapper function that uses the default path
-        gather_os_info_stage_wrapper(context).await
+        gather_os_info_stage_wrapper(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 
@@ -196,9 +199,9 @@ impl Stage for GatherCpuInfoStage {
     fn description(&self) -> &str {
         "Gathers CPU vendor, brand, and core count from /proc/cpuinfo."
     }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
-        gather_cpu_info_stage(context).await // Use await here
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+        gather_cpu_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 
@@ -218,9 +221,9 @@ impl Stage for GatherRamInfoStage {
     fn description(&self) -> &str {
         "Gathers RAM total and available memory from /proc/meminfo."
     }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
-        gather_ram_info_stage(context).await
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+        gather_ram_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 
@@ -240,9 +243,9 @@ impl Stage for GatherGpuInfoStage {
     fn description(&self) -> &str {
         "Gathers GPU information by parsing /sys/bus/pci/devices/."
     }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
-        gather_gpu_info_stage(context).await
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+        gather_gpu_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 
@@ -262,9 +265,9 @@ impl Stage for CheckIommuStage {
     fn description(&self) -> &str {
         "Checks IOMMU status via /proc/cmdline and /sys/class/iommu."
     }
-
-    async fn execute(&self, context: &mut StageContext) -> KernelResult<()> {
-        check_iommu_stage(context).await
+ 
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+        check_iommu_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 

@@ -196,70 +196,71 @@ impl StorageProvider for DefaultStorageManager {
         self.provider.is_dir(path)
     }
 
-    fn create_dir(&self, path: &Path) -> Result<()> {
+    // These methods now correctly return Result<T, StorageSystemError>
+    // as per the StorageProvider trait. The conversion to KernelError
+    // will happen at call sites if DefaultStorageManager is used
+    // where a KernelError is expected, thanks to From<StorageSystemError> for KernelError.
+    fn create_dir(&self, path: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.create_dir(path)
     }
 
-    fn create_dir_all(&self, path: &Path) -> Result<()> {
+    fn create_dir_all(&self, path: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.create_dir_all(path)
     }
 
-    fn read_to_string(&self, path: &Path) -> Result<String> {
+    fn read_to_string(&self, path: &Path) -> std::result::Result<String, crate::storage::error::StorageSystemError> {
         self.provider.read_to_string(path)
     }
 
-    fn read_to_bytes(&self, path: &Path) -> Result<Vec<u8>> {
+    fn read_to_bytes(&self, path: &Path) -> std::result::Result<Vec<u8>, crate::storage::error::StorageSystemError> {
         self.provider.read_to_bytes(path)
     }
 
-    fn write_string(&self, path: &Path, contents: &str) -> Result<()> {
+    fn write_string(&self, path: &Path, contents: &str) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.write_string(path, contents)
     }
 
-    fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<()> {
+    fn write_bytes(&self, path: &Path, contents: &[u8]) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.write_bytes(path, contents)
     }
 
-    fn copy(&self, from: &Path, to: &Path) -> Result<()> {
+    fn copy(&self, from: &Path, to: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.copy(from, to)
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+    fn rename(&self, from: &Path, to: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.rename(from, to)
     }
 
-    fn remove_file(&self, path: &Path) -> Result<()> {
+    fn remove_file(&self, path: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.remove_file(path)
     }
 
-    fn remove_dir(&self, path: &Path) -> Result<()> {
+    fn remove_dir(&self, path: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.remove_dir(path)
     }
 
-    fn remove_dir_all(&self, path: &Path) -> Result<()> {
+    fn remove_dir_all(&self, path: &Path) -> std::result::Result<(), crate::storage::error::StorageSystemError> {
         self.provider.remove_dir_all(path)
     }
 
-    fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>> {
+    fn read_dir(&self, path: &Path) -> std::result::Result<Vec<PathBuf>, crate::storage::error::StorageSystemError> {
         self.provider.read_dir(path)
     }
 
-    fn metadata(&self, path: &Path) -> Result<std::fs::Metadata> {
+    fn metadata(&self, path: &Path) -> std::result::Result<std::fs::Metadata, crate::storage::error::StorageSystemError> {
         self.provider.metadata(path)
     }
 
-    // Note: open_read, open_write, open_append return Box<dyn Read/Write>
-    // which might not be Send/Sync. This could be an issue if the manager
-    // needs to be Send/Sync. For now, we delegate directly.
-    fn open_read(&self, path: &Path) -> Result<Box<dyn std::io::Read>> {
+    fn open_read(&self, path: &Path) -> std::result::Result<Box<dyn std::io::Read>, crate::storage::error::StorageSystemError> {
         self.provider.open_read(path)
     }
 
-    fn open_write(&self, path: &Path) -> Result<Box<dyn std::io::Write>> {
+    fn open_write(&self, path: &Path) -> std::result::Result<Box<dyn std::io::Write>, crate::storage::error::StorageSystemError> {
         self.provider.open_write(path)
     }
 
-    fn open_append(&self, path: &Path) -> Result<Box<dyn std::io::Write>> {
+    fn open_append(&self, path: &Path) -> std::result::Result<Box<dyn std::io::Write>, crate::storage::error::StorageSystemError> {
         self.provider.open_append(path)
     }
 }

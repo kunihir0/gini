@@ -1,12 +1,13 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet}; // Added BinaryHeap
 use std::sync::Arc;
 use tokio::sync::Mutex; // Add back Mutex import
 use std::pin::Pin;
 use std::future::Future;
 
-use crate::kernel::error::{Error, Result};
+use crate::kernel::error::{Error, Result as KernelResult}; // Import KernelResult alias
+use crate::plugin_system::error::PluginSystemError;
 use crate::kernel::bootstrap::Application;
-use crate::plugin_system::traits::Plugin;
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Added PluginPriority
 use crate::plugin_system::version::ApiVersion;
 use crate::plugin_system::conflict::{ConflictManager, ConflictType, PluginConflict};
 use crate::stage_manager::registry::StageRegistry; // Keep StageRegistry, SharedStageRegistry not directly used in this file's signatures now
@@ -26,6 +27,30 @@ pub struct PluginRegistry {
     conflict_manager: ConflictManager, // Add ConflictManager field
 }
 
+// Helper struct for priority queue in topological_sort, moved to module scope
+#[derive(Eq, PartialEq, Clone)]
+struct PrioritizedPlugin {
+    priority: PluginPriority,
+    id: String,
+}
+
+impl Ord for PrioritizedPlugin {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // BinaryHeap is a max-heap. We want to pop plugins with lower priority values (higher actual priority) first.
+        // So, if self.priority is "less than" other.priority (e.g. Kernel(1) vs Core(50)),
+        // self should be considered "greater" by the max-heap.
+        // Thus, we compare other.priority with self.priority.
+        other.priority.cmp(&self.priority) // Primary: lower numeric priority value is "greater" for max-heap
+            .then_with(|| other.id.cmp(&self.id)) // Secondary: smaller ID is "greater" for max-heap, ensuring lexicographical order for pop
+    }
+}
+
+impl PartialOrd for PrioritizedPlugin {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl PluginRegistry {
     /// Create a new plugin registry with the specified API version
     pub fn new(api_version: ApiVersion) -> Self {
@@ -39,12 +64,15 @@ impl PluginRegistry {
     }
     
     /// Register a plugin
-    pub fn register_plugin(&mut self, plugin: Box<dyn Plugin>) -> Result<()> {
-        let name = plugin.name().to_string();
+    pub fn register_plugin(&mut self, plugin_arc: Arc<dyn Plugin>) -> std::result::Result<(), PluginSystemError> {
+        let name = plugin_arc.name().to_string();
         let id = name.clone(); // Use name as ID for now
 
         if self.plugins.contains_key(&id) {
-            return Err(Error::Plugin(format!("Plugin already registered: {}", name)));
+            return Err(PluginSystemError::RegistrationError {
+                plugin_id: id,
+                message: "Plugin already registered".to_string(),
+            });
         }
         
         // Check API compatibility
@@ -53,28 +81,33 @@ impl PluginRegistry {
         let api_semver = match semver::Version::parse(&self.api_version.to_string()) {
             Ok(v) => v,
             Err(e) => {
-                // Log error and consider it incompatible if internal API version fails parsing
                 eprintln!("Failed to parse internal API version {}: {}", self.api_version, e);
-                return Err(Error::Plugin(format!("Internal API version parse error: {}", e)));
+                return Err(PluginSystemError::VersionParsing(
+                    crate::plugin_system::version::VersionError::ParseError(format!(
+                        "Internal API version parse error: {}",
+                        e
+                    )),
+                ));
             }
         };
-        for version_range in plugin.compatible_api_versions() {
-            if version_range.includes(&api_semver) { // Use includes with semver::Version
+        for version_range in plugin_arc.compatible_api_versions() {
+            if version_range.includes(&api_semver) {
                 compatible = true;
                 break;
             }
         }
         
         if !compatible {
-            return Err(Error::Plugin(format!(
-                "Plugin {} is not compatible with API version {}",
-                name,
-                self.api_version
-            )));
+            return Err(PluginSystemError::LoadingError {
+                plugin_id: name,
+                path: None, // Path not directly available here, could be added if passed
+                source: Box::new(crate::plugin_system::error::PluginSystemErrorSource::Other(
+                    format!("Plugin not compatible with API version {}", self.api_version)
+                )),
+            });
         }
         
-        // All good, wrap in Arc and register the plugin
-        let plugin_arc = Arc::from(plugin);
+        // All good, register the plugin Arc
         self.plugins.insert(id.clone(), plugin_arc);
         // Newly registered plugins are enabled by default
         self.enabled.insert(id);
@@ -82,13 +115,16 @@ impl PluginRegistry {
     }
     
     /// Unregister a plugin by ID
-    pub fn unregister_plugin(&mut self, id: &str) -> Result<Arc<dyn Plugin>> {
+    pub fn unregister_plugin(&mut self, id: &str) -> std::result::Result<Arc<dyn Plugin>, PluginSystemError> {
         if let Some(plugin) = self.plugins.remove(id) {
             self.initialized.remove(id);
-            self.enabled.remove(id); // Also remove from enabled set
+            self.enabled.remove(id);
             Ok(plugin)
         } else {
-            Err(Error::Plugin(format!("Plugin not found: {}", id)))
+            Err(PluginSystemError::RegistrationError {
+                plugin_id: id.to_string(),
+                message: "Plugin not found for unregistration".to_string(),
+            })
         }
     }
     
@@ -154,63 +190,77 @@ impl PluginRegistry {
         }
         (adj, reverse_adj)
     }
-
-    /// Performs a topological sort (Kahn's algorithm) on a given graph.
-    /// Returns the sorted list of plugin IDs or a DependencyError::CyclicDependency.
+ 
+    /// Performs a topological sort (Kahn's algorithm) on a given graph,
+    /// considering plugin priorities.
+    /// Returns the sorted list of plugin IDs in initialization order.
     fn topological_sort(
         &self,
         plugin_ids: &HashSet<String>,
-        adj: &HashMap<String, Vec<String>>, // plugin -> dependencies
+        adj: &HashMap<String, Vec<String>>, // plugin_id -> list of its dependency_ids
     ) -> std::result::Result<Vec<String>, crate::plugin_system::dependency::DependencyError> {
         let mut in_degree: HashMap<String, usize> = HashMap::new();
+        let mut reverse_adj: HashMap<String, Vec<String>> = HashMap::new(); // dependency_id -> list of plugins that depend on it
         let mut sorted_list = Vec::new();
-        let mut queue = VecDeque::new();
+        let mut queue = BinaryHeap::new(); // Max-heap for PrioritizedPlugin
 
-        // Calculate initial in-degrees (number of incoming edges/dependencies)
+        // Initialize in_degree and reverse_adj for all relevant plugins
         for id in plugin_ids {
             in_degree.insert(id.clone(), 0);
+            reverse_adj.insert(id.clone(), Vec::new());
         }
-        for dependencies in adj.values() {
+
+        // Calculate true in-degrees and build reverse_adj
+        for (plugin_id, dependencies) in adj {
+            if !plugin_ids.contains(plugin_id) {
+                continue; // Skip if the plugin itself is not in the target set (e.g. not enabled)
+            }
             for dep_id in dependencies {
-                if plugin_ids.contains(dep_id) { // Only count edges within the set
-                    *in_degree.entry(dep_id.clone()).or_insert(0) += 1;
+                if plugin_ids.contains(dep_id) {
+                    // `plugin_id` depends on `dep_id`
+                    *in_degree.entry(plugin_id.clone()).or_insert(0) += 1;
+                    reverse_adj.entry(dep_id.clone()).or_default().push(plugin_id.clone());
+                } else {
+                    // This case implies a dependency on a plugin not in plugin_ids (e.g., not enabled or not registered)
+                    // This should be caught by dependency checks before/during individual initialization.
+                    // For topological sort, we only consider edges within the plugin_ids set.
                 }
             }
         }
 
-        // Initialize queue with nodes having in-degree 0
+        // Initialize queue with nodes having in-degree 0 (no prerequisites)
         for id in plugin_ids {
-            if *in_degree.get(id).unwrap_or(&1) == 0 { // Use unwrap_or to handle potential missing entries defensively
-                queue.push_back(id.clone());
+            if *in_degree.get(id).unwrap_or(&0) == 0 {
+                let plugin_arc = self.plugins.get(id)
+                    .ok_or_else(|| crate::plugin_system::dependency::DependencyError::MissingPlugin(id.clone()))?;
+                queue.push(PrioritizedPlugin { priority: plugin_arc.priority(), id: id.clone() });
             }
         }
 
-        while let Some(id) = queue.pop_front() {
+        while let Some(PrioritizedPlugin { priority: _, id }) = queue.pop() {
             sorted_list.push(id.clone());
 
-            // For each neighbor (dependency) of the current node `id`
-            if let Some(dependencies) = adj.get(&id) {
-                for dep_id in dependencies {
-                     if plugin_ids.contains(dep_id) { // Process only dependencies within the set
-                        if let Some(degree) = in_degree.get_mut(dep_id) {
+            // For each plugin `dependent_id` that depends on the current `id`
+            if let Some(dependents) = reverse_adj.get(&id) {
+                for dependent_id in dependents {
+                    if plugin_ids.contains(dependent_id) { // Ensure dependent is in the target set
+                        if let Some(degree) = in_degree.get_mut(dependent_id) {
                             *degree -= 1;
                             if *degree == 0 {
-                                queue.push_back(dep_id.clone());
+                                let plugin_arc = self.plugins.get(dependent_id)
+                                    .ok_or_else(|| crate::plugin_system::dependency::DependencyError::MissingPlugin(dependent_id.clone()))?;
+                                queue.push(PrioritizedPlugin { priority: plugin_arc.priority(), id: dependent_id.clone() });
                             }
                         }
-                     }
+                    }
                 }
             }
         }
 
         if sorted_list.len() == plugin_ids.len() {
-            // The result should be in initialization order (dependencies first).
-            // Kahn's algorithm naturally produces this order.
-            // However, the standard algorithm adds nodes with 0 in-degree first.
-            // If A depends on B (A -> B), B has in-degree 0 initially. B gets added.
-            // Then A's in-degree becomes 0. A gets added. Order: [B, A]. This is correct for init.
-             // Do NOT reverse the list. Kahn's algorithm naturally produces the correct init order.
-             Ok(sorted_list)
+            // `sorted_list` is now in the correct initialization order: dependencies first,
+            // then dependents, with priority tie-breaking at each level.
+            Ok(sorted_list)
         } else {
             // Cycle detected. Find the nodes involved in the cycle (nodes not in sorted_list).
             let cycle_nodes: Vec<String> = plugin_ids
@@ -233,10 +283,9 @@ impl PluginRegistry {
         id: &str,
         app: &mut Application, // Keep app for Plugin::init for now
         stage_registry_arc: &Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
-    ) -> Result<()> {
+    ) -> KernelResult<()> { // Public method returns KernelResult
         let mut currently_initializing = HashSet::new();
-        // Pass the stage_registry_arc down
-        self.initialize_plugin_recursive(id, app, stage_registry_arc, &mut currently_initializing).await
+        self.initialize_plugin_recursive(id, app, stage_registry_arc, &mut currently_initializing).await.map_err(Error::from)
     }
 
     /// Internal recursive function for plugin initialization with cycle detection.
@@ -247,125 +296,92 @@ impl PluginRegistry {
         app: &'a mut Application, // Keep app for Plugin::init
         stage_registry_arc: &'a Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
         currently_initializing: &'a mut HashSet<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        // Wrap the async logic in Box::pin
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<(), PluginSystemError>> + Send + 'a>> {
         Box::pin(async move {
-        // Ensure plugin exists and is enabled before initializing
         if !self.has_plugin(id) {
-            return Err(Error::Plugin(format!("Plugin not found: {}", id)));
+            return Err(PluginSystemError::RegistrationError { plugin_id: id.to_string(), message: "Plugin not found".to_string() });
         }
         if !self.is_enabled(id) {
              println!("Plugin {} is disabled, skipping initialization.", id);
-             return Ok(()); // Skip initialization if disabled
+             return Ok(());
         }
 
         if self.initialized.contains(id) {
-            return Ok(()); // Already initialized
+            return Ok(());
         }
 
-        // --- Cycle Detection ---
         if currently_initializing.contains(id) {
-            return Err(Error::Plugin(format!(
-                "Cyclic dependency detected during initialization involving plugin '{}'", id
-            )));
+            return Err(PluginSystemError::DependencyResolution(crate::plugin_system::dependency::DependencyError::CyclicDependency(vec![id.to_string()])));
         }
         currently_initializing.insert(id.to_string());
-        // --- End Cycle Detection ---
 
-        // Get plugin dependencies (needs cloning the Arc to access methods)
         let plugin_arc = match self.plugins.get(id) {
              Some(p) => p.clone(),
-             None => return Err(Error::Plugin(format!("Plugin {} disappeared unexpectedly", id))), // Should not happen if has_plugin passed
+             None => return Err(PluginSystemError::RegistrationError { plugin_id: id.to_string(), message: "Plugin disappeared unexpectedly".to_string() }),
         };
         let dependencies = plugin_arc.dependencies().clone();
 
-
-        // Check and initialize dependencies first
         for dep in dependencies {
             let dep_exists = self.has_plugin(&dep.plugin_name);
             let dep_enabled = self.is_enabled(&dep.plugin_name);
 
-            // Check for missing/disabled required dependencies
             if dep.required && (!dep_exists || !dep_enabled) {
-                return Err(Error::Plugin(format!(
-                    "Plugin '{}' requires enabled dependency '{}', which is missing or disabled.",
-                    id, dep.plugin_name
-                )));
+                return Err(PluginSystemError::DependencyResolution(crate::plugin_system::dependency::DependencyError::MissingPlugin(dep.plugin_name.clone())));
             }
 
-            // Check version constraint if dependency exists
             if dep_exists {
                  if let Some(dep_plugin) = self.get_plugin(&dep.plugin_name) {
                      if let Some(ref required_range) = dep.version_range {
                          match semver::Version::parse(dep_plugin.version()) {
                              Ok(dep_version) => {
                                  if !required_range.includes(&dep_version) {
-                                     return Err(Error::Plugin(format!(
-                                         "Plugin '{}' requires dependency '{}' version '{}', but found version '{}'",
-                                         id,
-                                         dep.plugin_name,
-                                         required_range.constraint_string(),
-                                         dep_plugin.version()
-                                     )));
+                                     return Err(PluginSystemError::DependencyResolution(crate::plugin_system::dependency::DependencyError::IncompatibleVersion {
+                                         plugin_name: dep.plugin_name.clone(),
+                                         required_range: required_range.clone(),
+                                         actual_version: dep_plugin.version().to_string(),
+                                     }));
                                  }
                              },
                              Err(e) => {
-                                 return Err(Error::Plugin(format!(
+                                 return Err(PluginSystemError::VersionParsing(crate::plugin_system::version::VersionError::ParseError(format!(
                                      "Failed to parse version string '{}' for dependency plugin '{}': {}",
                                      dep_plugin.version(), dep.plugin_name, e
-                                 )));
+                                 ))));
                              }
                          }
                      }
                  }
             }
 
-            // Initialize dependency if required, enabled, exists, and not already initialized
             if dep.required && dep_exists && dep_enabled && !self.initialized.contains(&dep.plugin_name) {
-                 // Recursive call: Pass app and the stage_registry_arc_clone
                  self.initialize_plugin_recursive(
                      &dep.plugin_name,
-                     app, // Pass app reference down
-                     stage_registry_arc, // Pass the original Arc reference down
+                     app,
+                     stage_registry_arc,
                      currently_initializing
                  ).await?;
             }
        }
 
-       // --- Initialize the plugin itself ---
        println!("[PluginRegistry] Initializing plugin: {}", id);
-
-       // Call init with mutable borrow of app (still required by Plugin::init signature)
-       plugin_arc.init(app)?;
+       plugin_arc.init(app).map_err(|e| PluginSystemError::InitializationError {
+           plugin_id: id.to_string(),
+           message: e.to_string(),
+           source: Some(Box::new(crate::plugin_system::error::PluginSystemErrorSource::Other(e.to_string()))), // Or map specific source if possible
+       })?;
        println!("[PluginRegistry] Plugin initialized: {}", id);
 
-       // --- Register stages immediately after successful initialization ---
        println!("[PluginRegistry] Attempting to register stages for plugin: {}...", id);
-       // Lock the registry using the Arc<Mutex<StageRegistry>> directly
        let mut registry_guard = stage_registry_arc.lock().await;
        println!("[PluginRegistry] StageRegistry locked for plugin: {}", id);
-       match plugin_arc.register_stages(&mut *registry_guard) { // Call the plugin's method
-            Ok(_) => {
-                println!("[PluginRegistry] plugin.register_stages call succeeded for plugin: {}", id);
-             }
-             Err(e) => {
-                 println!("[PluginRegistry] plugin.register_stages call FAILED for plugin: {}: {}", id, e);
-                 // Propagate the error
-                 return Err(e);
-             }
-        }
-        // Drop the guard explicitly *before* marking as initialized, although it would drop at end of scope anyway.
-        drop(registry_guard);
-        println!("[PluginRegistry] StageRegistry unlocked for plugin: {}", id);
+       plugin_arc.register_stages(&mut *registry_guard)?; // This now returns Result<_, PluginSystemError>
+       drop(registry_guard);
+       println!("[PluginRegistry] StageRegistry unlocked for plugin: {}", id);
 
-
-        // Mark as initialized *after* successful init and stage registration
         self.initialized.insert(id.to_string());
-        // --- Cycle Detection Cleanup ---
         currently_initializing.remove(id);
-        // --- End Cycle Detection Cleanup ---
-
-        Ok(()) }) // Close the async move block and Box::pin
+        Ok(())
+        })
     }
 
     /// Initialize all enabled plugins in dependency order, after checking for conflicts.
@@ -374,39 +390,34 @@ impl PluginRegistry {
         &mut self,
         app: &mut Application,
         stage_registry_arc: &Arc<Mutex<StageRegistry>>, // Expect &Arc<Mutex<StageRegistry>>
-    ) -> Result<()> {
-        // 1. Detect conflicts among enabled plugins
-        self.detect_all_conflicts()?;
+    ) -> KernelResult<()> {
+        self.detect_all_conflicts().map_err(Error::from)?; // detect_all_conflicts returns PluginSystemError
         println!("[Init] Detected conflicts: {:?}", self.conflict_manager.get_conflicts());
 
-        // 2. Check for critical unresolved conflicts
         if !self.conflict_manager.all_critical_conflicts_resolved() {
             let critical_conflicts = self.conflict_manager.get_critical_unresolved_conflicts();
             let conflict_details: Vec<String> = critical_conflicts
                 .iter()
                 .map(|c| format!("  - {} vs {}: {}", c.first_plugin, c.second_plugin, c.description))
                 .collect();
-            return Err(Error::Plugin(format!(
-                "Cannot initialize plugins due to unresolved critical conflicts:\n{}",
-                conflict_details.join("\n")
-            )));
+            return Err(Error::from(PluginSystemError::ConflictError {
+                message: format!(
+                    "Cannot initialize plugins due to unresolved critical conflicts:\n{}",
+                    conflict_details.join("\n")
+                ),
+            }));
         }
 
-        // 3. Get IDs of enabled plugins
-        // TODO: Factor in plugins disabled by conflict resolution?
         let enabled_plugin_ids: HashSet<String> = self.enabled.iter().cloned().collect();
         if enabled_plugin_ids.is_empty() {
              println!("[Init] No enabled plugins to initialize.");
              return Ok(());
         }
 
-        // 4. Build dependency graph for enabled plugins
         println!("[Init] Building dependency graph for enabled plugins: {:?}", enabled_plugin_ids);
         let (adj, _reverse_adj) = self.build_dependency_graph(&enabled_plugin_ids);
         println!("[Init] Adjacency List: {:?}", adj);
 
-
-        // 5. Perform Topological Sort and Cycle Detection
         println!("[Init] Performing topological sort...");
         let sorted_plugin_ids = match self.topological_sort(&enabled_plugin_ids, &adj) {
              Ok(sorted_ids) => {
@@ -414,34 +425,18 @@ impl PluginRegistry {
                  sorted_ids
              }
              Err(dep_err) => {
-                 // Map DependencyError to kernel::Error::Plugin
-                 let err_msg = format!("Dependency resolution failed: {}", dep_err); // Format the error
-                 eprintln!("[Init] {}", err_msg);
-                 return Err(Error::Plugin(err_msg)); // Wrap the formatted string
+                 eprintln!("[Init] Dependency resolution failed: {}", dep_err);
+                 return Err(Error::from(PluginSystemError::DependencyResolution(dep_err)));
              }
         };
 
-        // 6. Perform Enhanced Version Compatibility Check (Placeholder - Needs Implementation)
-        // TODO: Implement check_transitive_version_constraints(&enabled_plugin_ids, &adj)?;
         println!("[Init] Skipping transitive version constraint check (TODO).");
 
-
-        // 7. Initialize plugins in topological order
         println!("[Init] Initializing plugins in topological order...");
         for id in sorted_plugin_ids {
-            // Check if already initialized (might happen due to dependency resolution within recursive calls)
             if !self.initialized.contains(&id) {
                  println!("[Init] Calling initialize_plugin for: {}", id);
-                 // Call the public method, passing the app and the stage_registry_arc
-                 match self.initialize_plugin(&id, app, stage_registry_arc).await {
-                     Ok(_) => println!("[Init] Successfully initialized plugin: {}", id),
-                     Err(e) => {
-                         // If initialization fails for one plugin, stop the whole process?
-                         // Or collect errors and report at the end? Let's stop for now.
-                         eprintln!("[Init] Failed to initialize plugin {}: {}", id, e);
-                         return Err(e);
-                     }
-                 }
+                 self.initialize_plugin(&id, app, stage_registry_arc).await?; // This returns KernelResult
             } else {
                  println!("[Init] Plugin {} already initialized (likely by a dependency), skipping.", id);
             }
@@ -452,7 +447,7 @@ impl PluginRegistry {
     }
     
     /// Shutdown all plugins
-    pub fn shutdown_all(&mut self) -> Result<()> {
+    pub fn shutdown_all(&mut self) -> std::result::Result<(), PluginSystemError> {
         // Build dependency graph for initialized plugins
         let mut adj: HashMap<String, Vec<String>> = HashMap::new();
         let mut reverse_adj: HashMap<String, Vec<String>> = HashMap::new(); // For reverse topological sort
@@ -517,12 +512,14 @@ impl PluginRegistry {
         if shutdown_order.len() != initialized_plugin_ids.len() {
             // This indicates a cycle among initialized plugins, which ideally shouldn't happen
             // if initialization succeeded, but handle defensively.
-             return Err(Error::Plugin(
-                 "Cyclic dependency detected among initialized plugins during shutdown sort.".to_string()
-             ));
-        }
+            return Err(PluginSystemError::DependencyResolution(
+               crate::plugin_system::dependency::DependencyError::CyclicDependency(
+                   initialized_plugin_ids.iter().filter(|id| !shutdown_order.contains(id)).cloned().collect()
+               )
+            ));
+       }
 
-        // Shutdown plugins in the calculated topological order.
+       // Shutdown plugins in the calculated topological order.
         // The `shutdown_order` Vec contains plugins where dependencies appear *before*
         // the plugins that depend on them (e.g., A before B if B depends on A).
         // For shutdown, we need to process this list *as is* to ensure dependents
@@ -534,25 +531,30 @@ impl PluginRegistry {
                  // Check if it's still marked as initialized before shutting down
                  if self.initialized.contains(id.as_str()) { // Use as_str()
                     println!("Shutting down plugin: {}", id);
-                    if let Err(e) = plugin.shutdown() {
+                    if let Err(e) = plugin.shutdown() { // shutdown returns Result<_, PluginSystemError>
                         let err_msg = format!("Error shutting down plugin {}: {}", id, e);
                         eprintln!("{}", err_msg);
-                        shutdown_errors.push(err_msg);
+                        shutdown_errors.push(e); // Push PluginSystemError
                         // Continue shutting down others even if one fails
                     }
                     // Mark as uninitialized *after* attempting shutdown
-                    self.initialized.remove(id.as_str()); // Use as_str()
+                    self.initialized.remove(id.as_str());
                  }
             }
         }
 
         if shutdown_errors.is_empty() {
             Ok(())
+        } else if shutdown_errors.len() == 1 {
+            // If there's only one error, propagate it directly
+            Err(shutdown_errors.remove(0))
         } else {
-            Err(Error::Plugin(format!(
-                "Encountered errors during plugin shutdown: {}",
-                shutdown_errors.join("; ")
-            )))
+            // Combine multiple PluginSystemErrors into one
+            let combined_message = shutdown_errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ");
+            Err(PluginSystemError::ShutdownError {
+                plugin_id: "multiple".to_string(),
+                message: format!("Encountered errors during plugin shutdown: {}", combined_message),
+            })
         }
     }
     
@@ -577,48 +579,37 @@ impl PluginRegistry {
     }
     
     /// Check for plugin dependencies
-    pub fn check_dependencies(&self) -> Result<()> {
+    pub fn check_dependencies(&self) -> std::result::Result<(), PluginSystemError> {
         for (id, plugin) in &self.plugins {
-             // Only check dependencies for enabled plugins
              if !self.is_enabled(id) {
                  continue;
              }
             for dep in plugin.dependencies() {
-                // Check if the dependency exists and is enabled
                 let dep_exists = self.has_plugin(&dep.plugin_name);
                 let dep_enabled = self.is_enabled(&dep.plugin_name);
 
                 if dep.required && (!dep_exists || !dep_enabled) {
-                    return Err(Error::Plugin(format!(
-                        "Enabled plugin '{}' requires enabled plugin '{}', which is missing or disabled.",
-                        id, dep.plugin_name
-                    )));
+                    return Err(PluginSystemError::DependencyResolution(crate::plugin_system::dependency::DependencyError::MissingPlugin(dep.plugin_name.clone())));
                 }
 
-                // Check version compatibility if the dependency exists (regardless of enabled status for version check)
                 if dep_exists {
-                    if let Some(dep_plugin) = self.get_plugin(&dep.plugin_name) { // get_plugin returns Option<Arc<dyn Plugin>>
+                    if let Some(dep_plugin) = self.get_plugin(&dep.plugin_name) {
                         if let Some(ref required_range) = dep.version_range {
-                            // Parse the dependency's actual version string into semver::Version
                             match semver::Version::parse(dep_plugin.version()) {
                                 Ok(dep_version) => {
-                                    // Use the includes method which takes semver::Version
                                     if !required_range.includes(&dep_version) {
-                                        return Err(Error::Plugin(format!(
-                                            "Plugin '{}' requires dependency '{}' version '{}', but found version '{}'",
-                                            id,
-                                            dep.plugin_name,
-                                            required_range.constraint_string(), // Use constraint_string() for display
-                                            dep_plugin.version()
-                                        )));
+                                        return Err(PluginSystemError::DependencyResolution(crate::plugin_system::dependency::DependencyError::IncompatibleVersion {
+                                            plugin_name: dep.plugin_name.clone(),
+                                            required_range: required_range.clone(),
+                                            actual_version: dep_plugin.version().to_string(),
+                                        }));
                                     }
                                 },
                                 Err(e) => {
-                                    // Error parsing the dependency's version string
-                                    return Err(Error::Plugin(format!(
+                                    return Err(PluginSystemError::VersionParsing(crate::plugin_system::version::VersionError::ParseError(format!(
                                         "Failed to parse version string '{}' for dependency plugin '{}': {}",
                                         dep_plugin.version(), dep.plugin_name, e
-                                    )));
+                                    ))));
                                 }
                             }
                         }
@@ -630,9 +621,9 @@ impl PluginRegistry {
     }
 
      /// Enable a plugin by ID
-     pub fn enable_plugin(&mut self, id: &str) -> Result<()> {
+     pub fn enable_plugin(&mut self, id: &str) -> std::result::Result<(), PluginSystemError> {
          if !self.has_plugin(id) {
-             return Err(Error::Plugin(format!("Cannot enable non-existent plugin: {}", id)));
+             return Err(PluginSystemError::RegistrationError { plugin_id: id.to_string(), message: "Cannot enable non-existent plugin".to_string() });
          }
          self.enabled.insert(id.to_string());
          println!("Plugin {} enabled.", id);
@@ -640,22 +631,16 @@ impl PluginRegistry {
      }
 
      /// Disable a plugin by ID
-     pub fn disable_plugin(&mut self, id: &str) -> Result<()> {
+     pub fn disable_plugin(&mut self, id: &str) -> std::result::Result<(), PluginSystemError> {
          if !self.has_plugin(id) {
-             // Disabling a non-existent plugin might be considered a no-op or an error.
-             // Let's treat it as a no-op for now, but log it.
              println!("Attempted to disable non-existent plugin: {}", id);
              return Ok(());
          }
          if self.initialized.contains(id) {
-             // Ideally, we should shut down the plugin if it's initialized before disabling.
-             // However, shutdown logic is complex (dependency order).
-             // For now, we prevent disabling an initialized plugin.
-             // TODO: Implement safe disabling of initialized plugins (requires shutdown).
-             return Err(Error::Plugin(format!(
-                 "Cannot disable plugin '{}' while it is initialized. Stop the application first.",
-                 id
-             )));
+             return Err(PluginSystemError::OperationError {
+                 plugin_id: Some(id.to_string()),
+                 message: "Cannot disable plugin while it is initialized. Stop the application first.".to_string(),
+             });
          }
 
          if self.enabled.remove(id) {
@@ -683,10 +668,7 @@ impl PluginRegistry {
 
     /// Detect all conflicts between currently enabled plugins.
     /// This clears previous conflicts and re-evaluates based on the current state.
-    ///
-    // Removed problematic line: (e.g., resource claims).
-    pub fn detect_all_conflicts(&mut self) -> Result<()> {
-        // Clear previous conflicts before re-detecting
+    pub fn detect_all_conflicts(&mut self) -> std::result::Result<(), PluginSystemError> {
         self.conflict_manager = ConflictManager::new();
 
         let enabled_plugin_ids: Vec<String> = self.enabled.iter().cloned().collect();

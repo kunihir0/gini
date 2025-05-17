@@ -7,7 +7,8 @@ use crate::kernel::bootstrap::Application;
 use crate::kernel::component::KernelComponent;
 use crate::kernel::error::{Error, Result as KernelResult};
 use crate::plugin_system::dependency::PluginDependency;
-use crate::plugin_system::traits::{Plugin, PluginPriority, PluginError as TraitsPluginError};
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError as TraitsPluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::StageContext;
 use crate::stage_manager::registry::StageRegistry;
@@ -28,10 +29,10 @@ impl Plugin for UnparsableVersionPlugin {
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
 }
@@ -52,8 +53,8 @@ async fn test_plugin_dependency_unparsable_version() {
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(dep_plugin)).expect("Register dep");
-        registry.register_plugin(Box::new(main_plugin)).expect("Register main");
+        registry.register_plugin(Arc::new(dep_plugin)).expect("Register dep");
+        registry.register_plugin(Arc::new(main_plugin)).expect("Register main");
     }
 
     let check_result = {
@@ -63,10 +64,11 @@ async fn test_plugin_dependency_unparsable_version() {
 
     assert!(check_result.is_err(), "check_dependencies should fail for unparsable version");
     match check_result.err().unwrap() {
-        Error::Plugin(msg) => {
+        PluginSystemError::VersionParsing(version_err) => {
+            let msg = version_err.to_string();
             assert!(msg.contains("Failed to parse version string 'invalid-version'"), "Expected unparsable version error, got: {}", msg);
         }
-        e => panic!("Expected Plugin error for unparsable version, got {:?}", e),
+        e => panic!("Expected PluginSystemError::VersionParsing for unparsable version, got {:?}", e),
     }
 }
 
@@ -87,8 +89,8 @@ async fn test_plugin_dependency_no_version() {
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(dep_plugin)).expect("Register dep");
-        registry.register_plugin(Box::new(main_plugin)).expect("Register main");
+        registry.register_plugin(Arc::new(dep_plugin)).expect("Register dep");
+        registry.register_plugin(Arc::new(main_plugin)).expect("Register main");
     }
 
     let check_result = {
@@ -113,16 +115,16 @@ impl Plugin for CyclePluginA {
     fn name(&self) -> &'static str { "CycleA" }
     fn version(&self) -> &str { "1.0.0" }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![PluginDependency::required_any("CycleC")] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(100) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 }
 
 #[allow(dead_code)]
@@ -132,16 +134,16 @@ impl Plugin for CyclePluginB {
     fn name(&self) -> &'static str { "CycleB" }
     fn version(&self) -> &str { "1.0.0" }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![PluginDependency::required_any("CycleA")] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(100) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 }
 
 #[allow(dead_code)]
@@ -153,14 +155,14 @@ impl Plugin for CyclePluginC {
     fn dependencies(&self) -> Vec<PluginDependency> { vec![PluginDependency::required_any("CycleB")] }
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     fn is_core(&self) -> bool { false }
     fn priority(&self) -> PluginPriority { PluginPriority::ThirdParty(100) }
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![">=0.1.0".parse().unwrap()] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    async fn preflight_check(&self, _context: &StageContext) -> Result<(), TraitsPluginError> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) }
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 }
 
 
@@ -176,9 +178,9 @@ async fn test_plugin_shutdown_cycle() {
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin_a)).expect("Register A");
-        registry.register_plugin(Box::new(plugin_b)).expect("Register B");
-        registry.register_plugin(Box::new(plugin_c)).expect("Register C");
+        registry.register_plugin(Arc::new(plugin_a)).expect("Register A");
+        registry.register_plugin(Arc::new(plugin_b)).expect("Register B");
+        registry.register_plugin(Arc::new(plugin_c)).expect("Register C");
     }
 
     let mut app = Application::new().unwrap();
@@ -192,17 +194,12 @@ async fn test_plugin_shutdown_cycle() {
     
     let error = init_result.err().unwrap();
     match error {
-        Error::Plugin(msg) => {
-            assert!(
-                msg.contains("Dependency resolution failed: Circular dependency detected"),
-                "Expected cycle detection error message, got: {}", msg
-            );
-            assert!(
-                msg.contains("CycleA") || msg.contains("CycleB") || msg.contains("CycleC"),
-                "Error should mention a plugin in the cycle"
+        Error::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+            assert!(matches!(dep_err, crate::plugin_system::dependency::DependencyError::CyclicDependency(_)),
+                "Expected cycle detection error message, got: {:?}", dep_err
             );
         }
-        e => panic!("Expected Plugin error for initialization cycle, got {:?}", e),
+        e => panic!("Expected PluginSystem(DependencyResolution(CyclicDependency)) error for initialization cycle, got {:?}", e),
     }
 
     {
@@ -229,7 +226,7 @@ async fn test_register_all_plugins_dep_resolution_fail_via_manager() -> KernelRe
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin_a))?;
+        registry.register_plugin(Arc::new(plugin_a))?;
     }
 
     let mut app = Application::new().unwrap();
@@ -241,13 +238,15 @@ async fn test_register_all_plugins_dep_resolution_fail_via_manager() -> KernelRe
     assert!(init_result.is_err(), "Initialization should fail due to missing dependency");
     let error = init_result.err().unwrap();
     match error {
-        Error::Plugin(msg) => {
-             assert!(
-                msg.contains("requires enabled dependency") && msg.contains("NonExistentB") && msg.contains("which is missing or disabled"),
-                "Expected missing dependency error, got: {}", msg
+        Error::PluginSystem(PluginSystemError::DependencyResolution(dep_err)) => {
+            let msg = dep_err.to_string();
+            // The DependencyError::MissingPlugin format is "Required plugin not found: {0}"
+            assert!(
+                msg.contains("Required plugin not found: NonExistentB"),
+                "Expected missing dependency error for NonExistentB, got: {}", msg
             );
         }
-        e => panic!("Expected Plugin error for missing dependency, got {:?}", e),
+        e => panic!("Expected PluginSystem(DependencyResolution) error for missing dependency, got {:?}", e),
     }
 
     let registry = plugin_manager.registry().lock().await;
@@ -282,10 +281,10 @@ async fn test_initialize_all_diamond_dependency_order() {
 
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.register_plugin(Box::new(plugin_a)).expect("Register A");
-        registry.register_plugin(Box::new(plugin_c)).expect("Register C");
-        registry.register_plugin(Box::new(plugin_d)).expect("Register D");
-        registry.register_plugin(Box::new(plugin_b)).expect("Register B");
+        registry.register_plugin(Arc::new(plugin_a)).expect("Register A");
+        registry.register_plugin(Arc::new(plugin_c)).expect("Register C");
+        registry.register_plugin(Arc::new(plugin_d)).expect("Register D");
+        registry.register_plugin(Arc::new(plugin_b)).expect("Register B");
     }
 
     let mut app = Application::new().unwrap();

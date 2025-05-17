@@ -1,14 +1,15 @@
 // crates/gini-core/src/plugin_system/tests/traits_tests.rs
 #![cfg(test)]
 
-use crate::plugin_system::traits::{Plugin, PluginError, PluginPriority};
+use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
+use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::dependency::PluginDependency;
 use crate::stage_manager::context::StageContext;
 use crate::stage_manager::requirement::StageRequirement;
 // Removed unused: use crate::stage_manager::Stage;
 use crate::stage_manager::registry::StageRegistry; // Added for register_stages
-use crate::kernel::error::Result as KernelResult;
+// use crate::kernel::error::Result as KernelResult; // Removed unused import
 use crate::kernel::bootstrap::Application; // Needed for Plugin::init signature
 use async_trait::async_trait;
 use std::path::PathBuf; // For dummy StageContext
@@ -94,16 +95,6 @@ fn test_priority_ordering() {
     assert_ne!(PluginPriority::Core(70), PluginPriority::ThirdParty(70)); // Same value, different type
 }
 
-#[test]
-fn test_plugin_error_display_format() {
-    assert_eq!(format!("{}", PluginError::InitError("Failed init".to_string())), "Plugin initialization error: Failed init");
-    assert_eq!(format!("{}", PluginError::LoadError("Failed load".to_string())), "Plugin loading error: Failed load");
-    assert_eq!(format!("{}", PluginError::ExecutionError("Failed exec".to_string())), "Plugin execution error: Failed exec");
-    assert_eq!(format!("{}", PluginError::DependencyError("Missing dep".to_string())), "Plugin dependency error: Missing dep");
-    assert_eq!(format!("{}", PluginError::VersionError("Bad version".to_string())), "Plugin version error: Bad version");
-    assert_eq!(format!("{}", PluginError::PreflightCheckError("Failed preflight".to_string())), "Plugin pre-flight check error: Failed preflight");
-}
-
 // --- Mock Plugin for Trait Test ---
 struct MockTraitPlugin;
 
@@ -116,10 +107,10 @@ impl Plugin for MockTraitPlugin {
     fn compatible_api_versions(&self) -> Vec<VersionRange> { vec![] }
     fn dependencies(&self) -> Vec<PluginDependency> { vec![] }
     fn required_stages(&self) -> Vec<StageRequirement> { vec![] }
-    fn init(&self, _app: &mut Application) -> KernelResult<()> { Ok(()) }
+    fn init(&self, _app: &mut Application) -> std::result::Result<(), PluginSystemError> { Ok(()) }
     // Default preflight_check is used
-    fn shutdown(&self) -> KernelResult<()> { Ok(()) }
-    fn register_stages(&self, _registry: &mut StageRegistry) -> KernelResult<()> { Ok(()) } // Added
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, _registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> { Ok(()) }
 // Add default implementations for new trait methods
     fn conflicts_with(&self) -> Vec<String> { vec![] }
     fn incompatible_with(&self) -> Vec<PluginDependency> { vec![] }
