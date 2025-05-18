@@ -951,13 +951,9 @@ These real-world examples from the actual core plugins demonstrate best practice
 
 Package your plugin as a shared library:
 - Linux: `.so` file
-- Windows: `.dll` file
-- macOS: `.dylib` file
 
 Users can install your plugin by placing it in the Gini application's plugin directory:
 - `~/.local/share/gini/plugins/` (Linux)
-- `%APPDATA%\gini\plugins\` (Windows)
-- `~/Library/Application Support/gini/plugins/` (macOS)
 
 ## References
 
