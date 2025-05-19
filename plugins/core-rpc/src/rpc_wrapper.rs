@@ -70,6 +70,7 @@ impl InternalRichPresenceData {
     // fn apply_to_activity_old(&self, mut activity_builder: discord_presence::models::rich_presence::Activity) -> discord_presence::models::rich_presence::Activity { ... }
 }
 
+#[derive(Debug)] // Added Debug derive
 pub struct DiscordRpcWrapper {
     client_id: String,
     // pub(crate) client_handle: Option<DiscordClient>, // Removed
