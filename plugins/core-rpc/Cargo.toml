@@ -1,0 +1,24 @@
+[package]
+name = "core-rpc"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"] # For static linking
+
+[dependencies]
+gini-core = { path = "../../crates/gini-core" }
+discord-presence = "1.6"
+serde = { version = "1.0", features = ["derive"] }
+# serde_json is not directly used by settings.rs anymore, but might be by ConfigData internally or other parts.
+# Keep it for now unless a build explicitly shows it's unneeded.
+serde_json = "1.0" 
+toml = "0.8" # For settings.rs
+tokio = { version = "1", features = ["full"] } # For spawn_blocking and Handle::current()
+log = "0.4"
+async-trait = "0.1.77" # For Plugin trait
+thiserror = "1.0" # For custom errors
+chrono = { version = "0.4", features = ["serde"] } # For Utc::now() and timestamps
+
+[dev-dependencies]
+# Add testing dependencies if needed

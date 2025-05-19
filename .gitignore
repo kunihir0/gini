@@ -3,3 +3,5 @@ target/
 user/
 .roo/
 *.profraw
+review/
+rustdocs/

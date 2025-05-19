@@ -415,7 +415,7 @@ impl Plugin for VTablePluginWrapper {
         }
     }
 
-    #[must_use = "The result of preflight_check should be handled"]
+    // #[must_use = "The result of preflight_check should be handled"] // Removed as per compiler warning
     fn preflight_check<'life0, 'life1, 'async_trait>(
         &'life0 self,
         context: &'life1 StageContext

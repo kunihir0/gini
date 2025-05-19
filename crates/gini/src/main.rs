@@ -12,6 +12,7 @@ use log::{info, error}; // Added logging imports
 // --- Import Core Plugins for Static Registration ---
 use core_environment_check::EnvironmentCheckPlugin; // Corrected name
 use core_logging::LoggingPlugin; // Corrected name
+use core_rpc::CoreRpcPlugin; // Add CoreRpcPlugin import
 // --- End Core Plugin Imports ---
 
 /// Gini: A modular application framework
@@ -109,6 +110,14 @@ async fn main() {
             return;
         }
         println!("  - Registered: core-environment-check");
+
+        // Instantiate and register core-rpc
+        let rpc_plugin = Arc::new(CoreRpcPlugin::new()); // Assuming CoreRpcPlugin has a new()
+        if let Err(e) = registry.register_plugin(rpc_plugin) {
+            eprintln!("Fatal: Failed to register core-rpc plugin: {}", e);
+            return;
+        }
+        println!("  - Registered: core-rpc");
     } // MutexGuard dropped here
     println!("Static core plugins registered.");
     // --- End Static Plugin Registration ---

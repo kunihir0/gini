@@ -161,8 +161,17 @@ impl ConfigData {
             },
             #[cfg(feature = "toml-config")]
             ConfigFormat::Toml => {
-                // Note: toml::Value doesn't directly support flatten, so we serialize the inner map
-                toml::to_string_pretty(&self.values).map_err(|e| StorageSystemError::SerializationError { // Changed to StorageSystemError
+                // Filter out serde_json::Value::Null before serializing to TOML,
+                // as TOML does not support null values directly (None is represented by absence).
+                let filtered_values: HashMap<String, serde_json::Value> = self.values.iter()
+                    .filter(|(_, v)| !v.is_null()) // Filter out null values
+                    .map(|(k, v)| (k.clone(), v.clone())) // Clone to create owned values for the new map
+                    .collect();
+                
+                // If after filtering, all values were null and the map is empty,
+                // toml::to_string_pretty on an empty map produces an empty string, which is valid TOML.
+                // If there are non-null values, they will be serialized.
+                toml::to_string_pretty(&filtered_values).map_err(|e| StorageSystemError::SerializationError {
                     format: "TOML".to_string(),
                     source: Box::new(e),
                 })
