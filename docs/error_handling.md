@@ -10,70 +10,95 @@ The Gini application implements a comprehensive error handling strategy across i
 
 ### Kernel Errors
 
-The kernel module defines its error types in `kernel/error.rs`, representing failures that can occur during the kernel bootstrapping and component lifecycle management.
+The kernel module defines its error types in `crates/gini-core/src/kernel/error.rs`, representing failures that can occur during the kernel bootstrapping and component lifecycle management.
 
 ```rust
 // Key error types:
-pub enum KernelError {
-    ComponentInitializationError(String),
-    ComponentNotFoundError(String),
-    ConfigurationError(String),
-    // ...other error variants
+pub enum Error { // Note: The actual enum in kernel/error.rs is named `Error`
+    PluginSystem(PluginSystemError), // Example of wrapping a subsystem error
+    StageSystem(StageSystemError),
+    StorageSystem(StorageSystemError),
+    EventSystem(EventSystemError),
+    UiBridge(UiBridgeError),
+    KernelLifecycleError { phase: KernelLifecyclePhase, message: String, ... },
+    ComponentRegistryError { operation: String, message: String, ... },
+    // ...other variants including deprecated ones and specific errors
 }
 ```
 
 ### Plugin System Errors
 
-Plugin system errors are defined in `plugin_system/error.rs` and represent failures related to plugin loading, dependency resolution, and execution.
+Plugin system errors are defined in `crates/gini-core/src/plugin_system/error.rs` and represent failures related to plugin loading, dependency resolution, and execution.
 
 ```rust
 // Key error types:
-pub enum PluginError {
-    LoadError(String),
-    VersionIncompatibleError(String),
-    DependencyError(String),
-    ConflictError(String),
-    ManifestError(String),
-    // ...other error variants
+pub enum PluginSystemError {
+    LoadingError { plugin_id: String, path: Option<PathBuf>, source: Box<PluginSystemErrorSource> },
+    FfiError { plugin_id: String, operation: String, message: String },
+    ManifestError { path: PathBuf, message: String, source: Option<Box<dyn std::error::Error + Send + Sync>> },
+    RegistrationError { plugin_id: String, message: String },
+    InitializationError { plugin_id: String, message: String, source: Option<Box<PluginSystemErrorSource>> },
+    PreflightCheckFailed { plugin_id: String, message: String },
+    DependencyResolution(#[from] DependencyError),
+    VersionParsing(#[from] VersionError),
+    ConflictError { message: String },
+    // ...other variants like ShutdownError, AdapterError, OperationError, InternalError
 }
 ```
 
 ### Event System Errors
 
-Event system errors in `event/error.rs` represent failures during event registration, dispatch, and handling.
+Event system errors in `crates/gini-core/src/event/error.rs` represent failures during event registration, dispatch, and handling.
 
 ```rust
 // Key error types:
-pub enum EventError {
-    EventRegistrationError(String),
-    EventDispatchError(String),
+pub enum EventSystemError {
+    HandlerRegistrationFailedByName { event_name: String, reason: String },
+    HandlerRegistrationFailedByType { type_id: TypeId, reason: String },
+    HandlerUnregistrationFailed { id: EventId, reason: String },
+    DispatchError { event_name: String, reason: String },
+    QueueOperationFailed { operation: String, reason: String },
+    InvalidEventData { event_name: String, details: String },
+    DispatcherPoisoned { component: String },
+    InternalError(String),
     // ...other error variants
 }
 ```
 
 ### Storage System Errors
 
-Storage errors in `storage/error.rs` represent failures related to data storage, configuration, and persistence.
+Storage errors in `crates/gini-core/src/storage/error.rs` represent failures related to data storage, configuration, and persistence.
 
 ```rust
 // Key error types:
-pub enum StorageError {
-    ConfigReadError(String),
-    ConfigWriteError(String),
-    StorageProviderError(String),
-    // ...other error variants
+pub enum StorageSystemError {
+    Io { path: PathBuf, operation: String, source: std::io::Error },
+    FileNotFound(PathBuf),
+    DirectoryNotFound(PathBuf),
+    AccessDenied(PathBuf, String),
+    SerializationError { format: String, source: Box<dyn std::error::Error + Send + Sync + 'static> },
+    DeserializationError { format: String, source: Box<dyn std::error::Error + Send + Sync + 'static> },
+    ConfigNotFound { scope: String, name: String },
+    OperationFailed { operation: String, path: Option<PathBuf>, message: String },
+    // ...other variants like PathResolutionFailed, UnsupportedConfigFormat, ReadOnly, ResourceExists, InvalidPath
 }
 ```
 
 ### UI Bridge Errors
 
-UI bridge errors in `ui_bridge/error.rs` represent failures in the communication between the core application and the UI layer.
+UI bridge errors in `crates/gini-core/src/ui_bridge/error.rs` represent failures in the communication between the core application and the UI layer.
 
 ```rust
 // Key error types:
-pub enum UIError {
-    MessageDeliveryError(String),
-    // ...other error variants
+pub enum UiBridgeError {
+    InterfaceHandlingFailed { interface_name: String, message_type: String, source: Box<dyn std::error::Error + Send + Sync + 'static> },
+    RegistrationFailed(String),
+    InterfaceNotFound(String),
+    InputError(String),
+    LifecycleMethodFailed { interface_name: String, method: String, source: Box<dyn std::error::Error + Send + Sync + 'static> },
+    LockError { entity: String, operation: String },
+    MessageBufferError(String),
+    // ...other variants like InterfaceOperationFailed, MultipleInterfaceFailures, InternalError
 }
 ```
 

@@ -107,7 +107,7 @@ Tests are organized following these patterns:
 
 1. **Unit Tests**: Located in the same file as the code they test, within a `#[cfg(test)] mod tests` block
 2. **Module Tests**: Located in a `tests` subdirectory adjacent to the module they test
-3. **Integration Tests**: Located in the `src/tests/integration` directory
+3. **Integration Tests**: Typically located in a top-level `tests/` directory for a crate (e.g., `crates/your_crate_name/tests/some_integration_test.rs` or `crates/your_crate_name/tests/integration/mod.rs`). This allows testing the public API of the crate as an external user would.
 4. **Plugin Tests**: Located in both the plugin system module tests and dedicated directories for test plugins
 
 ## Testing Best Practices

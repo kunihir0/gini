@@ -49,7 +49,8 @@ Together, these components create a comprehensive framework for extending the ap
 The `Plugin` trait defines the core contract for all plugins:
 
 ```rust
-trait Plugin: Send + Sync {
+#[async_trait] // Added for completeness, though often omitted in summaries
+pub trait Plugin: Send + Sync { // Added pub, common for trait definitions
     fn name(&self) -> &'static str;
     fn version(&self) -> &str;
     fn is_core(&self) -> bool;
@@ -59,10 +60,10 @@ trait Plugin: Send + Sync {
     fn required_stages(&self) -> Vec<StageRequirement>;
     fn conflicts_with(&self) -> Vec<String>;
     fn incompatible_with(&self) -> Vec<PluginDependency>;
-    fn init(&self, app: &mut Application) -> Result<(), PluginSystemError>;
-    fn preflight_check(&self, context: &StageContext) -> Future<Result<(), PluginSystemError>>;
-    fn register_stages(&self, registry: &mut StageRegistry) -> Result<(), PluginSystemError>;
-    fn shutdown(&self) -> Result<(), PluginSystemError>;
+    fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError>;
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> { Ok(()) }
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError>;
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError>;
 }
 ```
 

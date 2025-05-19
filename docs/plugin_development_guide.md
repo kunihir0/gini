@@ -21,35 +21,38 @@ Plugins in Gini are dynamic libraries that implement the `Plugin` trait and expo
 4. The host validates compatibility and initializes the plugin
 5. After preflight checks succeed, the plugin is activated
 
-## 2. Implementing the Plugin Trait
+## 2. The Plugin Trait Definition
 
-Every plugin must implement the `Plugin` trait, which defines the contract between the plugin and the framework.
+The `Plugin` trait defines the core contract that all plugins must implement. It specifies metadata, lifecycle methods, and integration points with the Gini framework.
 
-### Required Methods
+### Trait Definition
 
 ```rust
 #[async_trait]
-impl Plugin for MyPlugin {
+pub trait Plugin: Send + Sync {
     // Basic identification
     fn name(&self) -> &'static str;
     fn version(&self) -> &str;
     fn is_core(&self) -> bool;
     fn priority(&self) -> PluginPriority;
-    
+
     // Compatibility and dependencies
     fn compatible_api_versions(&self) -> Vec<VersionRange>;
     fn dependencies(&self) -> Vec<PluginDependency>;
     fn conflicts_with(&self) -> Vec<String>;
     fn incompatible_with(&self) -> Vec<PluginDependency>;
-    
+
     // Lifecycle
-    fn init(&self, app: &mut Application) -> Result<(), PluginSystemError>;
-    async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginSystemError>;
-    fn shutdown(&self) -> Result<(), PluginSystemError>;
-    
+    fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError>;
+    async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
+        // Default: No pre-flight check needed
+        Ok(())
+    }
+    fn shutdown(&self) -> std::result::Result<(), PluginSystemError>;
+
     // Stage management
     fn required_stages(&self) -> Vec<StageRequirement>;
-    fn register_stages(&self, registry: &mut StageRegistry) -> Result<(), PluginSystemError>;
+    fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError>;
 }
 ```
 
@@ -108,7 +111,7 @@ The `init` method is called once when the plugin is loaded and should:
 - Prepare for operation
 
 ```rust
-fn init(&self, app: &mut Application) -> Result<(), PluginSystemError> {
+fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError> {
     // Initialize resources
     // Register with services
     // Load configuration
@@ -126,7 +129,7 @@ The `preflight_check` method verifies that the plugin can operate correctly in t
 - Ensures compatibility with the current application state
 
 ```rust
-async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginSystemError> {
+async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
     // Check for required services
     // Validate configuration values
     // Verify resource availability
@@ -151,7 +154,7 @@ The `shutdown` method is called when the plugin is being unloaded and should:
 - Ensure clean termination
 
 ```rust
-fn shutdown(&self) -> Result<(), PluginSystemError> {
+fn shutdown(&self) -> std::result::Result<(), PluginSystemError> {
     // Save state
     // Release resources
     // Deregister from services
@@ -315,7 +318,7 @@ Robust safety practices are critical for reliable plugins.
 Plugins can register custom stages for the application pipeline:
 
 ```rust
-fn register_stages(&self, registry: &mut StageRegistry) -> Result<(), PluginSystemError> {
+fn register_stages(&self, registry: &mut StageRegistry) -> std::result::Result<(), PluginSystemError> {
     // Create and register a custom stage
     let my_stage = Box::new(MyCustomStage::new());
     registry.register_stage(my_stage)?;
@@ -339,7 +342,7 @@ fn required_stages(&self) -> Vec<StageRequirement> {
 Plugins can access and modify shared context data:
 
 ```rust
-async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginSystemError> {
+async fn preflight_check(&self, _context: &StageContext) -> std::result::Result<(), PluginSystemError> {
     // Read from context
     if let Some(config) = context.get_data::<Config>("app_config") {
         // Use configuration
@@ -357,7 +360,7 @@ async fn preflight_check(&self, context: &StageContext) -> Result<(), PluginSyst
 Plugins can subscribe to and publish events:
 
 ```rust
-fn init(&self, app: &mut Application) -> Result<(), PluginSystemError> {
+fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError> {
     // Get event manager
     let event_mgr = app.get_component::<EventManager>()?;
     
