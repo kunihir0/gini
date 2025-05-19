@@ -1,12 +1,12 @@
 use gini_core::kernel::bootstrap::Application;
 // use gini_core::kernel::KernelComponent; // Not directly used
 
-// Minimal event imports, some might become unused after full cleanup
-use gini_core::event::{EventPriority as GiniEventPriority, EventResult as GiniEventResult}; 
+// Event imports removed as they are unused after cleanup
+// use gini_core::event::{EventPriority as GiniEventPriority, EventResult as GiniEventResult};
 use gini_core::plugin_system::{
     error::PluginSystemError,
     error::PluginSystemErrorSource,
-    traits::{Plugin, PluginPriority}, 
+    traits::{Plugin, PluginPriority},
     version::VersionRange,
     dependency::PluginDependency,
 };
@@ -17,12 +17,12 @@ use gini_core::stage_manager::{
 };
 use log::{error, info, warn, debug};
 use std::sync::Arc;
-// use std::any::Any; // Not needed after removing event impl
+// use std::any::Any; // Not needed
 use tokio::sync::Mutex as TokioMutex; // Single import
 use thiserror::Error;
 use tokio::runtime::Handle;
 use chrono::Utc;
-use discord_presence::client::Client as DiscordClient; 
+use discord_presence::client::Client as DiscordClient;
 // use std::future::Future; // Not needed
 // use std::pin::Pin;     // Not needed
 
