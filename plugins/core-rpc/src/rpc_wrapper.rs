@@ -161,74 +161,99 @@ impl DiscordRpcWrapper {
     pub fn shutdown_rpc_sync(&mut self) -> Result<(), WrapperError> {
         info!("[shutdown_rpc_sync] Attempting to shut down Raw Discord RPC Wrapper.");
 
-        // Use the current Tokio runtime handle if available.
-        // This method is called from Plugin::shutdown, which is synchronous but may be
-        // running on a thread that is part of a Tokio runtime.
-        let current_tokio_handle = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => handle,
-            Err(e) => {
-                // Not in a Tokio runtime context, this is unexpected if called from main app shutdown.
-                // However, if this happens, we can't block_on async calls easily without creating a new runtime,
-                // which was the source of the original panic if we *were* in a runtime.
-                // For now, log an error and attempt to unpark/join the thread without client shutdown.
-                error!("[shutdown_rpc_sync] Failed to get current Tokio runtime handle: {}. RPC client may not be shut down cleanly.", e);
-                if let Some(thread_handle) = self.rpc_run_thread_handle.take() {
-                    thread_handle.thread().unpark();
-                    match thread_handle.join() {
-                        Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined (no client shutdown)."),
-                        Err(join_err) => error!("[shutdown_rpc_sync] RPC OS thread panicked during join (no client shutdown): {:?}", join_err),
+        let raw_client_state_clone = Arc::clone(&self.raw_client_state);
+        let rpc_run_thread_handle_option = self.rpc_run_thread_handle.take();
+        let current_presence_data_clone = Arc::clone(&self.current_presence_data);
+
+        // Spawn a new OS thread to handle asynchronous shutdown operations.
+        // This new thread can safely create and block on its own Tokio runtime.
+        let shutdown_thread_join_handle = std::thread::spawn(move || -> Result<(), WrapperError> {
+            info!("[shutdown_rpc_sync/dedicated_thread] Dedicated shutdown thread started.");
+
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| {
+                    error!("[shutdown_rpc_sync/dedicated_thread] Failed to create Tokio runtime for shutdown: {}", e);
+                    WrapperError::TokioRuntime(format!("Failed to create dedicated shutdown runtime: {}", e))
+                })?;
+
+            // Perform async shutdown of the client
+            let client_shutdown_result: Result<(), WrapperError> = runtime.block_on(async {
+                let mut guard = raw_client_state_clone.lock().await;
+                if let Some(raw_client) = guard.take() {
+                    info!("[shutdown_rpc_sync/dedicated_thread] RawDiscordClient instance taken. Calling its shutdown method.");
+                    if let Err(e_client_shutdown) = raw_client.shutdown().await {
+                        error!("[shutdown_rpc_sync/dedicated_thread] RawDiscordClient shutdown failed: {}", e_client_shutdown);
+                        return Err(WrapperError::RawClient(e_client_shutdown));
+                    } else {
+                        info!("[shutdown_rpc_sync/dedicated_thread] RawDiscordClient shutdown successful.");
+                    }
+                } else {
+                    warn!("[shutdown_rpc_sync/dedicated_thread] No active RawDiscordClient found in state.");
+                }
+                Ok(())
+            });
+
+            // Log client shutdown error if any (by borrowing)
+            if let Err(ref e) = client_shutdown_result {
+                 error!("[shutdown_rpc_sync/dedicated_thread] Error during async client shutdown part: {:?}", e);
+            }
+
+            // Handle OS thread joining
+            let mut os_thread_join_failed = false;
+            if let Some(handle) = rpc_run_thread_handle_option {
+                info!("[shutdown_rpc_sync/dedicated_thread] Unparking and waiting for original RPC OS thread to join...");
+                handle.thread().unpark();
+                match handle.join() {
+                    Ok(_) => info!("[shutdown_rpc_sync/dedicated_thread] Original RPC OS thread joined successfully."),
+                    Err(e_join_panic) => {
+                        error!("[shutdown_rpc_sync/dedicated_thread] Original RPC OS thread panicked during join: {:?}", e_join_panic);
+                        os_thread_join_failed = true;
                     }
                 }
-                return Err(WrapperError::TokioRuntime("Not in a Tokio runtime context during shutdown_rpc_sync".to_string()));
+            } else {
+                info!("[shutdown_rpc_sync/dedicated_thread] No OS thread handle found for original RPC thread.");
             }
-        };
-
-        // Take the client from raw_client_state
-        let raw_client_option = current_tokio_handle.block_on(async {
-            let mut guard = self.raw_client_state.lock().await;
-            guard.take()
-        });
-
-        if let Some(raw_client) = raw_client_option { // Removed 'mut' as raw_client.shutdown takes &self
-            info!("[shutdown_rpc_sync] RawDiscordClient instance taken. Calling its shutdown method.");
-            match current_tokio_handle.block_on(raw_client.shutdown()) {
-                Ok(_) => info!("[shutdown_rpc_sync] RawDiscordClient shutdown successful."),
-                Err(e) => {
-                    error!("[shutdown_rpc_sync] RawDiscordClient shutdown failed: {}", e);
-                    // Continue with thread unparking and joining despite client shutdown error.
-                }
+            
+            // Clear presence data
+            if let Ok(mut guard) = current_presence_data_clone.lock() { // std::sync::Mutex
+                guard.take();
+                info!("[shutdown_rpc_sync/dedicated_thread] Current presence data cleared.");
+            } else {
+                error!("[shutdown_rpc_sync/dedicated_thread] Failed to lock current_presence_data to clear it.");
             }
-        } else {
-            warn!("[shutdown_rpc_sync] No active RawDiscordClient found in state. Assuming already shut down or not started.");
-        }
 
-        if let Some(handle) = self.rpc_run_thread_handle.take() {
-            info!("[shutdown_rpc_sync] Unparking and waiting for RPC OS thread to join...");
-            handle.thread().unpark(); // Unpark the thread so it can exit its loop
-            match handle.join() {
-                Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined successfully."),
-                Err(e) => {
-                    error!("[shutdown_rpc_sync] RPC OS thread panicked during shutdown or join: {:?}", e);
-                    // Even if it panicked, we've attempted cleanup.
-                    // Return TaskPanicked to indicate the issue.
+            info!("[shutdown_rpc_sync/dedicated_thread] Dedicated shutdown thread finished.");
+
+            // Determine final result
+            if os_thread_join_failed {
+                if client_shutdown_result.is_ok() {
+                    // OS thread panicked, but client shutdown was successful
                     return Err(WrapperError::TaskPanicked);
                 }
+                // If client shutdown also failed, client_shutdown_result (which is an Err) will be returned below,
+                // effectively prioritizing the client shutdown error message.
             }
-        } else {
-            info!("[shutdown_rpc_sync] No OS thread handle found, thread might have already finished or was never started.");
-        }
+            
+            client_shutdown_result
+        });
 
-        // Clear presence data as well
-        // Assuming current_presence_data uses std::sync::Mutex as per previous changes
-        if let Ok(mut guard) = self.current_presence_data.lock() {
-            guard.take();
-            info!("[shutdown_rpc_sync] Current presence data cleared.");
-        } else {
-            error!("[shutdown_rpc_sync] Failed to lock current_presence_data to clear it.");
+        // Wait for the dedicated shutdown thread to complete.
+        match shutdown_thread_join_handle.join() {
+            Ok(Ok(_)) => {
+                info!("[shutdown_rpc_sync] Dedicated shutdown thread completed successfully.");
+                Ok(())
+            }
+            Ok(Err(e)) => { // Error returned by the dedicated shutdown thread's logic
+                error!("[shutdown_rpc_sync] Dedicated shutdown thread returned an error: {:?}", e);
+                Err(e)
+            }
+            Err(_panic_info) => { // Dedicated shutdown thread panicked
+                error!("[shutdown_rpc_sync] Dedicated shutdown thread panicked.");
+                Err(WrapperError::TaskPanicked)
+            }
         }
-        
-        info!("[shutdown_rpc_sync] Raw Discord RPC Wrapper shutdown_rpc_sync completed.");
-        Ok(())
     }
 
     // pub fn take_task_handle(&mut self) -> Option<thread::JoinHandle<()>> { // Method is unused
@@ -362,8 +387,8 @@ impl DiscordRpcWrapper {
                 }
             }
         } else {
-            warn!("(Static) RawDiscordClient not available (None in Arc<Mutex<Option<...>>>). Cannot update presence.");
-            Err(WrapperError::TaskNotRunning) // Or a more specific error
+            warn!("(Static) RawDiscordClient not yet initialized or unavailable in Arc<Mutex<Option<...>>>. Cannot update presence.");
+            Err(WrapperError::Internal("RawDiscordClient not ready for static update".to_string()))
         }
     }
 }

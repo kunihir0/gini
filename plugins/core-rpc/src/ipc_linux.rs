@@ -22,13 +22,14 @@ pub struct HandshakeRequest {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct DiscordHandshakeResponse {
-    pub cmd: String,
+    #[serde(rename = "cmd")] // Keep original name for deserialization
+    pub _cmd: String,
     #[serde(default)]
-    pub evt: Option<String>,
+    pub evt: Option<String>, // This field IS used
     #[serde(default)]
     pub data: Option<JsonValue>,
-    #[serde(default)]
-    pub nonce: Option<String>,
+    #[serde(default, rename = "nonce")] // Keep original name for deserialization
+    pub _nonce: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -40,13 +41,13 @@ pub struct DiscordErrorData {
 #[derive(Deserialize, Debug)]
 pub struct DiscordErrorResponse {
     // evt is typically "ERROR" but let's capture it if present
-    #[serde(default)]
-    pub evt: Option<String>, // Making this optional as per common error structures
-    pub data: DiscordErrorData,
-    #[serde(default)]
-    pub cmd: Option<String>, // Sometimes errors might also echo a command
-    #[serde(default)]
-    pub nonce: Option<String>,
+    #[serde(default, rename = "evt")] // Keep original name for deserialization
+    pub _evt: Option<String>, // Making this optional as per common error structures
+    pub data: DiscordErrorData, // This field IS used
+    #[serde(default, rename = "cmd")] // Keep original name for deserialization
+    pub _cmd: Option<String>, // Sometimes errors might also echo a command
+    #[serde(default, rename = "nonce")] // Keep original name for deserialization
+    pub _nonce: Option<String>,
 }
 
 // Framing functions
