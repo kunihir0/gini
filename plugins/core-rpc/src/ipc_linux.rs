@@ -687,8 +687,8 @@ mod tests {
         let _ = find_discord_ipc_path(); // Call it and ignore result for this basic test
     }
 
-    #[test]
-    fn test_find_discord_ipc_path_with_mocked_env() {
+    #[tokio::test] // Changed from #[test] to #[tokio::test]
+    async fn test_find_discord_ipc_path_with_mocked_env() { // Added async
         // More comprehensive test for find_discord_ipc_path
         let base_test_dir = env::temp_dir().join("test_find_ipc");
         fs::create_dir_all(&base_test_dir).expect("Failed to create base test dir");
@@ -698,7 +698,11 @@ mod tests {
 
         // Create a dummy socket in the mocked XDG_RUNTIME_DIR
         let socket_path_in_xdg = xdg_runtime_val.join("discord-ipc-0");
-        let _listener_xdg = UnixListener::bind(&socket_path_in_xdg).expect("Failed to bind dummy socket in xdg");
+        // Binding a UnixListener is async, so it needs to be awaited.
+        // However, create_dummy_socket already does this.
+        // The issue is that UnixListener::bind itself is async.
+        // Let's use the helper which is already async.
+        let _listener_xdg = create_dummy_socket(&socket_path_in_xdg).await.expect("Failed to bind dummy socket in xdg");
 
 
         env::set_var("XDG_RUNTIME_DIR", xdg_runtime_val.to_str().unwrap());
@@ -720,7 +724,7 @@ mod tests {
         let tmpdir_val = base_test_dir.join("my_tmp");
         fs::create_dir_all(&tmpdir_val).expect("Failed to create tmpdir_val");
         let socket_path_in_tmp = tmpdir_val.join("discord-ipc-1");
-        let _listener_tmp = UnixListener::bind(&socket_path_in_tmp).expect("Failed to bind dummy socket in tmpdir");
+        let _listener_tmp = create_dummy_socket(&socket_path_in_tmp).await.expect("Failed to bind dummy socket in tmpdir");
 
         env::remove_var("XDG_RUNTIME_DIR"); // Remove XDG to test TMPDIR
         env::set_var("TMPDIR", tmpdir_val.to_str().unwrap());
@@ -743,7 +747,7 @@ mod tests {
         let snap_discord_dir = xdg_runtime_val.join("snap.discord");
         fs::create_dir_all(&snap_discord_dir).expect("Failed to create snap.discord dir");
         let socket_in_snap = snap_discord_dir.join("discord-ipc-2");
-        let _listener_snap = UnixListener::bind(&socket_in_snap).expect("Failed to bind in snap.discord");
+        let _listener_snap = create_dummy_socket(&socket_in_snap).await.expect("Failed to bind in snap.discord");
 
         env::set_var("XDG_RUNTIME_DIR", xdg_runtime_val.to_str().unwrap());
         env::remove_var("TMPDIR");
