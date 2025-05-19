@@ -186,26 +186,26 @@ impl Plugin for CoreRpcPlugin {
                                         let presence_state_from_settings = final_settings.default_state.clone();
 
                                         if presence_details_from_settings.is_some() || presence_state_from_settings.is_some() {
-                                            // Get the necessary Arcs for perform_update_activity_static
                                             let rpc_wrapper_guard = rpc_wrapper_handle_for_task.lock().await;
                                             if let Some(wrapper_instance) = rpc_wrapper_guard.as_ref() {
+                                                // Clone the Arcs needed for perform_update_activity_static
                                                 let raw_client_state_arc = Arc::clone(&wrapper_instance.raw_client_state);
                                                 let current_presence_data_arc = Arc::clone(&wrapper_instance.current_presence_data);
-                                                // Drop guard before await
+                                                let client_ready_signal_for_update = Arc::clone(&wrapper_instance.client_ready_signal);
+                                                
+                                                // Drop the lock guard *before* awaiting the ready signal
                                                 drop(rpc_wrapper_guard);
+
+                                                info!("Waiting for client ready signal before initial presence update...");
+                                                client_ready_signal_for_update.notified().await; // Wait for the signal
+                                                info!("Client ready signal received. Proceeding with initial presence update.");
 
                                                 debug!("Setting initial presence via static call using settings defaults: Details='{:?}', State='{:?}'",
                                                        presence_details_from_settings, presence_state_from_settings);
                                             
-                                                // Correct arguments for perform_update_activity_static:
-                                                // raw_client_state_arc: Arc<TokioMutex<Option<ipc_linux::RawDiscordClient>>>,
-                                                // current_presence_data_arc: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>,
-                                                // details, state, start_timestamp, end_timestamp,
-                                                // large_image_key, large_image_text, small_image_key, small_image_text,
-                                                // party_id, party_size, buttons
                                                 if let Err(e) = DiscordRpcWrapper::perform_update_activity_static(
-                                                    raw_client_state_arc,       // Correct: Arc<TokioMutex<Option<RawDiscordClient>>>
-                                                    current_presence_data_arc,  // Correct: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>
+                                                    raw_client_state_arc,
+                                                    current_presence_data_arc,
                                                     presence_details_from_settings,
                                                     presence_state_from_settings,
                                                     Some(Utc::now()), // start_timestamp
@@ -218,11 +218,12 @@ impl Plugin for CoreRpcPlugin {
                                                     None,             // party_size
                                                     None              // buttons
                                                 ).await {
-                                                    warn!("Failed to set initial Discord presence in async task (static call): {}", e);
+                                                    warn!("Failed to set initial Discord presence in async task (static call) after ready signal: {}", e);
                                                 }
                                             } else {
-                                                 drop(rpc_wrapper_guard); // Ensure guard is dropped
-                                                 warn!("Cannot set initial presence: DiscordRpcWrapper not found in handle for static call.");
+                                                 // This case should ideally not happen if wrapper was stored successfully
+                                                 drop(rpc_wrapper_guard);
+                                                 warn!("Cannot set initial presence: DiscordRpcWrapper not found in handle for static call even after start_client_loop.");
                                             }
                                         }
                                     }

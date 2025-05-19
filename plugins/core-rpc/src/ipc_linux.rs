@@ -57,16 +57,16 @@ pub struct DiscordErrorResponse {
 /// Length: 4 bytes, little-endian (length of the JSON string payload)
 /// Payload: JSON string (UTF-8 encoded)
 pub fn frame_message(opcode: u32, payload_json: &str) -> std::io::Result<Vec<u8>> {
+    log::trace!("[ipc_linux::frame_message] Framing message - Opcode: {}, Payload JSON: {}", opcode, payload_json);
     let payload_bytes = payload_json.as_bytes();
     let payload_len = payload_bytes.len() as u32;
 
     let mut frame = Vec::new();
-    // Use WriteBytesExt for Vec<u8>
     WriteBytesExt::write_u32::<LittleEndian>(&mut frame, opcode)?;
     WriteBytesExt::write_u32::<LittleEndian>(&mut frame, payload_len)?;
-    // Use std::io::Write for Vec<u8>
     std::io::Write::write_all(&mut frame, payload_bytes)?;
-
+    
+    log::trace!("[ipc_linux::frame_message] Framed message bytes (hex): {}", frame.iter().map(|b| format!("{:02x}", b)).collect::<String>());
     Ok(frame)
 }
 
@@ -96,6 +96,7 @@ pub async fn read_framed_message(stream: &mut tokio::net::UnixStream) -> std::io
     let payload_str = String::from_utf8(payload_buf)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Payload is not valid UTF-8: {}", e)))?;
     
+    log::trace!("[ipc_linux::read_framed_message] Read message - Opcode: {}, Payload JSON: {}", opcode, payload_str);
     Ok((opcode, payload_str))
 }
 
@@ -176,6 +177,7 @@ pub async fn perform_handshake(
     log::trace!("[ipc_linux::perform_handshake] Handshake message framed, length: {}", framed_message.len());
 
     // 4. Write to UnixStream
+    log::trace!("[ipc_linux::perform_handshake] Writing framed handshake to stream. Opcode: 0, Payload: {}", request_json);
     if let Err(e) = stream.write_all(&framed_message).await {
         let err_msg = format!("Failed to write handshake message to stream: {}", e);
         log::error!("[ipc_linux::perform_handshake] {}", err_msg);
@@ -184,9 +186,11 @@ pub async fn perform_handshake(
     log::debug!("[ipc_linux::perform_handshake] Handshake message sent to stream.");
 
     // 5. Read response frame
-    let (_opcode, response_json) = match read_framed_message(stream).await {
+    log::trace!("[ipc_linux::perform_handshake] Attempting to read handshake response frame from stream.");
+    let (response_opcode, response_json) = match read_framed_message(stream).await {
         Ok((op, json)) => {
-            log::debug!("[ipc_linux::perform_handshake] Received response frame. Opcode: {}, JSON: {}", op, json);
+            log::debug!("[ipc_linux::perform_handshake] Received response frame. Opcode: {}, Raw JSON: {}", op, json);
+            // read_framed_message already logs the raw JSON at trace level
             (op, json)
         }
         Err(e) => {
@@ -195,6 +199,7 @@ pub async fn perform_handshake(
             return Err(err_msg);
         }
     };
+    log::trace!("[ipc_linux::perform_handshake] Handshake response frame details - Opcode: {}, JSON: {}", response_opcode, response_json);
 
     // 6. Deserialize response
     log::trace!("[ipc_linux::perform_handshake] Attempting to deserialize response as DiscordHandshakeResponse: {}", response_json);
@@ -438,19 +443,21 @@ impl RawDiscordClient {
                     log::info!("[RawDiscordClient::read_loop] Shutdown signal received, exiting loop.");
                     break;
                 }
-                read_result = read_framed_message(stream) => {
+                read_result = read_framed_message(stream) => { // read_framed_message already logs at TRACE
                     match read_result {
                         Ok((opcode, payload_json)) => {
-                            log::info!("[RawDiscordClient::read_loop] Received message - Opcode: {}, Payload: {}", opcode, payload_json);
-                            // Handle specific opcodes if necessary, e.g., CLOSE
+                            // Log at a higher level (e.g., DEBUG) for general received messages,
+                            // as read_framed_message already TRACE logs the raw content.
+                            log::debug!("[RawDiscordClient::read_loop] Processed received message - Opcode: {}, Payload: {}", opcode, payload_json);
+                            
+                            // Specific handling for CLOSE opcode
                             if opcode == 2 { // Opcode for CLOSE
-                                log::info!("[RawDiscordClient::read_loop] Received CLOSE frame from Discord. Payload: {}", payload_json);
-                                // The server is closing the connection or has closed it.
-                                // We should probably signal shutdown or at least mark as disconnected.
+                                log::info!("[RawDiscordClient::read_loop] Received CLOSE frame from Discord. Full payload: {}", payload_json);
                                 is_connected.store(false, Ordering::SeqCst);
-                                shutdown_signal.notify_one(); // Notify other parts if they depend on this signal
-                                break; // Exit loop as connection is closed
+                                shutdown_signal.notify_one();
+                                break;
                             }
+                            // Potentially handle other opcodes like PING/PONG if necessary in the future
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -472,7 +479,7 @@ impl RawDiscordClient {
     }
 
     pub async fn set_activity(&self, activity_payload: JsonValue) -> Result<(), String> {
-        log::debug!("[RawDiscordClient::set_activity] Attempting to set activity.");
+        log::debug!("[RawDiscordClient::set_activity] Attempting to set activity with payload: {:?}", activity_payload);
         if !self.is_connected.load(Ordering::SeqCst) {
             log::warn!("[RawDiscordClient::set_activity] Not connected, cannot set activity.");
             return Err("Not connected".to_string());
@@ -488,7 +495,9 @@ impl RawDiscordClient {
                     return Err(err_msg);
                 }
             };
+            log::trace!("[RawDiscordClient::set_activity] Serialized activity payload JSON: {}", payload_str);
 
+            // frame_message already logs the payload at trace level
             let framed_msg = match frame_message(1, &payload_str) { // Opcode 1 for SET_ACTIVITY
                 Ok(fm) => fm,
                 Err(e) => {
@@ -497,10 +506,12 @@ impl RawDiscordClient {
                     return Err(err_msg);
                 }
             };
+            log::trace!("[RawDiscordClient::set_activity] Writing SET_ACTIVITY frame to stream. Opcode: 1, Payload: {}", payload_str);
 
             match stream.write_all(&framed_msg).await {
                 Ok(_) => {
-                    log::info!("[RawDiscordClient::set_activity] Successfully sent SET_ACTIVITY command. Payload: {}", payload_str);
+                    log::info!("[RawDiscordClient::set_activity] Successfully sent SET_ACTIVITY command.");
+                    log::debug!("[RawDiscordClient::set_activity] Sent SET_ACTIVITY payload: {}", payload_str); // Log payload at debug for sent
                     Ok(())
                 }
                 Err(e) => {
@@ -538,10 +549,13 @@ impl RawDiscordClient {
             });
             let close_payload_str = serde_json::to_string(&close_payload)
                 .map_err(|e| format!("Failed to serialize close payload: {}", e))?;
+            log::trace!("[RawDiscordClient::shutdown] Serialized CLOSE payload JSON: {}", close_payload_str);
             
-            match frame_message(2, &close_payload_str) {
+            // frame_message already logs the payload at trace level
+            match frame_message(2, &close_payload_str) { // Opcode 2 for CLOSE
                 Ok(framed_close_msg) => {
                     log::debug!("[RawDiscordClient::shutdown] Attempting to send CLOSE frame.");
+                    log::trace!("[RawDiscordClient::shutdown] Writing CLOSE frame to stream. Opcode: 2, Payload: {}", close_payload_str);
                     if let Err(e) = stream.write_all(&framed_close_msg).await {
                         log::warn!("[RawDiscordClient::shutdown] Failed to send CLOSE frame: {}. Connection might already be closed.", e);
                     } else {

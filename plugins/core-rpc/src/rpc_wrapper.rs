@@ -18,7 +18,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::thread;
 use thiserror::Error;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{Mutex as TokioMutex, Notify}; // Added Notify
 // use tokio::task::spawn_blocking; // May not be needed anymore for set_activity
 
 // Assuming ipc_linux is in the same crate or a dependency
@@ -74,8 +74,9 @@ pub struct DiscordRpcWrapper {
     client_id: String,
     // pub(crate) client_handle: Option<DiscordClient>, // Removed
     pub(crate) raw_client_state: Arc<TokioMutex<Option<ipc_linux::RawDiscordClient>>>,
-    pub(crate) current_presence_data: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>, // Keep std::sync::Mutex for now, assess if TokioMutex is needed here too
+    pub(crate) current_presence_data: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>,
     rpc_run_thread_handle: Option<thread::JoinHandle<()>>,
+    pub(crate) client_ready_signal: Arc<Notify>, // Added for signaling readiness
 }
 
 impl DiscordRpcWrapper {
@@ -84,8 +85,9 @@ impl DiscordRpcWrapper {
             client_id,
             // client_handle: None, // Removed
             raw_client_state: Arc::new(TokioMutex::new(None)),
-            current_presence_data: Arc::new(std::sync::Mutex::new(None)), // Keep std::sync::Mutex
+            current_presence_data: Arc::new(std::sync::Mutex::new(None)),
             rpc_run_thread_handle: None,
+            client_ready_signal: Arc::new(Notify::new()), // Initialize the signal
         }
     }
 
@@ -104,6 +106,7 @@ impl DiscordRpcWrapper {
 
         let client_id_str = self.client_id.clone();
         let raw_client_state_clone_for_thread = Arc::clone(&self.raw_client_state);
+        let client_ready_signal_clone = Arc::clone(&self.client_ready_signal); // Clone signal for the thread
 
         let handle = thread::spawn(move || {
             info!("[RPC OS Thread] Started for client ID: {}", client_id_str);
@@ -127,9 +130,12 @@ impl DiscordRpcWrapper {
                         info!("[RPC OS Thread/async] RawDiscordClient::connect_and_run successful.");
                         let mut client_state_guard = raw_client_state_clone_for_thread.lock().await;
                         *client_state_guard = Some(client);
-                        info!("[RPC OS Thread/async] RawDiscordClient stored in shared state. Read loop should be running. Parking OS thread.");
-                        // Drop the guard before parking to avoid holding it indefinitely
+                        info!("[RPC OS Thread/async] RawDiscordClient stored in shared state.");
+                        // Drop the guard before notifying and parking
                         drop(client_state_guard);
+
+                        client_ready_signal_clone.notify_one(); // Signal that client is ready
+                        info!("[RPC OS Thread/async] Client ready signal sent. Read loop should be running. Parking OS thread.");
                         
                         // Park the OS thread to keep the RawDiscordClient (and its read_loop task) alive.
                         // The read_loop is spawned within connect_and_run.
