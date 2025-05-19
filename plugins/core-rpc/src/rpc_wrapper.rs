@@ -154,52 +154,60 @@ impl DiscordRpcWrapper {
         let mut client_for_thread = DiscordClient::new(client_id_u64);
 
         client_for_thread.on_ready(move |ctx: EventContext| {
+            debug!("[on_ready_callback] Entered. Context: {:?}", ctx);
             match ctx.event {
                 EventData::Ready(ready_event) => {
                     let user_name = ready_event.user.as_ref().and_then(|u| u.username.as_ref()).map_or("UnknownUser", |s| s.as_str());
                     info!("Discord RPC: Ready (User: {})", user_name);
                 }
-                _ => warn!("Received non-Ready EventData in on_ready callback."),
+                _ => warn!("[on_ready_callback] Received non-Ready EventData. Context: {:?}", ctx),
             }
+            debug!("[on_ready_callback] Exiting.");
         }).persist();
 
         client_for_thread.on_error(|ctx: EventContext| {
+            debug!("[on_error_callback] Entered. Context: {:?}", ctx);
             match ctx.event {
                 EventData::Error(error_event) => {
                     error!(
-                        "Discord RPC Error (Callback): code {:?}, message '{}'",
-                        error_event.code, error_event.message.as_deref().unwrap_or_default()
+                        "Discord RPC Error (Callback): code {:?}, message '{}'. Full EventData: {:?}",
+                        error_event.code, error_event.message.as_deref().unwrap_or_default(), error_event
                     );
                 }
-                _ => error!("Received non-Error EventData in on_error callback. Raw: {:?}", ctx.event),
+                _ => error!("[on_error_callback] Received non-Error EventData. Context: {:?}", ctx),
             }
+            debug!("[on_error_callback] Exiting.");
         }).persist();
 
         client_for_thread.on_disconnected(|ctx: EventContext| {
+            debug!("[on_disconnected_callback] Entered. Context: {:?}", ctx);
              match ctx.event {
                 EventData::Error(error_event) => {
                      warn!(
-                        "Discord RPC Disconnected (Callback): code {:?}, message '{}'",
-                        error_event.code, error_event.message.as_deref().unwrap_or_default()
+                        "Discord RPC Disconnected (Callback with error): code {:?}, message '{}'. Full EventData: {:?}",
+                        error_event.code, error_event.message.as_deref().unwrap_or_default(), error_event
                     );
                 }
                 EventData::None => {
-                     warn!("Discord RPC Disconnected (Callback): No specific error data provided.");
+                     warn!("Discord RPC Disconnected (Callback): No specific error data provided. Context: {:?}", ctx);
                 }
-                _ => warn!("Received unexpected EventData in on_disconnected callback: {:?}", ctx.event),
+                _ => warn!("[on_disconnected_callback] Received unexpected EventData. Context: {:?}", ctx),
             }
+            debug!("[on_disconnected_callback] Exiting.");
         }).persist();
         
-        client_for_thread.on_connected(|_ctx: EventContext| {
+        client_for_thread.on_connected(|ctx: EventContext| {
+            debug!("[on_connected_callback] Entered. Context: {:?}", ctx);
             info!("Discord RPC: Successfully connected (or reconnected).");
+            debug!("[on_connected_callback] Exiting.");
         }).persist();
         
         self.client_handle = Some(client_for_thread.clone());
 
         let handle = thread::spawn(move || {
-            info!("Discord client OS thread started for client ID: {}", client_id_u64);
-            client_for_thread.start(); 
-            info!("Discord client OS thread for client ID {} has finished.", client_id_u64);
+            info!("Discord client OS thread started for client ID: {}. Attempting to call client.start()...", client_id_u64);
+            client_for_thread.start(); // This blocks and runs the event loop
+            info!("Discord client OS thread for client ID {} has finished client.start() and is now exiting.", client_id_u64);
         });
         self.rpc_run_thread_handle = Some(handle);
         info!("Discord RPC client loop initiated in a background OS thread.");
@@ -208,31 +216,35 @@ impl DiscordRpcWrapper {
 
     // Make this synchronous as Plugin::shutdown is synchronous
     pub fn shutdown_rpc_sync(&mut self) -> Result<(), WrapperError> {
-        info!("Attempting to shut down Discord RPC Wrapper (sync).");
+        info!("[shutdown_rpc_sync] Attempting to shut down Discord RPC Wrapper.");
         if let Some(client_to_shutdown) = self.client_handle.take() {
-            // client.shutdown() is synchronous.
-            // We are in a potentially async context (Plugin::shutdown called by async runtime)
-            // but this specific method is now sync.
-            // Directly calling client.shutdown() here.
-            client_to_shutdown.shutdown().map_err(WrapperError::Discord)?;
-            info!("Discord client shutdown signal sent.");
+            info!("[shutdown_rpc_sync] Client handle taken. Calling client.shutdown()...");
+            let shutdown_result = client_to_shutdown.shutdown();
+            info!("[shutdown_rpc_sync] client.shutdown() returned: {:?}", shutdown_result);
+            shutdown_result.map_err(WrapperError::Discord)?;
+            info!("[shutdown_rpc_sync] Discord client shutdown signal processed by discord-presence library.");
 
             if let Some(handle) = self.rpc_run_thread_handle.take() {
-                info!("Waiting for RPC OS thread to join...");
+                info!("[shutdown_rpc_sync] Waiting for RPC OS thread to join...");
                 match handle.join() {
-                    Ok(_) => info!("RPC OS thread joined successfully."),
-                    Err(_) => {
-                        error!("RPC OS thread panicked during shutdown or join.");
+                    Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined successfully."),
+                    Err(e) => {
+                        error!("[shutdown_rpc_sync] RPC OS thread panicked during shutdown or join: {:?}", e);
+                        // Note: The thread might have already finished if client.start() returned due to an error.
+                        // Depending on the desired behavior, returning an error here might be too strict if the goal was just to ensure cleanup.
+                        // However, for diagnostics, knowing about the panic is important.
                         return Err(WrapperError::TaskPanicked);
                     }
                 }
+            } else {
+                info!("[shutdown_rpc_sync] No OS thread handle found, thread might have already finished or was never started.");
             }
             self.current_presence_data.lock().unwrap().take();
-            info!("Discord RPC Wrapper shut down gracefully.");
+            info!("[shutdown_rpc_sync] Discord RPC Wrapper shutdown_rpc_sync completed.");
             Ok(())
         } else {
-            warn!("Shutdown called but no active client handle found.");
-            Err(WrapperError::TaskNotRunning)
+            warn!("[shutdown_rpc_sync] Shutdown called but no active client handle found. Assuming already shut down or not started.");
+            Err(WrapperError::TaskNotRunning) // Or Ok(()) if this state is acceptable for shutdown.
         }
     }
     
