@@ -161,28 +161,37 @@ impl DiscordRpcWrapper {
     pub fn shutdown_rpc_sync(&mut self) -> Result<(), WrapperError> {
         info!("[shutdown_rpc_sync] Attempting to shut down Raw Discord RPC Wrapper.");
 
-        // Create a temporary Tokio runtime for this synchronous method.
-        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(rt) => rt,
+        // Use the current Tokio runtime handle if available.
+        // This method is called from Plugin::shutdown, which is synchronous but may be
+        // running on a thread that is part of a Tokio runtime.
+        let current_tokio_handle = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle,
             Err(e) => {
-                error!("[shutdown_rpc_sync] Failed to create Tokio runtime for RPC shutdown: {}", e);
-                // Attempt to unpark the thread even if runtime creation fails, to prevent a zombie thread.
-                if let Some(handle) = self.rpc_run_thread_handle.as_ref() { // Use as_ref to not take ownership yet
-                    handle.thread().unpark();
+                // Not in a Tokio runtime context, this is unexpected if called from main app shutdown.
+                // However, if this happens, we can't block_on async calls easily without creating a new runtime,
+                // which was the source of the original panic if we *were* in a runtime.
+                // For now, log an error and attempt to unpark/join the thread without client shutdown.
+                error!("[shutdown_rpc_sync] Failed to get current Tokio runtime handle: {}. RPC client may not be shut down cleanly.", e);
+                if let Some(thread_handle) = self.rpc_run_thread_handle.take() {
+                    thread_handle.thread().unpark();
+                    match thread_handle.join() {
+                        Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined (no client shutdown)."),
+                        Err(join_err) => error!("[shutdown_rpc_sync] RPC OS thread panicked during join (no client shutdown): {:?}", join_err),
+                    }
                 }
-                return Err(WrapperError::TokioRuntime(e.to_string()));
+                return Err(WrapperError::TokioRuntime("Not in a Tokio runtime context during shutdown_rpc_sync".to_string()));
             }
         };
 
         // Take the client from raw_client_state
-        let raw_client_option = runtime.block_on(async {
+        let raw_client_option = current_tokio_handle.block_on(async {
             let mut guard = self.raw_client_state.lock().await;
             guard.take()
         });
 
-        if let Some(mut raw_client) = raw_client_option {
+        if let Some(raw_client) = raw_client_option { // Removed 'mut' as raw_client.shutdown takes &self
             info!("[shutdown_rpc_sync] RawDiscordClient instance taken. Calling its shutdown method.");
-            match runtime.block_on(raw_client.shutdown()) {
+            match current_tokio_handle.block_on(raw_client.shutdown()) {
                 Ok(_) => info!("[shutdown_rpc_sync] RawDiscordClient shutdown successful."),
                 Err(e) => {
                     error!("[shutdown_rpc_sync] RawDiscordClient shutdown failed: {}", e);
@@ -191,8 +200,6 @@ impl DiscordRpcWrapper {
             }
         } else {
             warn!("[shutdown_rpc_sync] No active RawDiscordClient found in state. Assuming already shut down or not started.");
-            // If no client, the thread might still be parked if it failed before client creation.
-            // Unparking it is still a good idea.
         }
 
         if let Some(handle) = self.rpc_run_thread_handle.take() {
@@ -223,10 +230,10 @@ impl DiscordRpcWrapper {
         info!("[shutdown_rpc_sync] Raw Discord RPC Wrapper shutdown_rpc_sync completed.");
         Ok(())
     }
-    
-    pub fn take_task_handle(&mut self) -> Option<thread::JoinHandle<()>> {
-        self.rpc_run_thread_handle.take()
-    }
+
+    // pub fn take_task_handle(&mut self) -> Option<thread::JoinHandle<()>> { // Method is unused
+    //     self.rpc_run_thread_handle.take()
+    // }
 
     // update_presence_activity, update_game_status, and clear_presence_activity are removed
     // as they were based on the old client. perform_update_activity_static will be the
