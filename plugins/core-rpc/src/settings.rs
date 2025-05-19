@@ -43,7 +43,7 @@ impl Default for RpcSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            client_id: Some("".to_string()), // Default to empty string, will appear in TOML
+            client_id: Some("1374071636080328796".to_string()), // Set user's test Client ID as default
             default_details: Some("Using Gini Framework".to_string()),
             default_state: Some("Idle".to_string()),
         }
