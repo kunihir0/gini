@@ -4,10 +4,10 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue; // Alias for clarity
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt; // AsyncReadExt will be moved
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::Cursor; // Removed Read, Write
-use log; // Added for logging macros
+use std::io::Cursor;
+use log;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, Notify};
@@ -73,14 +73,14 @@ pub fn frame_message(opcode: u32, payload_json: &str) -> std::io::Result<Vec<u8>
 /// Reads a framed message from the UnixStream.
 /// Returns the opcode and the JSON payload string.
 pub async fn read_framed_message(stream: &mut tokio::net::UnixStream) -> std::io::Result<(u32, String)> {
+    use tokio::io::AsyncReadExt; // Import AsyncReadExt only within this async function
     let mut header_buf = [0u8; 8]; // 4 bytes for opcode, 4 bytes for length
 
     // Read the 8-byte header
-    // stream is an AsyncRead, so stream.read_exact is fine.
     stream.read_exact(&mut header_buf).await?;
     
     let mut cursor = Cursor::new(header_buf);
-    // Use ReadBytesExt for Cursor
+    // Use ReadBytesExt for Cursor from byteorder, which is already in broader scope
     let opcode = ReadBytesExt::read_u32::<LittleEndian>(&mut cursor)?;
     let length = ReadBytesExt::read_u32::<LittleEndian>(&mut cursor)?;
 
@@ -591,6 +591,62 @@ mod tests {
         }
         UnixListener::bind(path)
     }
+
+    #[test]
+    fn test_frame_message_simple_payload() {
+        let opcode = 1;
+        let payload = r#"{"message": "hello"}"#;
+        let framed = frame_message(opcode, payload).unwrap();
+
+        assert_eq!(framed.len(), 8 + payload.as_bytes().len());
+
+        let mut cursor = Cursor::new(&framed[0..4]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), opcode);
+
+        let mut cursor = Cursor::new(&framed[4..8]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), payload.as_bytes().len() as u32);
+
+        assert_eq!(&framed[8..], payload.as_bytes());
+    }
+
+    #[test]
+    fn test_frame_message_empty_payload() {
+        let opcode = 2;
+        let payload = "";
+        let framed = frame_message(opcode, payload).unwrap();
+
+        assert_eq!(framed.len(), 8); // Only header
+
+        let mut cursor = Cursor::new(&framed[0..4]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), opcode);
+
+        let mut cursor = Cursor::new(&framed[4..8]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), 0); // Payload length is 0
+    }
+
+    #[test]
+    fn test_frame_message_complex_payload() {
+        let opcode = 0;
+        let payload_struct = HandshakeRequest {
+            v: 1,
+            client_id: "1234567890".to_string(),
+        };
+        let payload_json = serde_json::to_string(&payload_struct).unwrap();
+        let framed = frame_message(opcode, &payload_json).unwrap();
+
+        assert_eq!(framed.len(), 8 + payload_json.as_bytes().len());
+
+        let mut cursor = Cursor::new(&framed[0..4]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), opcode);
+
+        let mut cursor = Cursor::new(&framed[4..8]);
+        assert_eq!(byteorder::ReadBytesExt::read_u32::<LittleEndian>(&mut cursor).unwrap(), payload_json.as_bytes().len() as u32);
+
+        assert_eq!(&framed[8..], payload_json.as_bytes());
+    }
+
+    // Note: Tests for read_framed_message would require a mock UnixStream,
+    // which is more involved. For now, focusing on frame_message.
 
     #[tokio::test]
     async fn test_connect_ipc_success() {
