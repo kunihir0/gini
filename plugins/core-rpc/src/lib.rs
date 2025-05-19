@@ -22,7 +22,7 @@ use tokio::sync::Mutex as TokioMutex; // Single import
 use thiserror::Error;
 use tokio::runtime::Handle;
 use chrono::Utc;
-use discord_presence::client::Client as DiscordClient;
+// use discord_presence::client::Client as DiscordClient; // No longer needed here
 // use std::future::Future; // Not needed
 // use std::pin::Pin;     // Not needed
 
@@ -35,6 +35,7 @@ use discord_presence::client::Client as DiscordClient;
 
 mod rpc_wrapper;
 mod settings;
+mod ipc_linux;
 
 use rpc_wrapper::{DiscordRpcWrapper, WrapperError};
 use settings::{load_settings, RpcSettings, SettingsError};
@@ -68,14 +69,14 @@ impl From<CoreRpcError> for PluginSystemError {
 
 pub struct CoreRpcPlugin {
     settings: Arc<std::sync::Mutex<Option<RpcSettings>>>,
-    wrapper_state: Arc<TokioMutex<Option<(DiscordRpcWrapper, Option<std::thread::JoinHandle<()>>)>>>,
+    rpc_wrapper_handle: Arc<TokioMutex<Option<DiscordRpcWrapper>>>,
 }
 
 impl CoreRpcPlugin {
     pub fn new() -> Self {
         Self {
             settings: Arc::new(std::sync::Mutex::new(None)),
-            wrapper_state: Arc::new(TokioMutex::new(None)),
+            rpc_wrapper_handle: Arc::new(TokioMutex::new(None)),
         }
     }
 }
@@ -148,7 +149,7 @@ impl Plugin for CoreRpcPlugin {
 
         let storage_manager_arc = app.storage_manager();
         let settings_for_task = Arc::clone(&self.settings);
-        let wrapper_state_for_task = Arc::clone(&self.wrapper_state);
+        let rpc_wrapper_handle_for_task = Arc::clone(&self.rpc_wrapper_handle);
         
         // TODO: Event Handler Registration for dynamic presence updates using core-environment-check.
         // This functionality is deferred due to complexities in accessing EventManager synchronously
@@ -170,47 +171,58 @@ impl Plugin for CoreRpcPlugin {
                                 
                                 match wrapper.start_client_loop() {
                                     Ok(_) => {
-                                        let thread_handle = wrapper.take_task_handle();
-                                        let mut w_state_guard = wrapper_state_for_task.lock().await;
-                                        *w_state_guard = Some((wrapper, thread_handle));
-                                        drop(w_state_guard);
+                                        // The thread_handle is now managed internally by DiscordRpcWrapper
+                                        let mut rpc_wrapper_guard = rpc_wrapper_handle_for_task.lock().await;
+                                        *rpc_wrapper_guard = Some(wrapper);
+                                        // Important: Keep the guard only as long as needed.
+                                        // For perform_update_activity_static, we need Arcs from the wrapper.
+                                        // Let's re-acquire the lock or pass the necessary Arcs.
+                                        // For simplicity, we'll re-acquire the lock to get the Arcs.
+                                        drop(rpc_wrapper_guard); // Release lock before potential .await in perform_update
                                         
-                                        info!("DiscordRpcWrapper started successfully (async task).");
+                                        info!("DiscordRpcWrapper started and stored successfully (async task).");
 
                                         let presence_details_from_settings = final_settings.default_details.clone();
                                         let presence_state_from_settings = final_settings.default_state.clone();
 
                                         if presence_details_from_settings.is_some() || presence_state_from_settings.is_some() {
-                                            let extracted_data_for_update: Option<(DiscordClient, Arc<std::sync::Mutex<Option<rpc_wrapper::InternalRichPresenceData>>>)> = {
-                                                let guard = wrapper_state_for_task.lock().await; 
-                                                if let Some((wrapper_instance, _)) = guard.as_ref() {
-                                                    if let Some(client_handle) = wrapper_instance.client_handle.clone() {
-                                                        Some((client_handle, Arc::clone(&wrapper_instance.current_presence_data)))
-                                                    } else { 
-                                                        warn!("Initial presence update: client_handle is None after start_client_loop (inside lock).");
-                                                        None 
-                                                    }
-                                                } else { 
-                                                    warn!("Initial presence update: wrapper_instance is None in wrapper_state_arc (inside lock).");
-                                                    None 
-                                                }
-                                            };
-                        
-                                            if let Some((cloned_client_handle, cloned_presence_data_arc)) = extracted_data_for_update {
-                                                debug!("Setting initial presence via static call using settings defaults: Details='{:?}', State='{:?}'", 
+                                            // Get the necessary Arcs for perform_update_activity_static
+                                            let rpc_wrapper_guard = rpc_wrapper_handle_for_task.lock().await;
+                                            if let Some(wrapper_instance) = rpc_wrapper_guard.as_ref() {
+                                                let raw_client_state_arc = Arc::clone(&wrapper_instance.raw_client_state);
+                                                let current_presence_data_arc = Arc::clone(&wrapper_instance.current_presence_data);
+                                                // Drop guard before await
+                                                drop(rpc_wrapper_guard);
+
+                                                debug!("Setting initial presence via static call using settings defaults: Details='{:?}', State='{:?}'",
                                                        presence_details_from_settings, presence_state_from_settings);
                                             
+                                                // Correct arguments for perform_update_activity_static:
+                                                // raw_client_state_arc: Arc<TokioMutex<Option<ipc_linux::RawDiscordClient>>>,
+                                                // current_presence_data_arc: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>,
+                                                // details, state, start_timestamp, end_timestamp,
+                                                // large_image_key, large_image_text, small_image_key, small_image_text,
+                                                // party_id, party_size, buttons
                                                 if let Err(e) = DiscordRpcWrapper::perform_update_activity_static(
-                                                    cloned_client_handle,
-                                                    cloned_presence_data_arc,
-                                                    presence_details_from_settings, 
-                                                    presence_state_from_settings,   
-                                                    Some(Utc::now()), None, None, None, None, None, None, None, None
+                                                    raw_client_state_arc,       // Correct: Arc<TokioMutex<Option<RawDiscordClient>>>
+                                                    current_presence_data_arc,  // Correct: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>
+                                                    presence_details_from_settings,
+                                                    presence_state_from_settings,
+                                                    Some(Utc::now()), // start_timestamp
+                                                    None,             // end_timestamp
+                                                    None,             // large_image_key
+                                                    None,             // large_image_text
+                                                    None,             // small_image_key
+                                                    None,             // small_image_text
+                                                    None,             // party_id
+                                                    None,             // party_size
+                                                    None              // buttons
                                                 ).await {
                                                     warn!("Failed to set initial Discord presence in async task (static call): {}", e);
                                                 }
                                             } else {
-                                                warn!("Cannot set initial presence: Necessary data not available from wrapper_state for static call.");
+                                                 drop(rpc_wrapper_guard); // Ensure guard is dropped
+                                                 warn!("Cannot set initial presence: DiscordRpcWrapper not found in handle for static call.");
                                             }
                                         }
                                     }
@@ -240,34 +252,27 @@ impl Plugin for CoreRpcPlugin {
 
     fn shutdown(&self) -> Result<(), PluginSystemError> {
         info!("Core RPC Plugin: Attempting shutdown.");
-        match self.wrapper_state.try_lock() {
-            Ok(mut state_guard) => {
-                if let Some((mut wrapper, thread_handle_opt)) = state_guard.take() {
-                    info!("Core RPC Plugin: Acquired wrapper state, proceeding with detailed shutdown in a new OS thread.");
-                    std::thread::spawn(move || {
-                        info!("Core RPC Plugin (shutdown thread): Shutting down DiscordRpcWrapper...");
-                        if let Err(e) = wrapper.shutdown_rpc_sync() {
-                            error!("Core RPC Plugin (shutdown thread): Error during DiscordRpcWrapper shutdown: {}", e);
-                        } else {
-                            info!("Core RPC Plugin (shutdown thread): DiscordRpcWrapper shutdown signal processed.");
-                        }
-
-                        if let Some(os_thread_handle) = thread_handle_opt {
-                            info!("Core RPC Plugin (shutdown thread): Waiting for RPC OS thread to join...");
-                            if os_thread_handle.join().is_err() {
-                                error!("Core RPC Plugin (shutdown thread): RPC OS thread panicked or failed to join.");
-                            } else {
-                                info!("Core RPC Plugin (shutdown thread): RPC OS thread joined successfully.");
-                            }
-                        }
-                        info!("Core RPC Plugin (shutdown thread): Detailed shutdown complete.");
-                    });
+        // Use try_lock to avoid blocking the main thread if the async task in init still holds the lock.
+        // The shutdown of the wrapper itself is synchronous internally now.
+        match self.rpc_wrapper_handle.try_lock() {
+            Ok(mut guard) => {
+                if let Some(mut wrapper) = guard.take() {
+                    info!("Core RPC Plugin: Acquired wrapper instance. Shutting down DiscordRpcWrapper synchronously.");
+                    // The shutdown_rpc_sync method is synchronous and handles thread joining.
+                    if let Err(e) = wrapper.shutdown_rpc_sync() {
+                        error!("Core RPC Plugin: Error during DiscordRpcWrapper shutdown: {}", e);
+                    } else {
+                        info!("Core RPC Plugin: DiscordRpcWrapper shutdown_rpc_sync completed.");
+                    }
                 } else {
                     info!("Core RPC Plugin: Wrapper already shut down or not initialized.");
                 }
             }
             Err(_) => {
-                warn!("Core RPC Plugin: Could not acquire lock on wrapper state during shutdown (try_lock failed). Skipping detailed RPC shutdown to avoid blocking. The RPC client OS thread might not be joined cleanly.");
+                warn!("Core RPC Plugin: Could not acquire lock on rpc_wrapper_handle during shutdown (try_lock failed). RPC client might not be shut down cleanly if init task is still running.");
+                // If we can't get the lock, it implies the init task might still be holding it or
+                // it's being accessed elsewhere. Forcing a shutdown here could be problematic.
+                // The `DiscordRpcWrapper`'s Drop implementation (if any) or OS might eventually clean up.
             }
         }
         

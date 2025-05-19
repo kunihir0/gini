@@ -299,9 +299,11 @@ name = "core-rpc"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "byteorder",
  "chrono",
  "discord-presence",
  "gini-core",
+ "libc",
  "log",
  "serde",
  "serde_json",

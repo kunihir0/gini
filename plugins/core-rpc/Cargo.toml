@@ -19,6 +19,8 @@ log = "0.4"
 async-trait = "0.1.77" # For Plugin trait
 thiserror = "1.0" # For custom errors
 chrono = { version = "0.4", features = ["serde"] } # For Utc::now() and timestamps
+libc = "0.2" # For get_current_uid in ipc_linux.rs
+byteorder = "1.4" # For framing messages
 
 [dev-dependencies]
 # Add testing dependencies if needed

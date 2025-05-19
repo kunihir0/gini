@@ -1,27 +1,33 @@
 use chrono::{DateTime, Utc};
-use discord_presence::{
-    client::Client as DiscordClient,
-    error::DiscordError,
-    event_handler::Context as EventContext,
-    models::{
-        // Removed: ErrorEvent, PartialUser, ReadyEvent
-        rich_presence::{Activity, ActivityButton}, // Removed ActivityAssets, ActivityParty, ActivityTimestamps
-        EventData,
-        // Removed: Event as DiscordModelEvent,
-    },
-};
+// discord_presence types are being replaced or are no longer directly used here.
+// Some might be needed for InternalRichPresenceData if it's not fully replaced by JSON.
+// For now, let's comment out what's clearly related to the old client.
+// use discord_presence::{
+//     client::Client as DiscordClient,
+//     error::DiscordError,
+//     event_handler::Context as EventContext,
+//     models::{
+//         rich_presence::{Activity, ActivityButton}, // Activity needed for apply_to_activity_old
+//         EventData,
+//     },
+// };
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use serde_json; // Added for json! macro
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use thiserror::Error;
-use tokio::task::spawn_blocking;
+use tokio::sync::Mutex as TokioMutex;
+// use tokio::task::spawn_blocking; // May not be needed anymore for set_activity
+
+// Assuming ipc_linux is in the same crate or a dependency
+use crate::ipc_linux;
 
 #[derive(Error, Debug)]
 pub enum WrapperError {
-    #[error("Discord RPC client error: {0}")]
-    Discord(#[from] DiscordError),
+    // #[error("Discord RPC client error: {0}")]
+    // Discord(#[from] DiscordError), // This was for the old client
     #[error("RPC client thread is not running or already shut down.")]
     TaskNotRunning,
     #[error("RPC client thread panicked.")]
@@ -32,6 +38,10 @@ pub enum WrapperError {
     Internal(String),
     #[error("Tokio task join error: {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
+    #[error("Tokio runtime error: {0}")]
+    TokioRuntime(String), // Added for runtime creation errors
+    #[error("Raw Discord client error: {0}")]
+    RawClient(String), // Changed from #[from] ipc_linux::RawClientError to String
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,74 +66,15 @@ pub struct InternalButtonData {
 }
 
 impl InternalRichPresenceData {
-    fn apply_to_activity(&self, mut activity_builder: Activity) -> Activity {
-        if let Some(details) = &self.details {
-            activity_builder = activity_builder.details(details);
-        }
-        if let Some(state) = &self.state {
-            activity_builder = activity_builder.state(state);
-        }
-
-        activity_builder = activity_builder.timestamps(|ts_builder| {
-            let mut current_ts_builder = ts_builder;
-            if let Some(start) = self.start_timestamp {
-                current_ts_builder = current_ts_builder.start(start as u64);
-            }
-            if let Some(end) = self.end_timestamp {
-                current_ts_builder = current_ts_builder.end(end as u64);
-            }
-            current_ts_builder
-        });
-
-        activity_builder = activity_builder.assets(|assets_builder| {
-            let mut current_assets_builder = assets_builder;
-            if let Some(key) = &self.large_image_key {
-                current_assets_builder = current_assets_builder.large_image(key);
-            }
-            if let Some(text) = &self.large_image_text {
-                current_assets_builder = current_assets_builder.large_text(text);
-            }
-            if let Some(key) = &self.small_image_key {
-                current_assets_builder = current_assets_builder.small_image(key);
-            }
-            if let Some(text) = &self.small_image_text {
-                current_assets_builder = current_assets_builder.small_text(text);
-            }
-            current_assets_builder
-        });
-
-        activity_builder = activity_builder.party(|party_builder| {
-            let mut current_party_builder = party_builder;
-            if let Some(id) = &self.party_id {
-                current_party_builder = current_party_builder.id(id);
-            }
-            if let Some(size) = self.party_size {
-                current_party_builder = current_party_builder.size((size.0 as u32, size.1 as u32));
-            }
-            current_party_builder
-        });
-
-        if let Some(buttons_data) = &self.buttons {
-            if !buttons_data.is_empty() {
-                let buttons_vec: Vec<ActivityButton> = buttons_data
-                    .iter()
-                    .map(|b_data| {
-                        ActivityButton::new() 
-                            .label(&b_data.label)
-                            .url(&b_data.url)
-                    })
-                    .collect();
-                activity_builder.buttons = buttons_vec;
-            }
-        }
-        activity_builder
-    }
+    // This method is no longer needed as we construct JSON payload directly.
+    // fn apply_to_activity_old(&self, mut activity_builder: discord_presence::models::rich_presence::Activity) -> discord_presence::models::rich_presence::Activity { ... }
 }
 
 pub struct DiscordRpcWrapper {
     client_id: String,
-    pub(crate) client_handle: Option<DiscordClient>,
-    pub(crate) current_presence_data: Arc<Mutex<Option<InternalRichPresenceData>>>,
+    // pub(crate) client_handle: Option<DiscordClient>, // Removed
+    pub(crate) raw_client_state: Arc<TokioMutex<Option<ipc_linux::RawDiscordClient>>>,
+    pub(crate) current_presence_data: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>, // Keep std::sync::Mutex for now, assess if TokioMutex is needed here too
     rpc_run_thread_handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -131,220 +82,163 @@ impl DiscordRpcWrapper {
     pub fn new(client_id: String) -> Self {
         DiscordRpcWrapper {
             client_id,
-            client_handle: None,
-            current_presence_data: Arc::new(Mutex::new(None)),
+            // client_handle: None, // Removed
+            raw_client_state: Arc::new(TokioMutex::new(None)),
+            current_presence_data: Arc::new(std::sync::Mutex::new(None)), // Keep std::sync::Mutex
             rpc_run_thread_handle: None,
         }
     }
 
     pub fn start_client_loop(&mut self) -> Result<(), WrapperError> {
+        info!("[start_client_loop] Attempting to start client loop for client_id: {}", self.client_id);
         if self.client_id.is_empty() {
+            error!("[start_client_loop] Client ID is empty.");
             return Err(WrapperError::InvalidOrMissingClientId);
         }
-        let client_id_u64 = self
-            .client_id
-            .parse::<u64>()
-            .map_err(|_| WrapperError::InvalidOrMissingClientId)?;
+        // client_id is already a String, RawDiscordClient expects String. No parse to u64 needed.
 
         if self.rpc_run_thread_handle.is_some() {
-            info!("RPC client thread is already running.");
+            info!("[start_client_loop] RPC client thread is already running.");
             return Ok(());
         }
 
-        let mut client_for_thread = DiscordClient::new(client_id_u64);
-
-        client_for_thread.on_ready(move |ctx: EventContext| {
-            debug!("[on_ready_callback] Entered. Context: {:?}", ctx);
-            match ctx.event {
-                EventData::Ready(ready_event) => {
-                    let user_name = ready_event.user.as_ref().and_then(|u| u.username.as_ref()).map_or("UnknownUser", |s| s.as_str());
-                    info!("Discord RPC: Ready (User: {})", user_name);
-                }
-                _ => warn!("[on_ready_callback] Received non-Ready EventData. Context: {:?}", ctx),
-            }
-            debug!("[on_ready_callback] Exiting.");
-        }).persist();
-
-        client_for_thread.on_error(|ctx: EventContext| {
-            debug!("[on_error_callback] Entered. Context: {:?}", ctx);
-            match ctx.event {
-                EventData::Error(error_event) => {
-                    error!(
-                        "Discord RPC Error (Callback): code {:?}, message '{}'. Full EventData: {:?}",
-                        error_event.code, error_event.message.as_deref().unwrap_or_default(), error_event
-                    );
-                }
-                _ => error!("[on_error_callback] Received non-Error EventData. Context: {:?}", ctx),
-            }
-            debug!("[on_error_callback] Exiting.");
-        }).persist();
-
-        client_for_thread.on_disconnected(|ctx: EventContext| {
-            debug!("[on_disconnected_callback] Entered. Context: {:?}", ctx);
-             match ctx.event {
-                EventData::Error(error_event) => {
-                     warn!(
-                        "Discord RPC Disconnected (Callback with error): code {:?}, message '{}'. Full EventData: {:?}",
-                        error_event.code, error_event.message.as_deref().unwrap_or_default(), error_event
-                    );
-                }
-                EventData::None => {
-                     warn!("Discord RPC Disconnected (Callback): No specific error data provided. Context: {:?}", ctx);
-                }
-                _ => warn!("[on_disconnected_callback] Received unexpected EventData. Context: {:?}", ctx),
-            }
-            debug!("[on_disconnected_callback] Exiting.");
-        }).persist();
-        
-        client_for_thread.on_connected(|ctx: EventContext| {
-            debug!("[on_connected_callback] Entered. Context: {:?}", ctx);
-            info!("Discord RPC: Successfully connected (or reconnected).");
-            debug!("[on_connected_callback] Exiting.");
-        }).persist();
-        
-        self.client_handle = Some(client_for_thread.clone());
+        let client_id_str = self.client_id.clone();
+        let raw_client_state_clone_for_thread = Arc::clone(&self.raw_client_state);
 
         let handle = thread::spawn(move || {
-            info!("Discord client OS thread started for client ID: {}. Attempting to call client.start()...", client_id_u64);
-            client_for_thread.start(); // This blocks and runs the event loop
-            info!("Discord client OS thread for client ID {} has finished client.start() and is now exiting.", client_id_u64);
+            info!("[RPC OS Thread] Started for client ID: {}", client_id_str);
+
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => {
+                    info!("[RPC OS Thread] Tokio runtime created successfully.");
+                    rt
+                }
+                Err(e) => {
+                    error!("[RPC OS Thread] Failed to create Tokio runtime for RPC: {}", e);
+                    return;
+                }
+            };
+            
+            info!("[RPC OS Thread] Entering runtime.block_on for RawDiscordClient::connect_and_run.");
+            runtime.block_on(async {
+                info!("[RPC OS Thread/async] Attempting RawDiscordClient::connect_and_run for client_id: {}", client_id_str);
+                match ipc_linux::RawDiscordClient::connect_and_run(client_id_str.clone()).await {
+                    Ok(client) => {
+                        info!("[RPC OS Thread/async] RawDiscordClient::connect_and_run successful.");
+                        let mut client_state_guard = raw_client_state_clone_for_thread.lock().await;
+                        *client_state_guard = Some(client);
+                        info!("[RPC OS Thread/async] RawDiscordClient stored in shared state. Read loop should be running. Parking OS thread.");
+                        // Drop the guard before parking to avoid holding it indefinitely
+                        drop(client_state_guard);
+                        
+                        // Park the OS thread to keep the RawDiscordClient (and its read_loop task) alive.
+                        // The read_loop is spawned within connect_and_run.
+                        // This thread will be unparked during shutdown.
+                        loop {
+                            std::thread::park();
+                            // When unparked, we might check a shutdown flag if we had one,
+                            // but for now, unparking is the signal to exit the loop.
+                            // This assumes shutdown_rpc_sync will unpark and then join.
+                            info!("[RPC OS Thread/async] Unparked. Likely for shutdown. Exiting parking loop.");
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("[RPC OS Thread/async] RawDiscordClient::connect_and_run failed: {}", e);
+                        // client_state remains None
+                    }
+                }
+            });
+            info!("[RPC OS Thread] Exited runtime.block_on. OS Thread for client ID {} is now exiting.", client_id_str);
         });
+
         self.rpc_run_thread_handle = Some(handle);
-        info!("Discord RPC client loop initiated in a background OS thread.");
+        info!("[start_client_loop] Raw Discord RPC client loop initiated in a background OS thread for client_id: {}.", self.client_id);
         Ok(())
     }
 
     // Make this synchronous as Plugin::shutdown is synchronous
     pub fn shutdown_rpc_sync(&mut self) -> Result<(), WrapperError> {
-        info!("[shutdown_rpc_sync] Attempting to shut down Discord RPC Wrapper.");
-        if let Some(client_to_shutdown) = self.client_handle.take() {
-            info!("[shutdown_rpc_sync] Client handle taken. Calling client.shutdown()...");
-            let shutdown_result = client_to_shutdown.shutdown();
-            info!("[shutdown_rpc_sync] client.shutdown() returned: {:?}", shutdown_result);
-            shutdown_result.map_err(WrapperError::Discord)?;
-            info!("[shutdown_rpc_sync] Discord client shutdown signal processed by discord-presence library.");
+        info!("[shutdown_rpc_sync] Attempting to shut down Raw Discord RPC Wrapper.");
 
-            if let Some(handle) = self.rpc_run_thread_handle.take() {
-                info!("[shutdown_rpc_sync] Waiting for RPC OS thread to join...");
-                match handle.join() {
-                    Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined successfully."),
-                    Err(e) => {
-                        error!("[shutdown_rpc_sync] RPC OS thread panicked during shutdown or join: {:?}", e);
-                        // Note: The thread might have already finished if client.start() returned due to an error.
-                        // Depending on the desired behavior, returning an error here might be too strict if the goal was just to ensure cleanup.
-                        // However, for diagnostics, knowing about the panic is important.
-                        return Err(WrapperError::TaskPanicked);
-                    }
+        // Create a temporary Tokio runtime for this synchronous method.
+        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                error!("[shutdown_rpc_sync] Failed to create Tokio runtime for RPC shutdown: {}", e);
+                // Attempt to unpark the thread even if runtime creation fails, to prevent a zombie thread.
+                if let Some(handle) = self.rpc_run_thread_handle.as_ref() { // Use as_ref to not take ownership yet
+                    handle.thread().unpark();
                 }
-            } else {
-                info!("[shutdown_rpc_sync] No OS thread handle found, thread might have already finished or was never started.");
+                return Err(WrapperError::TokioRuntime(e.to_string()));
             }
-            self.current_presence_data.lock().unwrap().take();
-            info!("[shutdown_rpc_sync] Discord RPC Wrapper shutdown_rpc_sync completed.");
-            Ok(())
+        };
+
+        // Take the client from raw_client_state
+        let raw_client_option = runtime.block_on(async {
+            let mut guard = self.raw_client_state.lock().await;
+            guard.take()
+        });
+
+        if let Some(mut raw_client) = raw_client_option {
+            info!("[shutdown_rpc_sync] RawDiscordClient instance taken. Calling its shutdown method.");
+            match runtime.block_on(raw_client.shutdown()) {
+                Ok(_) => info!("[shutdown_rpc_sync] RawDiscordClient shutdown successful."),
+                Err(e) => {
+                    error!("[shutdown_rpc_sync] RawDiscordClient shutdown failed: {}", e);
+                    // Continue with thread unparking and joining despite client shutdown error.
+                }
+            }
         } else {
-            warn!("[shutdown_rpc_sync] Shutdown called but no active client handle found. Assuming already shut down or not started.");
-            Err(WrapperError::TaskNotRunning) // Or Ok(()) if this state is acceptable for shutdown.
+            warn!("[shutdown_rpc_sync] No active RawDiscordClient found in state. Assuming already shut down or not started.");
+            // If no client, the thread might still be parked if it failed before client creation.
+            // Unparking it is still a good idea.
         }
+
+        if let Some(handle) = self.rpc_run_thread_handle.take() {
+            info!("[shutdown_rpc_sync] Unparking and waiting for RPC OS thread to join...");
+            handle.thread().unpark(); // Unpark the thread so it can exit its loop
+            match handle.join() {
+                Ok(_) => info!("[shutdown_rpc_sync] RPC OS thread joined successfully."),
+                Err(e) => {
+                    error!("[shutdown_rpc_sync] RPC OS thread panicked during shutdown or join: {:?}", e);
+                    // Even if it panicked, we've attempted cleanup.
+                    // Return TaskPanicked to indicate the issue.
+                    return Err(WrapperError::TaskPanicked);
+                }
+            }
+        } else {
+            info!("[shutdown_rpc_sync] No OS thread handle found, thread might have already finished or was never started.");
+        }
+
+        // Clear presence data as well
+        // Assuming current_presence_data uses std::sync::Mutex as per previous changes
+        if let Ok(mut guard) = self.current_presence_data.lock() {
+            guard.take();
+            info!("[shutdown_rpc_sync] Current presence data cleared.");
+        } else {
+            error!("[shutdown_rpc_sync] Failed to lock current_presence_data to clear it.");
+        }
+        
+        info!("[shutdown_rpc_sync] Raw Discord RPC Wrapper shutdown_rpc_sync completed.");
+        Ok(())
     }
     
     pub fn take_task_handle(&mut self) -> Option<thread::JoinHandle<()>> {
         self.rpc_run_thread_handle.take()
     }
 
-    pub async fn update_presence_activity(
-        &self,
-        details: Option<String>,
-        state: Option<String>,
-        start_timestamp: Option<DateTime<Utc>>,
-        end_timestamp: Option<DateTime<Utc>>,
-        large_image_key: Option<String>,
-        large_image_text: Option<String>,
-        small_image_key: Option<String>,
-        small_image_text: Option<String>,
-        party_id: Option<String>,
-        party_size: Option<(i32, i32)>,
-        buttons: Option<Vec<InternalButtonData>>,
-    ) -> Result<(), WrapperError> {
-        let new_presence_data = InternalRichPresenceData {
-            details, state,
-            start_timestamp: start_timestamp.map(|dt| dt.timestamp()),
-            end_timestamp: end_timestamp.map(|dt| dt.timestamp()),
-            large_image_key, large_image_text, small_image_key, small_image_text,
-            party_id, party_size, buttons,
-        };
-
-        {
-            let mut current_data_guard = self.current_presence_data.lock().unwrap();
-            if *current_data_guard == Some(new_presence_data.clone()) {
-                debug!("Presence data unchanged. No update sent.");
-                return Ok(());
-            }
-            *current_data_guard = Some(new_presence_data.clone());
-        }
-
-        if let Some(client_handle) = &self.client_handle {
-            let mut client_clone = client_handle.clone(); 
-            let data_to_set = new_presence_data; 
-            spawn_blocking(move || {
-                debug!("Attempting to set activity via spawn_blocking.");
-                client_clone.set_activity(|act_builder| data_to_set.apply_to_activity(act_builder))
-            })
-            .await?
-            .map_err(WrapperError::Discord)?;
-            debug!("Presence data updated via RPC.");
-            Ok(())
-        } else {
-            Err(WrapperError::TaskNotRunning)
-        }
-    }
-
-    #[allow(dead_code)] // This is part of the public API, may be used by other plugins/core
-    pub async fn update_game_status(&self, app_name: &str, current_task: &str) -> Result<(), WrapperError> {
-        self.update_presence_activity(
-            Some(format!("Playing {}", app_name)),
-            Some(current_task.to_string()),
-            Some(Utc::now()),
-            None,
-            Some("gini_logo_large".to_string()), // Assuming this asset key exists
-            Some(format!("Gini Framework - {}", app_name)),
-            None, None, None, None, None,
-        ).await
-    }
-
-    #[allow(dead_code)] // This is part of the public API, may be used by other plugins/core
-    pub async fn clear_presence_activity(&self) -> Result<(), WrapperError> {
-        {
-            let mut current_data_guard = self.current_presence_data.lock().unwrap();
-            if current_data_guard.is_none() {
-                debug!("Presence already clear. No update sent.");
-                return Ok(());
-            }
-            *current_data_guard = None;
-        }
-
-        if let Some(client_handle) = &self.client_handle {
-            let mut client_clone = client_handle.clone();
-            spawn_blocking(move || {
-                debug!("Attempting to clear activity via spawn_blocking.");
-                client_clone.clear_activity()
-            })
-            .await?
-            .map_err(WrapperError::Discord)?;
-            debug!("Presence cleared via RPC.");
-            Ok(())
-        } else {
-            Err(WrapperError::TaskNotRunning)
-        }
-    }
+    // update_presence_activity, update_game_status, and clear_presence_activity are removed
+    // as they were based on the old client. perform_update_activity_static will be the
+    // primary method for updating presence with RawDiscordClient.
 }
 
 // Static-like method for use in spawned tasks to avoid holding MutexGuard across .await
 impl DiscordRpcWrapper {
     #[allow(dead_code)] // May only be used by the lib.rs init's spawned task
     pub async fn perform_update_activity_static(
-        mut client_handle: DiscordClient, // Takes ownership of a cloned client
-        current_presence_data_arc: Arc<Mutex<Option<InternalRichPresenceData>>>,
+        raw_client_state_arc: Arc<TokioMutex<Option<ipc_linux::RawDiscordClient>>>,
+        current_presence_data_arc: Arc<std::sync::Mutex<Option<InternalRichPresenceData>>>,
         details: Option<String>,
         state: Option<String>,
         start_timestamp: Option<DateTime<Utc>>,
@@ -354,48 +248,134 @@ impl DiscordRpcWrapper {
         small_image_key: Option<String>,
         small_image_text: Option<String>,
         party_id: Option<String>,
-        party_size: Option<(i32, i32)>,
+        party_size: Option<(i32, i32)>, // Discord expects (current_size, max_size)
         buttons: Option<Vec<InternalButtonData>>,
     ) -> Result<(), WrapperError> {
         let new_presence_data = InternalRichPresenceData {
-            details, state,
+            details: details.clone(), // Clone for comparison
+            state: state.clone(),   // Clone for comparison
             start_timestamp: start_timestamp.map(|dt| dt.timestamp()),
             end_timestamp: end_timestamp.map(|dt| dt.timestamp()),
-            large_image_key, large_image_text, small_image_key, small_image_text,
-            party_id, party_size, buttons,
+            large_image_key: large_image_key.clone(),
+            large_image_text: large_image_text.clone(),
+            small_image_key: small_image_key.clone(),
+            small_image_text: small_image_text.clone(),
+            party_id: party_id.clone(),
+            party_size, // party_size is Copy if i32 is, but Option makes it not. Clone if necessary.
+            buttons: buttons.clone(),
         };
 
-        { // Scope for the lock guard
-            let mut current_data_guard = current_presence_data_arc.lock().unwrap();
+        { // Scope for the std::sync::Mutex lock guard
+            let mut current_data_guard = current_presence_data_arc.lock().unwrap(); // This is a std::sync::Mutex
             if *current_data_guard == Some(new_presence_data.clone()) {
                 debug!("(Static) Presence data unchanged. No update sent.");
                 return Ok(());
             }
-            *current_data_guard = Some(new_presence_data.clone());
+            *current_data_guard = Some(new_presence_data.clone()); // Store the new data
         } // Guard dropped here
 
-        // Use the passed client_handle
-        let data_to_set = new_presence_data; // new_presence_data is cloned above, re-clone for spawn_blocking
-        spawn_blocking(move || {
-            debug!("(Static) Attempting to set activity via spawn_blocking.");
-            // client_handle is moved into this closure
-            client_handle.set_activity(|act_builder| data_to_set.apply_to_activity(act_builder))
-        })
-        .await? // JoinError
-        .map_err(WrapperError::Discord)?; // DiscordError
-        debug!("(Static) Presence data updated via RPC.");
-        Ok(())
+        let mut activity_payload_map = serde_json::Map::new();
+
+        if let Some(d) = details {
+            activity_payload_map.insert("details".to_string(), serde_json::Value::String(d));
+        }
+        if let Some(s) = state {
+            activity_payload_map.insert("state".to_string(), serde_json::Value::String(s));
+        }
+        
+        let mut timestamps_map = serde_json::Map::new();
+        if let Some(start_ts) = start_timestamp.map(|dt| dt.timestamp()) {
+            timestamps_map.insert("start".to_string(), serde_json::json!(start_ts));
+        }
+        if let Some(end_ts) = end_timestamp.map(|dt| dt.timestamp()) {
+            timestamps_map.insert("end".to_string(), serde_json::json!(end_ts));
+        }
+        if !timestamps_map.is_empty() {
+            activity_payload_map.insert("timestamps".to_string(), serde_json::Value::Object(timestamps_map));
+        }
+
+        let mut assets_map = serde_json::Map::new();
+        if let Some(lik) = large_image_key {
+            assets_map.insert("large_image".to_string(), serde_json::Value::String(lik));
+        }
+        if let Some(lit) = large_image_text {
+            assets_map.insert("large_text".to_string(), serde_json::Value::String(lit));
+        }
+        if let Some(sik) = small_image_key {
+            assets_map.insert("small_image".to_string(), serde_json::Value::String(sik));
+        }
+        if let Some(sit) = small_image_text {
+            assets_map.insert("small_text".to_string(), serde_json::Value::String(sit));
+        }
+        if !assets_map.is_empty() {
+            activity_payload_map.insert("assets".to_string(), serde_json::Value::Object(assets_map));
+        }
+        
+        if let Some(pid) = party_id {
+            let mut party_map = serde_json::Map::new();
+            party_map.insert("id".to_string(), serde_json::Value::String(pid));
+            if let Some(size_tuple) = party_size {
+                 party_map.insert("size".to_string(), serde_json::json!([size_tuple.0, size_tuple.1]));
+            }
+            activity_payload_map.insert("party".to_string(), serde_json::Value::Object(party_map));
+        }
+
+
+        if let Some(button_data_vec) = buttons {
+            if !button_data_vec.is_empty() {
+                let json_buttons: Vec<serde_json::Value> = button_data_vec.iter().map(|b| {
+                    serde_json::json!({
+                        "label": b.label,
+                        "url": b.url
+                    })
+                }).collect();
+                activity_payload_map.insert("buttons".to_string(), serde_json::Value::Array(json_buttons));
+            }
+        }
+        
+        let activity_json_obj = serde_json::Value::Object(activity_payload_map);
+
+        let final_payload = serde_json::json!({
+            "pid": std::process::id() as u32, // Ensure PID is u32
+            "activity": activity_json_obj
+        });
+        
+        debug!("(Static) Constructed activity payload: {}", final_payload.to_string());
+
+        let mut client_guard = raw_client_state_arc.lock().await;
+        if let Some(raw_client) = client_guard.as_mut() {
+            match raw_client.set_activity(final_payload).await {
+                Ok(_) => {
+                    debug!("(Static) Presence data updated via RawDiscordClient.");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("(Static) Failed to set activity via RawDiscordClient: {}", e);
+                    Err(WrapperError::RawClient(e))
+                }
+            }
+        } else {
+            warn!("(Static) RawDiscordClient not available (None in Arc<Mutex<Option<...>>>). Cannot update presence.");
+            Err(WrapperError::TaskNotRunning) // Or a more specific error
+        }
     }
 }
 
 
 impl fmt::Display for DiscordRpcWrapper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Check raw_client_state's inner Option to see if client is initialized
+        // This requires an async block or try_lock if we want to be non-blocking here.
+        // For simplicity in a Display impl, we might just indicate the potential.
+        // A full check would be:
+        // let is_initialized = self.raw_client_state.try_lock().map_or(false, |guard| guard.is_some());
+        // However, try_lock might not be what we want if it's contended.
+        // Let's just indicate the thread handle status for now.
         write!(
             f,
-            "DiscordRpcWrapper (ClientID: {}, ClientHandle Initialized: {}, Thread Running: {})",
+            "DiscordRpcWrapper (ClientID: {}, RawClient Potentially Initialized, Thread Running: {})",
             self.client_id,
-            self.client_handle.is_some(),
+            // self.raw_client_state.lock().await.is_some(), // Cannot await in sync fn
             self.rpc_run_thread_handle.as_ref().map_or(false, |h| !h.is_finished())
         )
     }
