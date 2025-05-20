@@ -3,20 +3,20 @@ use async_trait::async_trait;
 use gini_core::kernel::{
     bootstrap::Application,
     error::Result as KernelResult, // Use kernel's Result
-    // KernelError will be used via its full path if needed, or aliased if many uses.
+                                   // KernelError will be used via its full path if needed, or aliased if many uses.
 };
 use gini_core::plugin_system::{
     dependency::PluginDependency,
     // plugin_impl, // Keep commented out until location is confirmed
-    error::PluginSystemError, // Import PluginSystemError
+    error::PluginSystemError,     // Import PluginSystemError
     traits::{Plugin, PluginPriority}, // Import Plugin, PluginPriority
-    version::VersionRange,                          // Import VersionRange
+    version::VersionRange,        // Import VersionRange
 };
 use gini_core::stage_manager::{
-    context::StageContext,         // Import StageContext
+    context::StageContext,       // Import StageContext
     requirement::StageRequirement, // Import StageRequirement
-    registry::StageRegistry,       // Import StageRegistry
-    Stage,                         // Import Stage trait (defined in stage_manager/mod.rs)
+    registry::StageRegistry,     // Import StageRegistry
+    Stage,                       // Import Stage trait (defined in stage_manager/mod.rs)
 };
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub struct CpuInfo {
 pub struct RamInfo {
     pub total_kb: Option<u64>,
     pub available_kb: Option<u64>, // "MemAvailable" is generally preferred over "MemFree"
-    // Add other fields like MemFree, Buffers, Cached if needed
+                                   // Add other fields like MemFree, Buffers, Cached if needed
 }
 
 
@@ -62,9 +62,9 @@ pub struct GpuInfo {
     pub device_id: Option<String>,
     pub class_code: Option<String>, // Store the full class code read
     pub audio_pci_id: Option<String>, // Associated HD Audio device, e.g., "0000:01:00.1"
-    // Optional fields to add later if needed/possible:
-    // pub driver: Option<String>,
-    // pub iommu_group: Option<String>,
+                                    // Optional fields to add later if needed/possible:
+                                    // pub driver: Option<String>,
+                                    // pub iommu_group: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -293,6 +293,7 @@ impl Plugin for EnvironmentCheckPlugin {
         registry.register_stage(Box::new(CheckSwapStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         registry.register_stage(Box::new(CheckLvmStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         registry.register_stage(Box::new(CheckNetworkVirtStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+        registry.register_stage(Box::new(CheckSystemPackagesStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?; // Added missing stage
         Ok(())
     }
 
@@ -320,7 +321,7 @@ impl Stage for GatherOsInfoStage {
     fn description(&self) -> &str {
         "Gathers OS and distribution information from /etc/os-release."
     }
- 
+
     // Implement the async execute method
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Call the wrapper function that uses the default path
@@ -344,7 +345,7 @@ impl Stage for GatherCpuInfoStage {
     fn description(&self) -> &str {
         "Gathers CPU vendor, brand, and core count from /proc/cpuinfo."
     }
- 
+
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         gather_cpu_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
@@ -366,7 +367,7 @@ impl Stage for GatherRamInfoStage {
     fn description(&self) -> &str {
         "Gathers RAM total and available memory from /proc/meminfo."
     }
- 
+
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         gather_ram_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
@@ -388,7 +389,7 @@ impl Stage for GatherGpuInfoStage {
     fn description(&self) -> &str {
         "Gathers GPU information by parsing /sys/bus/pci/devices/."
     }
- 
+
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         gather_gpu_info_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
@@ -410,7 +411,7 @@ impl Stage for CheckIommuStage {
     fn description(&self) -> &str {
         "Checks IOMMU status via /proc/cmdline and /sys/class/iommu."
     }
- 
+
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         check_iommu_stage(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
@@ -432,7 +433,7 @@ impl Stage for VirtualizationKernelParamsStage {
     fn description(&self) -> &str {
         "Checks kernel parameters and bootloader settings for virtualization based on core-env documentation."
     }
- 
+
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         // Call helper functions
         check_kernel_virtualization_params(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)?;
@@ -476,6 +477,20 @@ impl Stage for CheckNetworkVirtStage {
     fn description(&self) -> &str { "Checks IP forwarding, bridges, and TAP devices." }
     async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
         check_network_virt_config(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
+    }
+}
+
+// Added missing stage definition
+#[allow(dead_code)] // This struct is instantiated by the plugin loader
+struct CheckSystemPackagesStage;
+
+#[async_trait]
+impl Stage for CheckSystemPackagesStage {
+    fn id(&self) -> &str { "env_check:check_system_packages" }
+    fn name(&self) -> &str { "Check System Packages" }
+    fn description(&self) -> &str { "Identifies package manager and checks for essential virtualization packages." }
+    async fn execute(&self, context: &mut StageContext) -> std::result::Result<(), Box<dyn StdError + Send + Sync + 'static>> {
+        check_system_packages(context).await.map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync + 'static>)
     }
 }
 
@@ -657,7 +672,7 @@ async fn gather_ram_info_stage(ctx: &mut StageContext) -> KernelResult<()> {
                                     }
                                 }
                                 "MemAvailable" if ram_info.available_kb.is_none() => {
-                                     match value_part.parse::<u64>() {
+                                    match value_part.parse::<u64>() {
                                         Ok(val) => ram_info.available_kb = Some(val),
                                         Err(e) => warn!("Failed to parse MemAvailable value '{}': {}", value_part, e),
                                     }
@@ -913,17 +928,17 @@ async fn check_iommu_stage(ctx: &mut StageContext) -> KernelResult<()> {
                         }
                     }
                 }
-                 info!(
+                info!(
                     "IOMMU enabled. Found {} total IOMMU group directories. Populated {} group(s) with devices.",
                     total_group_dirs_found, groups_with_devices_count
-                 );
+                );
             }
             Err(e) => {
                 // If /sys/class/iommu doesn't exist, it might mean IOMMU isn't *really* active
                 // even if the kernel parameter is set (e.g., VT-d disabled in BIOS).
                 if e.kind() == ErrorKind::NotFound {
-                     warn!("IOMMU sysfs path {} not found, despite kernel parameter. IOMMU might not be active.", IOMMU_SYSFS_PATH);
-                     // Consider setting iommu_info.enabled = false here? For now, just warn.
+                    warn!("IOMMU sysfs path {} not found, despite kernel parameter. IOMMU might not be active.", IOMMU_SYSFS_PATH);
+                    // Consider setting iommu_info.enabled = false here? For now, just warn.
                 } else {
                     error!("Could not read IOMMU directory {}: {}. Group information unavailable.", IOMMU_SYSFS_PATH, e);
                 }
@@ -993,10 +1008,10 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
                         // Check for dmar* or amd-iommu* or similar standard directory names
                         if let Some(dir_name_osstr) = entry.path().file_name() {
                             if let Some(dir_name) = dir_name_osstr.to_str() {
-                                 if dir_name.starts_with("dmar") || dir_name.contains("iommu") { // General check
+                                if dir_name.starts_with("dmar") || dir_name.contains("iommu") { // General check
                                     iommu_dirs_found = true;
                                     break;
-                                 }
+                                }
                             }
                         }
                     }
@@ -1016,7 +1031,7 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
                 params_info.iommu_verification_method = if params_info.iommu_verification_method.is_empty() {
                     IOMMU_SYSFS_PATH.to_string()
                 } else {
-                     format!("{}; {}", params_info.iommu_verification_method, IOMMU_SYSFS_PATH)
+                    format!("{}; {}", params_info.iommu_verification_method, IOMMU_SYSFS_PATH)
                 };
                 info!("No IOMMU-specific directories (e.g., dmar*) found in {}. IOMMU likely not active or configured.", IOMMU_SYSFS_PATH);
             }
@@ -1029,7 +1044,7 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
             }
         }
     }
-     if params_info.iommu_status.is_empty() { // Default if no other status set
+    if params_info.iommu_status.is_empty() { // Default if no other status set
         params_info.iommu_status = "Not Detected/Disabled".to_string();
         params_info.iommu_verification_method = "Initial default".to_string();
     }
@@ -1076,15 +1091,15 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
         let kvm_intel_loaded = Path::new("/sys/module/kvm_intel").exists();
         let kvm_amd_loaded = Path::new("/sys/module/kvm_amd").exists();
         if kvm_intel_loaded || kvm_amd_loaded {
-             params_info.nested_virtualization_status = "Disabled (module loaded, nested param file not found or not Y/1)".to_string();
-             params_info.nested_virtualization_verification_method = "/sys/module/kvm_intel or /sys/module/kvm_amd".to_string();
+            params_info.nested_virtualization_status = "Disabled (module loaded, nested param file not found or not Y/1)".to_string();
+            params_info.nested_virtualization_verification_method = "/sys/module/kvm_intel or /sys/module/kvm_amd".to_string();
         } else {
             params_info.nested_virtualization_status = "Not Applicable (kvm_intel or kvm_amd module not loaded)".to_string();
             params_info.nested_virtualization_verification_method = "/sys/module/".to_string();
         }
     }
     if !nested_found && params_info.nested_virtualization_status.is_empty() {
-         params_info.nested_virtualization_status = "Not Detected/Disabled".to_string();
+        params_info.nested_virtualization_status = "Not Detected/Disabled".to_string();
     }
 
 
@@ -1102,7 +1117,7 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
                         if key == "HugePages_Total" {
                             if let Ok(val) = value_part.parse::<u64>() { hugepages_total = Some(val); }
                         } else if key == "Hugepagesize" {
-                             if let Ok(val) = value_part.parse::<u64>() { hugepages_size = Some(val); }
+                            if let Ok(val) = value_part.parse::<u64>() { hugepages_size = Some(val); }
                         }
                         if hugepages_total.is_some() && hugepages_size.is_some() { break; }
                     }
@@ -1114,7 +1129,7 @@ async fn check_kernel_virtualization_params(ctx: &mut StageContext) -> KernelRes
                     info!("HugePages detected: Total={}, Size={} kB", total, size);
                 } else {
                     params_info.other_relevant_params.insert("HugePages".to_string(), "Configured but Total is 0".to_string());
-                     info!("HugePages configured but Total is 0.");
+                    info!("HugePages configured but Total is 0.");
                 }
             } else {
                 params_info.other_relevant_params.insert("HugePages".to_string(), "Not Detected".to_string());
@@ -1161,7 +1176,7 @@ async fn scan_bootloader_configuration(ctx: &mut StageContext) -> KernelResult<(
                             grub_cmdline.push(' ');
                         }
                     } else if line.starts_with("GRUB_CMDLINE_LINUX=") {
-                         if let Some(val) = line.split_once('=').map(|(_, v)| v.trim().trim_matches('"')) {
+                        if let Some(val) = line.split_once('=').map(|(_, v)| v.trim().trim_matches('"')) {
                             grub_cmdline.push_str(val);
                             grub_cmdline.push(' ');
                         }
@@ -1179,18 +1194,18 @@ async fn scan_bootloader_configuration(ctx: &mut StageContext) -> KernelResult<(
                 scan_info.warnings.push(format!("Failed to read {}: {}", GRUB_DEFAULT_PATH, e));
             }
         }
-        if Path::new(GRUB_CFG_PATH).exists() {
-            scan_info.config_files_checked.push(GRUB_CFG_PATH.to_string());
-        }
+    }
+    if Path::new(GRUB_CFG_PATH).exists() {
+        scan_info.config_files_checked.push(GRUB_CFG_PATH.to_string());
     }
 
     // Check for systemd-boot
     let systemd_dirs_to_check = [SYSTEMD_BOOT_ENTRIES_DIR1, SYSTEMD_BOOT_ENTRIES_DIR2];
-    let mut systemd_boot_found = false;
+    // let mut systemd_boot_found = false; // FIX: Removed unused variable
     for dir_path_str in systemd_dirs_to_check.iter() {
         let dir_path = Path::new(dir_path_str);
         if dir_path.exists() && dir_path.is_dir() {
-            systemd_boot_found = true;
+            // systemd_boot_found = true; // FIX: Removed assignment to unused variable
             if scan_info.identified_bootloader.is_none() { // Only set if GRUB wasn't found
                 scan_info.identified_bootloader = Some("systemd-boot".to_string());
             }
@@ -1231,13 +1246,13 @@ async fn scan_bootloader_configuration(ctx: &mut StageContext) -> KernelResult<(
                     }
                 }
                 Err(e) => {
-                     warn!("Could not read systemd-boot entries directory {}: {}", dir_path_str, e);
-                     scan_info.warnings.push(format!("Failed to list entries in {}: {}", dir_path_str, e));
+                    warn!("Could not read systemd-boot entries directory {}: {}", dir_path_str, e);
+                    scan_info.warnings.push(format!("Failed to list entries in {}: {}", dir_path_str, e));
                 }
             }
         }
     }
-    
+
     if scan_info.identified_bootloader.is_none() {
         scan_info.identified_bootloader = Some("unknown".to_string());
         info!("No common bootloader (GRUB, systemd-boot) identified by standard paths.");
@@ -1250,7 +1265,7 @@ async fn scan_bootloader_configuration(ctx: &mut StageContext) -> KernelResult<(
         if let Some(config_cmdline) = &scan_info.kernel_params_in_config {
             // This is a simplistic comparison. A more robust one would parse individual params.
             if !effective_cmdline.contains(config_cmdline) && !config_cmdline.split(';').any(|part| effective_cmdline.contains(part.split(':').last().unwrap_or("").trim())) {
-                 let warning_msg = format!(
+                let warning_msg = format!(
                     "Potential discrepancy: Effective kernel cmdline ('{}') may differ significantly from bootloader configured params ('{}'). Review persistence.",
                     effective_cmdline, config_cmdline
                 );
@@ -1259,18 +1274,18 @@ async fn scan_bootloader_configuration(ctx: &mut StageContext) -> KernelResult<(
                 scan_info.recommendations.push("Review bootloader configuration to ensure all desired kernel parameters are persistently set. Refer to core-env docs.".to_string());
 
             }
-             // Check for specific important params like iommu and nested
+            // Check for specific important params like iommu and nested
             if (effective_cmdline.contains("intel_iommu=on") || effective_cmdline.contains("amd_iommu=on")) &&
-               !(config_cmdline.contains("intel_iommu=on") || config_cmdline.contains("amd_iommu=on")) {
+                !(config_cmdline.contains("intel_iommu=on") || config_cmdline.contains("amd_iommu=on")) {
                 let msg = "Effective IOMMU parameter is active, but not found in bootloader config. Consider adding for persistence.".to_string();
                 info!("{}", msg);
                 scan_info.warnings.push(msg);
             }
             if (effective_cmdline.contains("kvm-intel.nested=1") || effective_cmdline.contains("kvm-amd.nested=1")) &&
-               !(config_cmdline.contains("kvm-intel.nested=1") || config_cmdline.contains("kvm-amd.nested=1")) {
-                 let msg = "Effective nested virtualization parameter is active, but not found in bootloader config. Consider adding for persistence.".to_string();
-                 info!("{}", msg);
-                 scan_info.warnings.push(msg);
+                !(config_cmdline.contains("kvm-intel.nested=1") || config_cmdline.contains("kvm-amd.nested=1")) {
+                let msg = "Effective nested virtualization parameter is active, but not found in bootloader config. Consider adding for persistence.".to_string();
+                info!("{}", msg);
+                scan_info.warnings.push(msg);
             }
 
         } else {
@@ -1324,7 +1339,7 @@ async fn check_swap_config(ctx: &mut StageContext) -> KernelResult<()> {
                             zram_device.disk_size_bytes = disk_size_str.trim().parse::<u64>().ok();
                         }
                         if let Ok(algo_str) = fs::read_to_string(zram_sys_path.join("comp_algorithm")) {
-                             // Format: "[lzo] lzo-rle lz4 ..."
+                            // Format: "[lzo] lzo-rle lz4 ..."
                             zram_device.compression_algo = algo_str.split_whitespace().find_map(|s| s.strip_prefix('[').and_then(|s| s.strip_suffix(']'))).map(str::to_string);
                         }
                         if let Ok(orig_size_str) = fs::read_to_string(zram_sys_path.join("orig_data_size")) {
@@ -1452,8 +1467,8 @@ async fn check_lvm_config(ctx: &mut StageContext) -> KernelResult<()> {
                             lv.lv_path = format!("{}{}", MAPPER_DEV_PATH, mapper_name);
                             info!("Found LVM LV: {} (Mapper: {})", lv.lv_path, device_name);
                         } else {
-                             warn!("Could not read dm name for {}", device_name);
-                             lv.lv_path = format!("/dev/{}", device_name); // Fallback path
+                            warn!("Could not read dm name for {}", device_name);
+                            lv.lv_path = format!("/dev/{}", device_name); // Fallback path
                         }
 
                         if let Ok(size_content) = fs::read_to_string(&dm_size_path) {
@@ -1461,7 +1476,7 @@ async fn check_lvm_config(ctx: &mut StageContext) -> KernelResult<()> {
                                 lv.lv_size_bytes = Some(sectors * 512);
                             }
                         }
-                        
+
                         let dev_path_for_mount = format!("/dev/{}", device_name);
                         let lv_path_for_mount = lv.lv_path.clone();
 
@@ -1469,11 +1484,11 @@ async fn check_lvm_config(ctx: &mut StageContext) -> KernelResult<()> {
                             lv.mount_point = Some(mp.clone());
                             lv.filesystem_type = Some(fs.clone());
                         }
-                        
+
                         // Thin/snapshot/cache/RAID detection is very hard without LVM tools
                         // Add warnings about this limitation
                         if lvm_info.warnings.is_empty() { // Add only once
-                             lvm_info.warnings.push("Detailed LVM features (thin provisioning, snapshots, cache, RAID, PV/VG specifics) are hard to detect reliably without LVM tools. Checks are best-effort based on /sys and /dev/mapper.".to_string());
+                            lvm_info.warnings.push("Detailed LVM features (thin provisioning, snapshots, cache, RAID, PV/VG specifics) are hard to detect reliably without LVM tools. Checks are best-effort based on /sys and /dev/mapper.".to_string());
                         }
 
                         lvm_info.logical_volumes.push(lv);
@@ -1485,7 +1500,7 @@ async fn check_lvm_config(ctx: &mut StageContext) -> KernelResult<()> {
         warn!("Could not read {}. LVM info will be unavailable.", DM_SYS_BASE_PATH);
         lvm_info.warnings.push(format!("Could not read sysfs block devices at {}.", DM_SYS_BASE_PATH));
     }
-    
+
     // Best effort to populate VG info based on LVs found
     let mut vg_map: HashMap<String, VolumeGroupInfo> = HashMap::new();
     for lv in &lvm_info.logical_volumes {
@@ -1495,7 +1510,7 @@ async fn check_lvm_config(ctx: &mut StageContext) -> KernelResult<()> {
         });
         vg_entry.lv_count += 1;
         if let Some(lv_size) = lv.lv_size_bytes {
-             vg_entry.vg_size_bytes = Some(vg_entry.vg_size_bytes.unwrap_or(0) + lv_size);
+            vg_entry.vg_size_bytes = Some(vg_entry.vg_size_bytes.unwrap_or(0) + lv_size);
         }
     }
     lvm_info.volume_groups = vg_map.into_values().collect();
@@ -1564,29 +1579,29 @@ async fn check_network_virt_config(ctx: &mut StageContext) -> KernelResult<()> {
                 // Check for TAP device (best effort)
                 let tap_flags_path = iface_path.join("tun_flags");
                 if tap_flags_path.exists() {
-                     match fs::read_to_string(&tap_flags_path) {
+                    match fs::read_to_string(&tap_flags_path) {
                         Ok(flags_hex) => {
                             if let Ok(flags_val) = u32::from_str_radix(flags_hex.trim().trim_start_matches("0x"), 16) {
                                 if (flags_val & 0x0002) != 0 { // IFF_TAP is 0x0002
                                     let mut tap_device = TapDeviceInfo { tap_name: iface_name.clone(), ..Default::default() };
-                                     if let Ok(mac_addr) = fs::read_to_string(iface_path.join("address")) {
+                                    if let Ok(mac_addr) = fs::read_to_string(iface_path.join("address")) {
                                         tap_device.mac_address = Some(mac_addr.trim().to_string());
                                     }
                                     if let Ok(owner_str) = fs::read_to_string(iface_path.join("owner")) { // owner might not exist or be readable
                                         tap_device.owner_uid = owner_str.trim().parse::<u32>().ok();
                                     }
-                                     if let Ok(flags_content) = fs::read_to_string(iface_path.join("flags")) { // general interface flags
+                                    if let Ok(flags_content) = fs::read_to_string(iface_path.join("flags")) { // general interface flags
                                         tap_device.flags = Some(flags_content.trim().to_string());
                                     }
                                     info!("Found TAP device (via tun_flags): {:?}", tap_device);
                                     net_info.tap_devices.push(tap_device);
                                 }
                             } else {
-                                 warn!("Could not parse tun_flags for {}: {}", iface_name, flags_hex);
+                                warn!("Could not parse tun_flags for {}: {}", iface_name, flags_hex);
                             }
                         }
                         Err(_e) => { /* File might not be readable, or not exist for non-tuntap */ }
-                     }
+                    }
                 }
             }
         }
@@ -1602,7 +1617,7 @@ async fn check_network_virt_config(ctx: &mut StageContext) -> KernelResult<()> {
 }
 
 /// Identifies package manager and checks for essential virtualization packages.
-#[allow(dead_code)] // Called by CheckPackagesStage
+#[allow(dead_code)] // Called by CheckSystemPackagesStage
 async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
     use log::{info, warn};
     info!("Stage: Checking System Packages...");
@@ -1628,9 +1643,9 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
     } else if Path::new(RPM_PACKAGES_DB).exists() || Path::new(RPM_BIN).exists() || Path::new(DNF_BIN).exists() || Path::new(YUM_BIN).exists() {
         packages_info.package_manager.identified_manager = Some("rpm/dnf/yum".to_string());
         let method = if Path::new(RPM_PACKAGES_DB).exists() { RPM_PACKAGES_DB.to_string() }
-                     else if Path::new(DNF_BIN).exists() { DNF_BIN.to_string() }
-                     else if Path::new(YUM_BIN).exists() { YUM_BIN.to_string() }
-                     else { RPM_BIN.to_string() };
+        else if Path::new(DNF_BIN).exists() { DNF_BIN.to_string() }
+        else if Path::new(YUM_BIN).exists() { YUM_BIN.to_string() }
+        else { RPM_BIN.to_string() };
         packages_info.package_manager.detection_method = Some(method);
     } else if Path::new(PACMAN_LOCAL_DB_DIR).is_dir() || Path::new(PACMAN_BIN).exists() {
         packages_info.package_manager.identified_manager = Some("pacman".to_string());
@@ -1654,7 +1669,7 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
         // QEMU/KVM Core & UEFI
         ("qemu", "/usr/bin/qemu-system-x86_64", vec!["qemu-kvm", "qemu-system-x86", "qemu-base", "qemu-desktop", "qemu-full"]),
         ("qemu-utils", "/usr/bin/qemu-img", vec![]),
-        ("edk2-ovmf", "/usr/share/edk2/x64/OVMF_CODE.4m.fd", vec!["ovmf"]),
+        ("edk2-ovmf", "/usr/share/edk2/x64/OVMF_CODE.4m.fd", vec!["ovmf"]), // Path might vary more
         ("swtpm", "/usr/bin/swtpm", vec!["swtpm-tools"]),
         // Libvirt Stack
         ("libvirt", "/usr/sbin/libvirtd", vec!["libvirt-daemon", "libvirt-clients", "libvirt-bin"]),
@@ -1665,21 +1680,22 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
         ("bridge-utils", "/usr/sbin/brctl", vec![]),
         // Optional but useful / mentioned in docs
         ("qemu-guest-agent", "/usr/bin/qemu-ga", vec![]),
-        ("virtiofsd", "/usr/lib/virtiofsd", vec![]),
+        ("virtiofsd", "/usr/lib/virtiofsd", vec![]), // Path might be /usr/libexec/virtiofsd
         ("spice-vdagent", "/usr/bin/spice-vdagent", vec![]),
         ("virt-manager", "/usr/bin/virt-manager", vec![]),
         ("virt-viewer", "/usr/bin/virt-viewer", vec![]),
-        ("libguestfs", "/usr/bin/guestfish", vec![]),
+        ("libguestfs", "/usr/bin/guestfish", vec![]), // May pull many dependencies
         ("virt-install", "/usr/bin/virt-install", vec![]),
         ("samba", "/usr/sbin/smbd", vec![]),
-        ("openbsd-netcat", "/usr/bin/nc", vec!["netcat", "ncat"]),
+        ("openbsd-netcat", "/usr/bin/nc", vec!["netcat", "ncat"]), // nc can be from different packages
         ("multipath-tools", "/usr/sbin/kpartx", vec![]),
-        ("nbd", "/usr/sbin/nbd-server", vec!["nbd-client"]),
-        ("virt-firmware", "/usr/share/virt-firmware", vec![])
+        ("nbd", "/usr/sbin/nbd-server", vec!["nbd-client"]), // nbd-server might not always exist
+        ("virt-firmware", "/usr/share/virt-firmware", vec![]) // This is often a meta-package or directory
     ];
 
     if let Some(manager_type) = &packages_info.package_manager.identified_manager {
-        for (base_pkg_name, common_path, alt_names) in packages_to_verify {
+        for (base_pkg_name, common_path, original_alt_names) in packages_to_verify {
+            let alt_names = original_alt_names.clone();
             let mut pkg_check_info = PackageCheckInfo {
                 package_name: base_pkg_name.to_string(),
                 ..Default::default()
@@ -1688,7 +1704,7 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
             let mut specific_name_found = base_pkg_name.to_string();
 
             let mut names_to_check_vec = vec![base_pkg_name];
-            names_to_check_vec.extend_from_slice(alt_names);
+            names_to_check_vec.extend_from_slice(&alt_names); // Iterate over slice to avoid consuming alt_names
 
 
             match manager_type.as_str() {
@@ -1722,7 +1738,7 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
                                     break;
                                 }
                             }
-                             if !found_by_specific_check { pkg_check_info.is_installed = Some(false); }
+                            if !found_by_specific_check { pkg_check_info.is_installed = Some(false); }
                         } else {
                             warn!("Could not read dpkg status file {}", DPKG_STATUS_FILE);
                             pkg_check_info.check_method = format!("Error reading {}; fallback to path", DPKG_STATUS_FILE);
@@ -1736,16 +1752,17 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
                         found_by_specific_check = true;
                     } else {
                         // Try alt paths if base path fails
-                        for alt_pkg_name_candidate in alt_names {
-                             let alt_common_path = format!("/usr/bin/{}", alt_pkg_name_candidate);
-                             let alt_sbin_path = format!("/usr/sbin/{}", alt_pkg_name_candidate);
-                             if Path::new(&alt_common_path).exists() || Path::new(&alt_sbin_path).exists() {
+                        // FIX: Iterate over &alt_names (reference) to avoid move
+                        for alt_pkg_name_candidate in &alt_names {
+                            let alt_common_path = format!("/usr/bin/{}", alt_pkg_name_candidate);
+                            let alt_sbin_path = format!("/usr/sbin/{}", alt_pkg_name_candidate);
+                            if Path::new(&alt_common_path).exists() || Path::new(&alt_sbin_path).exists() {
                                 pkg_check_info.is_installed = Some(true);
                                 specific_name_found = alt_pkg_name_candidate.to_string();
                                 pkg_check_info.check_method.push_str(&format!("; found alt path for {}", specific_name_found));
                                 found_by_specific_check = true;
                                 break;
-                             }
+                            }
                         }
                         if !found_by_specific_check { pkg_check_info.is_installed = Some(false); }
                     }
@@ -1754,11 +1771,6 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
                     pkg_check_info.check_method = format!("Scanned {}", PACMAN_LOCAL_DB_DIR);
                     let mut found_in_pacman_db = false;
                     if Path::new(PACMAN_LOCAL_DB_DIR).is_dir() {
-                        // Note: fs::read_dir returns an iterator that can be consumed.
-                        // To iterate multiple times for names_to_check_vec, we'd need to reopen or collect.
-                        // For simplicity in this pass, we'll try to find any match in one go.
-                        // This might mean if an alt_name matches first, it's taken.
-                        // A more robust solution would collect all pacman package names first.
                         for pkg_to_find in &names_to_check_vec {
                             if let Ok(entries) = fs::read_dir(PACMAN_LOCAL_DB_DIR) { // Re-open for each name to check
                                 for entry_result in entries.filter_map(Result::ok) {
@@ -1803,7 +1815,8 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
                 if Path::new(common_path).exists() {
                     path_found = true;
                 } else {
-                    for alt_pkg_name_candidate in &alt_names { // Iterate over reference
+                     // FIX: Iterate over &alt_names (reference) to avoid move
+                    for alt_pkg_name_candidate in &alt_names {
                         let alt_bin_path = format!("/usr/bin/{}", alt_pkg_name_candidate);
                         let alt_sbin_path = format!("/usr/sbin/{}", alt_pkg_name_candidate);
                         let alt_share_path = format!("/usr/share/{}", alt_pkg_name_candidate);
@@ -1814,130 +1827,24 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
                             path_found = true;
                             break;
                         } else if Path::new(&alt_sbin_path).exists() {
-                             pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
-                             path_used_for_check = alt_sbin_path;
-                             path_found = true;
-                             break;
-                        } else if Path::new(&alt_share_path).is_dir() || Path::new(&alt_share_path).is_file() {
-                             pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
-                             path_used_for_check = alt_share_path;
-                             path_found = true;
-                             break;
-                        }
-                    }
-                }
-                pkg_check_info.is_installed = Some(path_found);
-                if pkg_check_info.check_method.is_empty() || !pkg_check_info.check_method.contains("Path check") {
-                     pkg_check_info.check_method.push_str(&format!("; Fallback path check: {}", path_used_for_check));
-                }
-            }
-            
-            if !pkg_check_info.is_installed.unwrap_or(false) {
-                let msg = format!("Required package '{}' might be missing. Check method: {}.", pkg_check_info.package_name, pkg_check_info.check_method);
-                warn!("{}", msg);
-                packages_info.warnings.push(msg.clone());
-                packages_info.recommendations.push(format!("Consider installing package '{}'. Refer to core-env docs or your distribution's documentation.", pkg_check_info.package_name));
-            } else {
-                info!("Package check for '{}': Installed ({:?}), Version: {:?}, Method: {}", pkg_check_info.package_name, pkg_check_info.is_installed, pkg_check_info.version, pkg_check_info.check_method);
-            }
-            packages_info.checked_packages.push(pkg_check_info);
-        }
-    }
-
-    if let Some(lvm_data) = ctx.get_data::<LvmInfo>("env_check:lvm_info") {
-        if !lvm_data.logical_volumes.is_empty() || !lvm_data.volume_groups.is_empty() {
-            if let Some(lvm_pkg_check) = packages_info.checked_packages.iter().find(|p| p.package_name == "lvm2") {
-                if !lvm_pkg_check.is_installed.unwrap_or(false) {
-                    let msg = "LVM volumes/groups detected, but 'lvm2' package appears to be missing. LVM management tools might be unavailable.".to_string();
-                    warn!("{}", msg);
-                    packages_info.warnings.push(msg);
-                    packages_info.recommendations.push("Install 'lvm2' package for proper LVM management.".to_string());
-                }
-            }
-        }
-    }
-
-    info!("System Packages Info: {:?}", packages_info);
-    ctx.set_data(PACKAGES_INFO_KEY, packages_info);
-    Ok(())
-}
-
-
-// Export the plugin implementation - Keep commented out until macro location/necessity is confirmed
-// // use gini_core::plugin_impl;
-                                 if let Ok(mut re_entries) = fs::read_dir(PACMAN_LOCAL_DB_DIR) { // Re-open for each name
-                                    for entry_result in re_entries.filter_map(Result::ok) {
-                                        let path = entry_result.path();
-                                        if path.is_dir() {
-                                            if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                                                if dir_name.starts_with(&format!("{}-", pkg_to_find)) {
-                                                    pkg_check_info.is_installed = Some(true);
-                                                    specific_name_found = pkg_to_find.to_string();
-                                                    let desc_path = path.join("desc");
-                                                    if let Ok(desc_content) = fs::read_to_string(&desc_path) {
-                                                        let mut in_version_block = false;
-                                                        for line in desc_content.lines() {
-                                                            if line == "%VERSION%" { in_version_block = true; continue; }
-                                                            if in_version_block { pkg_check_info.version = Some(line.to_string()); break; }
-                                                        }
-                                                    }
-                                                    found_in_pacman_db = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                 }
-                                if found_in_pacman_db { break; }
-                            }
-                        }
-                         if !found_in_pacman_db { pkg_check_info.is_installed = Some(false); }
-                         found_by_specific_check = true;
-                    }
-                }
-                _ => {
-                    pkg_check_info.check_method = format!("Path check (unknown manager): {}", common_path);
-                }
-            }
-            pkg_check_info.package_name = specific_name_found; // Ensure package_name reflects what was found
-
-            // Fallback to path check if not found by specific method or manager is unknown
-            if !found_by_specific_check || pkg_check_info.is_installed.is_none() {
-                let mut path_found = false;
-                let mut path_used_for_check = common_path.to_string();
-
-                if Path::new(common_path).exists() {
-                    path_found = true;
-                } else {
-                    for alt_pkg_name_candidate in alt_names {
-                        let alt_bin_path = format!("/usr/bin/{}", alt_pkg_name_candidate);
-                        let alt_sbin_path = format!("/usr/sbin/{}", alt_pkg_name_candidate);
-                        let alt_share_path = format!("/usr/share/{}", alt_pkg_name_candidate); // For files like edk2-ovmf
-
-                        if Path::new(&alt_bin_path).exists() {
                             pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
-                            path_used_for_check = alt_bin_path;
+                            path_used_for_check = alt_sbin_path;
                             path_found = true;
                             break;
-                        } else if Path::new(&alt_sbin_path).exists() {
-                             pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
-                             path_used_for_check = alt_sbin_path;
-                             path_found = true;
-                             break;
-                        } else if Path::new(&alt_share_path).is_dir() || Path::new(&alt_share_path).is_file() { // For non-binary pkgs
-                             pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
-                             path_used_for_check = alt_share_path;
-                             path_found = true;
-                             break;
+                        } else if Path::new(&alt_share_path).is_dir() || Path::new(&alt_share_path).is_file() {
+                            pkg_check_info.package_name = alt_pkg_name_candidate.to_string();
+                            path_used_for_check = alt_share_path;
+                            path_found = true;
+                            break;
                         }
                     }
                 }
                 pkg_check_info.is_installed = Some(path_found);
                 if pkg_check_info.check_method.is_empty() || !pkg_check_info.check_method.contains("Path check") {
-                     pkg_check_info.check_method.push_str(&format!("; Fallback path check: {}", path_used_for_check));
+                    pkg_check_info.check_method.push_str(&format!("; Fallback path check: {}", path_used_for_check));
                 }
             }
-            
+
             if !pkg_check_info.is_installed.unwrap_or(false) {
                 let msg = format!("Required package '{}' might be missing. Check method: {}.", pkg_check_info.package_name, pkg_check_info.check_method);
                 warn!("{}", msg);
@@ -1978,7 +1885,7 @@ async fn check_system_packages(ctx: &mut StageContext) -> KernelResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*; // Import items from parent module
-    // use gini_core::stage_manager::context::ExecutionMode; // Removed unused import
+                  // use gini_core::stage_manager::context::ExecutionMode; // Removed unused import
     use std::io::Write;
     use std::path::PathBuf;
     use tempfile::NamedTempFile;
@@ -2031,14 +1938,14 @@ mod tests {
         let os_info_opt = ctx.get_data::<OsInfo>("env_check:os_info");
         assert!(os_info_opt.is_some(), "OsInfo not found in context after non-existent file");
         if let Some(os_info) = os_info_opt {
-             assert!(os_info.id.is_none());
-             assert!(os_info.name.is_none());
-             assert!(os_info.version_id.is_none());
-             assert!(os_info.pretty_name.is_none());
+            assert!(os_info.id.is_none());
+            assert!(os_info.name.is_none());
+            assert!(os_info.version_id.is_none());
+            assert!(os_info.pretty_name.is_none());
         }
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn test_gather_os_info_empty_file() {
         let temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let temp_path = temp_file.path().to_path_buf();
@@ -2050,10 +1957,10 @@ mod tests {
         let os_info_opt = ctx.get_data::<OsInfo>("env_check:os_info");
         assert!(os_info_opt.is_some(), "OsInfo not found in context for empty file");
         if let Some(os_info) = os_info_opt {
-             assert!(os_info.id.is_none());
-             assert!(os_info.name.is_none());
-             assert!(os_info.version_id.is_none());
-             assert!(os_info.pretty_name.is_none());
+            assert!(os_info.id.is_none());
+            assert!(os_info.name.is_none());
+            assert!(os_info.version_id.is_none());
+            assert!(os_info.pretty_name.is_none());
         }
     }
 }
