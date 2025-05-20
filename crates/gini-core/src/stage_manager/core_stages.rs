@@ -205,9 +205,14 @@ pub const STARTUP_ENV_CHECK_PIPELINE: PipelineDefinition = PipelineDefinition {
     stages: &[
         "env_check:gather_os_info",
         "env_check:gather_cpu_info",
-        "env_check:gather_ram_info", // Added RAM info stage
-        "env_check:gather_gpu_info", // Added GPU info stage
-        "env_check:check_iommu",     // Added IOMMU check stage
+        "env_check:gather_ram_info",
+        "env_check:gather_gpu_info",
+        "env_check:check_iommu",
+        "env_check:virtualization_kernel_params",
+        "env_check:check_swap",
+        "env_check:check_lvm",
+        "env_check:check_network_virt",
+        "env_check:check_system_packages",
     ],
     description: Some("Performs basic host environment checks on startup."),
 };
