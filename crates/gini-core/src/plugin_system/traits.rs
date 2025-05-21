@@ -5,6 +5,7 @@ use crate::plugin_system::dependency::PluginDependency;
 use crate::stage_manager::context::StageContext; // Added for preflight context if needed later
 use async_trait::async_trait;
 use crate::stage_manager::registry::StageRegistry; // Added for register_stages
+use crate::plugin_system::conflict::ResourceClaim; // Import ResourceClaim
 // Removed incorrect import: use crate::plugin_system::error::PluginError;
 use crate::stage_manager::requirement::StageRequirement;
 
@@ -432,6 +433,16 @@ pub trait Plugin: Send + Sync {
     /// List of plugins/versions this plugin is incompatible with.
     /// Typically sourced from the manifest.
     fn incompatible_with(&self) -> Vec<PluginDependency>; // Use PluginDependency from dependency.rs
+
+    /// Declares the resources this plugin intends to use or provide.
+    /// The plugin registry will use this information to detect potential conflicts
+    /// between active plugins.
+    ///
+    /// The default implementation returns an empty vector, indicating that
+    /// the plugin does not declare any specific resources.
+    fn declared_resources(&self) -> Vec<ResourceClaim> {
+        Vec::new()
+    }
     
     /// Initialize the plugin
     fn init(&self, app: &mut crate::kernel::bootstrap::Application) -> std::result::Result<(), PluginSystemError>;

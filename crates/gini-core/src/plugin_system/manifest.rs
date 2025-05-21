@@ -1,11 +1,11 @@
 use crate::plugin_system::version::VersionRange;
 use crate::plugin_system::traits::PluginPriority;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize}; // Added Serialize
 use crate::plugin_system::dependency::PluginDependency; // Import PluginDependency
 use std::path::PathBuf; // Added for plugin_base_dir
 
 /// Defines the type of access a plugin requires or provides for a resource.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)] // Added Serialize
 pub enum ResourceAccessType {
     /// Claims exclusive control/write access. No other plugin can claim Exclusive or SharedWrite.
     #[serde(rename = "exclusive_write")]
@@ -33,7 +33,7 @@ impl ResourceAccessType {
 }
 
 /// Describes a resource a plugin claims or provides.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)] // Added Serialize
 pub struct ResourceClaim {
     /// Type of the resource (e.g., "file_path", "network_port", "stage_id", "config_scope").
     /// Standardized strings should be used.
@@ -52,7 +52,7 @@ pub struct ResourceClaim {
 }
 
 /// Represents a plugin manifest that describes a plugin
-#[derive(Debug, Clone)] // Removed Deserialize
+#[derive(Debug, Clone, Serialize)] // Added Serialize, Removed Deserialize
 pub struct PluginManifest {
     /// Unique identifier for the plugin
     pub id: String,
@@ -110,7 +110,27 @@ pub struct PluginManifest {
 
     /// The base directory of the plugin, where its manifest.json is located.
     /// This is set by the PluginLoader during manifest scanning.
+    #[serde(with = "pathbuf_serde_helper")]
     pub plugin_base_dir: PathBuf,
+}
+
+mod pathbuf_serde_helper {
+    use std::path::PathBuf;
+    use serde::{self, Serializer}; // Removed Deserializer, Deserialize
+
+    pub fn serialize<S>(path: &PathBuf, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(path.to_str().unwrap_or(""))
+    }
+
+    // pub fn deserialize<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+    // where
+    //     D: Deserializer<'de>,
+    // {
+    //     String::deserialize(deserializer).map(PathBuf::from)
+    // }
 }
 
 // Removed DependencyInfo struct definition

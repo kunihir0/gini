@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use crate::plugin_system::version::VersionError;
 use crate::plugin_system::dependency::DependencyError;
+use crate::plugin_system::conflict::PluginConflict;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginSystemError {
@@ -88,6 +89,16 @@ pub enum PluginSystemError {
 
     #[error("Internal plugin system error: {0}")]
     InternalError(String),
+
+    #[error("Transitive dependency errors detected: {errors:?}")]
+    TransitiveDependencyErrors {
+        errors: Vec<String>,
+    },
+
+    #[error("Unresolved plugin conflicts detected: {conflicts:?}")]
+    UnresolvedPluginConflicts {
+        conflicts: Vec<PluginConflict>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

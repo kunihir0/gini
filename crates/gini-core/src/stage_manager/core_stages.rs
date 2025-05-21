@@ -17,7 +17,7 @@ pub const APPLICATION_KEY: &str = "application"; // Key for Application referenc
 
 // --- Core Stage Definitions ---
 
-// TODO: Define PluginDependencyResolution stage if needed as an explicit stage
+// Note: Plugin dependency resolution is handled within the PluginInitializationStage.
 
 /// Stage for running plugin pre-flight checks.
 #[derive(Debug)]
@@ -141,7 +141,9 @@ impl Stage for PluginInitializationStage {
         if !preflight_failures.is_empty() {
             println!("Disabling plugins that failed pre-flight checks: {:?}", preflight_failures);
             for failed_plugin_id in preflight_failures {
-                match registry.disable_plugin(&failed_plugin_id) {
+                // Pass the stage_registry_arc.registry (which is Arc<Mutex<StageRegistry>>)
+                // The disable_plugin method expects &Arc<Mutex<StageRegistry>>
+                match registry.disable_plugin(&failed_plugin_id, &stage_registry_arc.registry).await {
                     Ok(_) => println!("  - Plugin '{}' disabled due to pre-flight failure.", failed_plugin_id),
                     Err(e) => eprintln!("  - Warning: Failed to disable plugin '{}' after pre-flight failure: {}", failed_plugin_id, e),
                 }
@@ -184,35 +186,14 @@ impl Stage for PluginPostInitializationStage {
 
     async fn execute(&self, _context: &mut StageContext) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         println!("Executing Stage: {}", self.name());
-        // TODO: Implement logic if any core post-init actions are needed,
+        // This stage serves as a hook for any system-wide actions after all plugins are initialized.
         // or allow plugins to hook into this stage if necessary.
         // This might involve iterating through successfully initialized plugins.
         Ok(())
     }
 
      fn dry_run_description(&self, _context: &StageContext) -> String {
-        // TODO: Potentially list plugins that would run post-init hooks.
         format!("Would run post-initialization hooks for successfully initialized plugins.")
     }
 }
 // --- Core Pipeline Definitions ---
-
-use crate::stage_manager::pipeline::PipelineDefinition; // Ensure this use is present
-
-/// Pipeline definition for basic environment checks performed on application startup.
-pub const STARTUP_ENV_CHECK_PIPELINE: PipelineDefinition = PipelineDefinition {
-    name: "startup_environment_check",
-    stages: &[
-        "env_check:gather_os_info",
-        "env_check:gather_cpu_info",
-        "env_check:gather_ram_info",
-        "env_check:gather_gpu_info",
-        "env_check:check_iommu",
-        "env_check:virtualization_kernel_params",
-        "env_check:check_swap",
-        "env_check:check_lvm",
-        "env_check:check_network_virt",
-        "env_check:check_system_packages",
-    ],
-    description: Some("Performs basic host environment checks on startup."),
-};

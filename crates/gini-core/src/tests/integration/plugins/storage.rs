@@ -79,7 +79,7 @@ impl Plugin for StorageInteractingPlugin {
 #[tokio::test]
 async fn test_plugin_interaction_with_storage() {
     // Setup environment - we need the real storage manager from setup
-    let (plugin_manager, _stage_manager, storage_manager, _, _, _) = setup_test_environment().await;
+    let (plugin_manager, stage_manager, storage_manager, _, _, _) = setup_test_environment().await;
     KernelComponent::initialize(&*plugin_manager).await.expect("Failed to initialize plugin manager");
     // Ensure the storage directory exists (use the path configured in Application::new)
     // We need the path that the Application instance *inside* the test will use.
@@ -93,7 +93,7 @@ async fn test_plugin_interaction_with_storage() {
 
      // Create the plugin instance, passing the storage manager Arc
      let plugin = StorageInteractingPlugin::new("StoragePlugin", storage_manager.clone()); // Pass storage_manager
-     let _plugin_name = plugin.name().to_string(); // Prefix with underscore
+     let plugin_name_for_init = plugin.name(); // Get &'static str before plugin is moved
 
      // Register the plugin
     {
@@ -115,21 +115,23 @@ async fn test_plugin_interaction_with_storage() {
     // Tests needing specific storage locations should mock the StorageManager
     // or use environment variables ($XDG_CONFIG_HOME, $XDG_DATA_HOME) pointing to temp dirs.
     // For now, just call the new constructor. We'll address test isolation later if needed.
-    let _app = Application::new().expect("Failed to create Application"); // Removed mut, prefixed with _
+    let mut app = Application::new().expect("Failed to create Application"); // Made mutable, removed underscore
 
 
-    // Initialize the plugin - this will trigger the storage interaction in its init method
-    // TODO: Fix borrow checker issue when initializing within tests.
-    // The future returned by initialize_plugin holds a borrow of the registry lock guard,
-    // which is dropped before the future is awaited.
-    // let init_future = {
-    //     let registry = plugin_manager.registry();
-    //     let mut reg_lock = registry.lock().await;
-    //     reg_lock.initialize_plugin(&plugin_name, &mut app)
-    // };
-    // let init_result = init_future.await;
+    // Initialize the plugin - this will trigger the storage interaction in its init method.
+    // The borrow checker issue is resolved by ensuring the MutexGuard (`reg_lock`)
+    // lives as long as the future returned by `initialize_plugin` is being awaited.
+    // This is achieved by awaiting the future within the same scope where the lock is held.
 
-    // assert!(init_result.is_ok(), "Plugin initialization (with storage interaction) failed: {:?}", init_result.err());
+    let init_result = {
+        let plugin_registry_arc = plugin_manager.registry(); // This is Arc<Mutex<PluginRegistry>>
+        let stage_registry_arc = stage_manager.registry(); // Assuming this provides Arc<Mutex<StageRegistry>>
+        let mut reg_lock = plugin_registry_arc.lock().await;
+        // Call initialize_plugin and await it immediately while reg_lock is still in scope.
+        reg_lock.initialize_plugin(plugin_name_for_init, &mut app, &stage_registry_arc).await
+    };
+
+    assert!(init_result.is_ok(), "Plugin initialization (with storage interaction) failed: {:?}", init_result.err());
 
     // The assertions are inside the plugin's init method in this setup.
     // We could also have the plugin set a flag in shared context or return data

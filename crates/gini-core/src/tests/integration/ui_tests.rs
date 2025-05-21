@@ -25,6 +25,7 @@ async fn test_ui_message_creation() {
 
 // Add necessary imports if not already present
 use crate::ui_bridge::{UnifiedUiManager, UnifiedUiInterface, UiMessage, UserInput, UiUpdateType, MessageSeverity, error::UiBridgeError};
+use crate::event::{DefaultEventManager, EventManager}; // Added EventManager imports
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -127,7 +128,8 @@ impl UnifiedUiInterface for MockUiInterface {
 // --- Test: UI Interface Registration and Default ---
 #[test]
 async fn test_ui_interface_registration_and_default() {
-    let manager = UnifiedUiManager::new(); // Creates with default "console" interface
+    let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+    let manager = UnifiedUiManager::new(event_manager); // Creates with default "console" interface
 
     // Verify initial default interface
     assert_eq!(manager.get_default_interface_name(), Some("console".to_string()), "Initial default should be console");
@@ -159,7 +161,8 @@ async fn test_ui_interface_registration_and_default() {
 // --- Test: UnifiedUiManager Message Dispatch ---
 #[test]
 async fn test_unified_ui_manager_message_dispatch() {
-    let manager = UnifiedUiManager::new();
+    let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+    let manager = UnifiedUiManager::new(event_manager);
     let mock_interface = MockUiInterface::new("message_dispatch_mock");
     let mock_name = mock_interface.name().to_string();
     let messages_tracker = mock_interface.messages_received.clone(); // Clone Arc for later access
@@ -198,7 +201,8 @@ async fn test_unified_ui_manager_message_dispatch() {
 // --- Test: UI Interface Lifecycle Calls via UnifiedUiManager ---
 #[test]
 async fn test_ui_interface_lifecycle_calls() {
-    let manager = UnifiedUiManager::new(); // Manager is not mutable here due to Arc<Mutex<>> fields
+    let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+    let manager = UnifiedUiManager::new(event_manager); // Manager is not mutable here due to Arc<Mutex<>> fields
     let mock_interface = MockUiInterface::new("lifecycle_mock");
 
     // Clone trackers before moving the interface into the manager

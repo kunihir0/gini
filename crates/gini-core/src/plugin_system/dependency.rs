@@ -1,9 +1,10 @@
 use std::fmt;
 use crate::plugin_system::version::VersionRange;
+use serde::Serialize; // Added Serialize
 use thiserror::Error; // Import thiserror
 
 /// Represents a dependency on another plugin
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)] // Added Serialize
 pub struct PluginDependency {
     /// The name of the required plugin
     pub plugin_name: String,

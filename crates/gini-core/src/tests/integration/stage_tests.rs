@@ -19,6 +19,7 @@ use crate::storage::manager::DefaultStorageManager; // Added import
 use crate::storage::provider::StorageProvider; // Added trait import
 use crate::event::manager::{EventManager, DefaultEventManager}; // Added trait import
 use crate::event::{Event, EventResult}; // Added import
+use crate::stage_manager::registry::SharedStageRegistry; // Added for SharedStageRegistry wrapper
 
 use super::common::{setup_test_environment, DependentStage}; // Removed ContextWriterStage import
 
@@ -320,8 +321,9 @@ async fn test_pipeline_validation() {
     // Use the public stages() method to check content
     assert!(valid_pipeline.stages().contains(&"valid_stage_a".to_string()), "Valid pipeline should contain added stage");
     // Explicitly validate the valid pipeline using the manager's registry
-    // Try explicit deref: (*stage_manager).registry()
-    let validation_result_ok = valid_pipeline.validate((*stage_manager).registry()).await;
+    let arc_mutex_stage_registry = (*stage_manager).registry();
+    let shared_registry_for_validation = SharedStageRegistry { registry: arc_mutex_stage_registry };
+    let validation_result_ok = valid_pipeline.validate(&shared_registry_for_validation).await;
     assert!(validation_result_ok.is_ok(), "Valid pipeline should pass validation");
 
 
@@ -337,8 +339,9 @@ async fn test_pipeline_validation() {
     let invalid_pipeline = invalid_builder_unregistered.build();
 
     // Explicitly validate the invalid pipeline against the manager's registry - this should fail
-    // Try explicit deref: (*stage_manager).registry()
-    let validation_result_err = invalid_pipeline.validate((*stage_manager).registry()).await;
+    let arc_mutex_stage_registry_invalid = (*stage_manager).registry();
+    let shared_registry_for_invalid_validation = SharedStageRegistry { registry: arc_mutex_stage_registry_invalid };
+    let validation_result_err = invalid_pipeline.validate(&shared_registry_for_invalid_validation).await;
     assert!(validation_result_err.is_err(), "Validation should fail for unregistered stage dependency");
 
     // Check the error message from validate()
@@ -380,8 +383,9 @@ async fn test_circular_dependency_detection() {
     let pipeline = builder.build();
 
     // Explicitly validate the pipeline using the manager's registry - this should fail due to the cycle
-    // Try explicit deref: (*stage_manager).registry()
-    let validation_result = pipeline.validate((*stage_manager).registry()).await;
+    let arc_mutex_stage_registry_cycle = (*stage_manager).registry();
+    let shared_registry_for_cycle_validation = SharedStageRegistry { registry: arc_mutex_stage_registry_cycle };
+    let validation_result = pipeline.validate(&shared_registry_for_cycle_validation).await;
     assert!(validation_result.is_err(), "Validation should fail for circular dependency");
 
     // Check the error message
@@ -907,12 +911,19 @@ async fn test_pipeline_optional_dependency_handling() {
     let mut context1 = StageContext::new_live(std::env::temp_dir());
     // Validation might fail if B is required implicitly by C's dependency declaration during validation.
     // Let's see if execution proceeds or fails validation.
-    let validation1 = pipeline1.validate(stage_manager.registry()).await;
+    let arc_mutex_registry_val1 = stage_manager.registry();
+    let shared_registry_val1 = SharedStageRegistry { registry: arc_mutex_registry_val1 };
+    let validation1 = pipeline1.validate(&shared_registry_val1).await;
     println!("Validation result (B absent): {:?}", validation1);
 
     // If validation passes (meaning the dependency resolver handles missing optional stages), execute.
     // If validation fails, this test needs rethinking based on how optionality is *actually* handled.
     // Assuming for now validation might pass or execution handles it:
+    let _shared_registry_for_exec1 = SharedStageRegistry { registry: (*stage_manager).registry() };
+    // The execute_pipeline in StageManager trait takes &self, not the registry directly.
+    // The pipeline.execute method (called internally by StageManager::execute_pipeline) takes &SharedStageRegistry.
+    // So, the StageManager itself should use its internal SharedStageRegistry.
+    // The call to StageManager::execute_pipeline is correct. The internal pipeline.validate call was the issue.
     let results1_opt = StageManager::execute_pipeline(&*stage_manager, &mut pipeline1, &mut context1).await;
 
     // Assertions for Scenario 1 (assuming execution proceeds even if B is missing, skipping C or erroring)
@@ -923,7 +934,6 @@ async fn test_pipeline_optional_dependency_handling() {
         assert!(!order1.contains(&"opt_B".to_string()), "Scenario 1: B should NOT have run");
         // Depending on implementation, C might be skipped, fail, or succeed if the dependency isn't strictly enforced at runtime.
         // Current observation: C runs successfully. Adjusting assertion to reflect this.
-        // TODO: Revisit if optional dependency handling is explicitly added to the framework later.
         assert!(matches!(results1.get("opt_C"), Some(StageResult::Success)), "Scenario 1: C succeeded even though B was missing");
         assert!(order1.len() == 2, "Scenario 1: Only A and C should run"); // A and C ran
     } else {

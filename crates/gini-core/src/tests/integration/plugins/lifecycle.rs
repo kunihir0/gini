@@ -65,7 +65,7 @@ async fn test_lifecycle_management() {
         let mut reg = registry.lock().await;
         let mut app = Application::new().expect("Failed to create app");
         // Get the StageRegistry Arc from the test environment's StageManager
-        let stage_registry_arc = stage_manager.registry().registry();
+        let stage_registry_arc = stage_manager.registry().clone();
 
         // Initialize plugins individually, passing the correct StageRegistry Arc
         reg.initialize_plugin("LifecyclePluginA", &mut app, &stage_registry_arc).await.expect("Failed to initialize PluginA");
@@ -170,7 +170,7 @@ async fn test_plugin_shutdown_order() {
         // We need a StageManager instance for this. Let's modify setup_test_environment or create one here.
         // For simplicity, let's assume setup_test_environment provides it.
         let stage_manager = _stage_manager; // Use the one from setup
-        let stage_registry_arc = stage_manager.registry().registry();
+        let stage_registry_arc = stage_manager.registry().clone();
         let mut reg_lock = registry.lock().await;
         reg_lock.initialize_plugin("DepShutdownB", &mut app, &stage_registry_arc).await.expect("Failed to initialize DepShutdownB");
     }
@@ -250,7 +250,7 @@ async fn test_plugin_shutdown_error_handling() {
         let registry = plugin_manager.registry();
         // Get the StageRegistry Arc from the test environment's StageManager
         let stage_manager = _stage_manager; // Use the one from setup
-        let stage_registry_arc = stage_manager.registry().registry();
+        let stage_registry_arc = stage_manager.registry().clone();
         let mut reg_lock = registry.lock().await;
         // Initialize both (order doesn't strictly matter here as they have no deps on each other)
         reg_lock.initialize_plugin(&error_plugin_name, &mut app, &stage_registry_arc).await.expect("Failed to initialize error plugin");

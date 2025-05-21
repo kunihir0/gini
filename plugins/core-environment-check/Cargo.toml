@@ -13,6 +13,8 @@ gini-core = { path = "../../crates/gini-core" } # Path dependency to gini-core
 log = "0.4" # Example dependency, might need others later
 serde = { version = "1.0", features = ["derive"] }
 async-trait = "0.1" # Required for async trait methods
+core-logging = { path = "../core-logging" } # Added dependency
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # For async tests
 tempfile = "3" # For creating temporary files

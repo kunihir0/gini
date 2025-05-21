@@ -36,6 +36,7 @@ pub struct RpcSettings {
     pub client_id: Option<String>,
     pub default_details: Option<String>,
     pub default_state: Option<String>,
+    pub enable_dynamic_updates: bool, // Added for dynamic RPC updates
     // Add any other RPC specific settings here
 }
 
@@ -46,6 +47,7 @@ impl Default for RpcSettings {
             client_id: Some("1374071636080328796".to_string()), // Set user's test Client ID as default
             default_details: Some("Using Gini Framework".to_string()),
             default_state: Some("Idle".to_string()),
+            enable_dynamic_updates: true, // Default to true
         }
     }
 }

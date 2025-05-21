@@ -125,7 +125,7 @@ async fn test_static_plugin_initialization_succeeds() -> KernelResult<()> {
     // Initialize the plugin using initialize_all
     let mut app_for_init = Application::new().unwrap();
     // Get the actual Arc<Mutex<StageRegistry>> from the stage_manager provided by setup_test_environment
-    let stage_registry_for_init = stage_manager_arc.registry().registry.clone();
+    let stage_registry_for_init = stage_manager_arc.registry().clone();
     {
         let mut plugin_registry_locked = plugin_registry_arc.lock().await;
         plugin_registry_locked.initialize_all(&mut app_for_init, &stage_registry_for_init).await

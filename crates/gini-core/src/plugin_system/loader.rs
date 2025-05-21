@@ -1,7 +1,7 @@
 use tokio::fs; // Use tokio::fs
 // Removed unused: use tokio::task::spawn_blocking;
 use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet}; // Added HashSet for cycle detection later
+use std::collections::{HashMap, HashSet, VecDeque}; // Added HashSet for cycle detection later, VecDeque for Kahn's
 use std::future::Future;
 use std::pin::Pin;
 use semver::{Version}; // Removed VersionReq as VersionRange handles it
@@ -879,13 +879,74 @@ impl PluginLoader {
         }
         // --- End Dependency Resolution ---
 
+        // --- Topological Sort and Priority Sort ---
+        // 1. Perform topological sort (Kahn's algorithm)
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new(); // B -> A if A depends on B
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        
+        for id in self.manifests.keys() {
+            adj.entry(id.clone()).or_default();
+            in_degree.entry(id.clone()).or_insert(0);
+        }
+
+        for (id_a, manifest_a) in &self.manifests { // A is manifest_a, id_a
+            for dep_b in &manifest_a.dependencies { // A depends on B (dep_b.plugin_name)
+                if !dep_b.required { continue; } // Only consider required dependencies for topological sort
+                let id_b = &dep_b.plugin_name;
+
+                if self.manifests.contains_key(id_b) { // Only add edges for known plugins
+                    adj.entry(id_b.clone()).or_default().push(id_a.clone()); // Edge B -> A
+                    *in_degree.entry(id_a.clone()).or_default() += 1;
+                }
+                // If id_b is not in self.manifests, resolve_dependencies should have caught it.
+            }
+        }
+
+        let mut queue: VecDeque<String> = self.manifests.keys()
+            .filter(|id| *in_degree.get(*id).expect("All manifest IDs should be in in_degree map") == 0)
+            .cloned()
+            .collect();
+
+        let mut topological_order_ids: Vec<String> = Vec::new();
+        while let Some(id_b) = queue.pop_front() { // B is processed (dependency)
+            topological_order_ids.push(id_b.clone());
+            if let Some(dependents_a) = adj.get(&id_b) { // For each A that depends on B
+                for id_a in dependents_a {
+                    if let Some(degree) = in_degree.get_mut(id_a) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push_back(id_a.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        if topological_order_ids.len() != self.manifests.len() {
+            // This indicates a cycle or other issue not caught by resolve_dependencies.
+            // resolve_dependencies should ideally prevent this state.
+            return Err(KernelError::from(PluginSystemError::DependencyResolution(
+                DependencyError::Other(
+                    "Topological sort failed: processed plugin count does not match total. Possible cycle or unresolved dependency.".to_string()
+                )
+            )));
+        }
+
+        // 2. Get manifests in topological order
+        let mut manifests_in_topo_order: Vec<PluginManifest> = topological_order_ids.iter()
+            .map(|id| self.manifests.get(id).expect("ID from topological sort must be in manifests").clone())
+            .collect();
+
+        // 3. Stable sort by priority. PluginPriority implements Ord (lower value = higher priority).
+        // sort_by_key is stable.
+        manifests_in_topo_order.sort_by_key(|manifest| {
+            manifest.priority.as_ref()
+                .and_then(|s| PluginPriority::from_str(s))
+                .unwrap_or_else(|| PluginPriority::ThirdPartyLow(u8::MAX)) // Default to lowest priority
+        });
+        // --- End Topological Sort and Priority Sort ---
+
         let mut count = 0;
-        // Get all manifests
-        let manifests_to_load: Vec<_> = self.manifests.values().cloned().collect(); // Clone manifests for async block
-
-        // Sort by priority
-        // TODO: Implement proper sorting by priority
-
         // Convert the kernel's ApiVersion to semver::Version once for comparisons
         let api_semver = match semver::Version::parse(&api_version.to_string()) {
             Ok(v) => v,
@@ -897,8 +958,8 @@ impl PluginLoader {
             }
         };
 
-        // Load and register each plugin
-        for manifest in manifests_to_load { // Iterate over cloned manifests
+        // Load and register each plugin using the sorted list
+        for manifest in manifests_in_topo_order { // Iterate over topologically and priority sorted manifests
             // Check API compatibility using semver::Version
             let mut compatible = false;
             // Access the api_versions field directly

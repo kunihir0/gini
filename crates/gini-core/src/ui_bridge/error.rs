@@ -59,4 +59,7 @@ pub enum UiBridgeError {
 
     #[error("UI Bridge internal error: {0}")]
     InternalError(String),
+
+    #[error("Failed to process user input: {0}")]
+    InputProcessingError(String),
 }

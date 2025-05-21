@@ -10,6 +10,9 @@ use tempfile::{tempdir, TempDir}; // Using tempfile crate for temporary director
 use crate::storage::config::{ConfigManager, ConfigFormat}; // Added
 use crate::storage::local::LocalStorageProvider; // Added
 use std::sync::Arc; // Added
+use crate::event::{DefaultEventManager, EventManager}; // Added for StageManager
+use crate::stage_manager::manager::DefaultStageManager; // Added for StageManager
+
 // Helper function to find the path to the compiled example plugin
 fn get_example_plugin_path() -> Option<PathBuf> {
     // Try to find the plugin in various possible locations
@@ -52,7 +55,12 @@ fn create_test_manager_for_loading() -> (DefaultPluginManager, TempDir) { // Rem
         plugin_config_path,   // Pass the plugin config path
         ConfigFormat::Json,   // Pass the default format
     ));
-    (DefaultPluginManager::new(config_manager).unwrap(), tmp_dir)
+
+    let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+    let stage_manager = Arc::new(DefaultStageManager::new(event_manager));
+    let stage_registry_arc = stage_manager.registry();
+
+    (DefaultPluginManager::new(config_manager, stage_registry_arc).unwrap(), tmp_dir)
 }
 
 #[tokio::test]

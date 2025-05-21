@@ -15,6 +15,7 @@ use tempfile::tempdir; // Added for test setup
 use crate::kernel::bootstrap::Application;
 // Removed: use crate::kernel::error::Error as KernelError;
 // Removed: use crate::kernel::error::Result as KernelResult;
+use crate::event::{EventManager, DefaultEventManager}; // Added for test setup
 use crate::plugin_system::dependency::PluginDependency;
 use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError
@@ -529,10 +530,13 @@ pub async fn setup_test_environment() -> (
     // Handle the Result before creating the Arc
     let storage_manager_instance = DefaultStorageManager::new().expect("Failed to create test storage manager instance");
     let storage_manager = Arc::new(storage_manager_instance); // Create Arc from the instance
-
+ 
+    // Create event manager for the stage manager
+    let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+ 
     // Create stage manager
-    let stage_manager = Arc::new(DefaultStageManager::new());
-
+    let stage_manager = Arc::new(DefaultStageManager::new(event_manager.clone()));
+ 
     // Create ConfigManager for PluginManager
     // Ensure a unique directory for each call to setup_test_environment for config paths
     let unique_config_dir = tempdir().expect("Failed to create unique temp dir for config manager");
@@ -574,8 +578,9 @@ pub async fn setup_test_environment() -> (
         ConfigFormat::Json,
     ));
 
-    // Create plugin manager, passing the ConfigManager
-    let plugin_manager = match DefaultPluginManager::new(config_manager) { // Pass config_manager
+    // Create plugin manager, passing the ConfigManager and StageRegistry Arc
+    let stage_registry_arc = stage_manager.registry();
+    let plugin_manager = match DefaultPluginManager::new(config_manager, stage_registry_arc) { // Pass config_manager and stage_registry_arc
         Ok(pm) => Arc::new(pm),
         Err(e) => panic!("Failed to create plugin manager: {}", e),
     };

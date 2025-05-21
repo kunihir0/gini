@@ -305,8 +305,9 @@ impl Stage for EventDispatchingStage {
 #[test]
 async fn test_stage_dispatches_event() {
     // Setup managers
-    let event_manager = Arc::new(DefaultEventManager::new());
-    let stage_manager = Arc::new(DefaultStageManager::new());
+    let event_manager = Arc::new(DefaultEventManager::new()); // Renamed event_manager_concrete
+    let event_manager_trait = event_manager.clone() as Arc<dyn EventManager>; // Use renamed variable
+    let stage_manager = Arc::new(DefaultStageManager::new(event_manager_trait));
     // Break down storage_manager creation
     // let storage_base_path = std::env::temp_dir().join("gini_test_stage_event"); // Unused
     // DefaultStorageManager::new now takes no arguments and returns Result
@@ -326,7 +327,8 @@ async fn test_stage_dispatches_event() {
         plugin_config_path,   // Pass the plugin config path
         ConfigFormat::Json,   // Pass the default format
     ));
-    let _plugin_manager = Arc::new(DefaultPluginManager::new(config_manager).unwrap()); // Pass ConfigManager
+    let stage_registry_arc = stage_manager.registry();
+    let _plugin_manager = Arc::new(DefaultPluginManager::new(config_manager, stage_registry_arc).unwrap()); // Pass ConfigManager and StageRegistry Arc
 
     // Register the stage
     let stage = EventDispatchingStage::new("dispatch_stage");
@@ -337,8 +339,8 @@ async fn test_stage_dispatches_event() {
     let received_data = Arc::new(Mutex::new(String::new()));
     let event_received_clone = event_received.clone();
     let received_data_clone = received_data.clone();
-
-    event_manager.register_sync_type_handler::<StageDispatchedEvent, _>(move |event: &StageDispatchedEvent| {
+ 
+    event_manager.register_sync_type_handler::<StageDispatchedEvent, _>(move |event: &StageDispatchedEvent| { // Use renamed variable
         *event_received_clone.lock().unwrap() = true;
         *received_data_clone.lock().unwrap() = event.data.clone();
         EventResult::Continue
@@ -346,9 +348,10 @@ async fn test_stage_dispatches_event() {
 
     // Create context using new_live
     let mut context = StageContext::new_live(PathBuf::from("/tmp/gini_test_stage_event_ctx")); // Use new_live
-
+ 
     // Store the EventManager Arc in the context's shared data
-    context.set_data("event_manager", event_manager.clone());
+    // The stage expects Arc<DefaultEventManager>, so use the concrete one here.
+    context.set_data("event_manager", event_manager.clone()); // Use renamed variable
     // Add other managers if needed by the stage or context setup, though not strictly required for this event dispatch test
     // context.set_data("storage_manager", storage_manager.clone());
     // context.set_data("plugin_manager", plugin_manager.clone());

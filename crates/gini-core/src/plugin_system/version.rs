@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::fmt;
 use semver::{Version, VersionReq}; // Import semver types
+use serde::Serialize; // Added Serialize
 use thiserror::Error; // Import thiserror
 
 /// Error type for version parsing
@@ -73,7 +74,7 @@ impl fmt::Display for ApiVersion {
 }
 
 /// Represents a version requirement range using semver constraints.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)] // Added Serialize
 pub struct VersionRange {
     /// The original constraint string (e.g., "^1.2.3", ">=2.0")
     constraint: String,

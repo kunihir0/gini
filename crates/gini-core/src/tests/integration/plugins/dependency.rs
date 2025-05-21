@@ -102,7 +102,7 @@ async fn test_plugin_dependency_no_version() {
     let mut app = Application::new().unwrap();
     let init_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        let stage_registry_arc = stage_manager.registry().registry.clone();
+        let stage_registry_arc = stage_manager.registry().clone();
         registry.initialize_plugin(&main_plugin_name, &mut app, &stage_registry_arc).await
     };
     assert!(init_result.is_ok(), "Initialization should succeed when version is not required. Error: {:?}", init_result.err());
@@ -186,7 +186,7 @@ async fn test_plugin_shutdown_cycle() {
     let mut app = Application::new().unwrap();
     let init_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        let stage_registry_arc = stage_manager.registry().registry.clone();
+        let stage_registry_arc = stage_manager.registry().clone();
         registry.initialize_all(&mut app, &stage_registry_arc).await
     };
     
@@ -232,7 +232,7 @@ async fn test_register_all_plugins_dep_resolution_fail_via_manager() -> KernelRe
     let mut app = Application::new().unwrap();
     let init_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        let stage_registry_arc = stage_manager.registry().registry.clone();
+        let stage_registry_arc = stage_manager.registry().clone();
         registry.initialize_plugin(&plugin_a_name, &mut app, &stage_registry_arc).await
     };
     assert!(init_result.is_err(), "Initialization should fail due to missing dependency");
@@ -290,7 +290,7 @@ async fn test_initialize_all_diamond_dependency_order() {
     let mut app = Application::new().unwrap();
     let init_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        let stage_registry_arc = stage_manager.registry().registry.clone();
+        let stage_registry_arc = stage_manager.registry().clone();
         registry.initialize_all(&mut app, &stage_registry_arc).await
     };
     assert!(init_result.is_ok(), "Initialization should succeed for diamond dependency. Error: {:?}", init_result.as_ref().err());

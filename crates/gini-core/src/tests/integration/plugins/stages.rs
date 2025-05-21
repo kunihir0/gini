@@ -39,7 +39,7 @@ async fn test_plugin_loading_and_stage_execution() {
 
     // Manually initialize plugins to register their stages
     let mut app_for_init = crate::kernel::bootstrap::Application::new().expect("Failed to create app for init");
-    let stage_registry_arc_for_init = stage_manager.registry().registry.clone(); // Get the Arc<Mutex<StageRegistry>>
+    let stage_registry_arc_for_init = stage_manager.registry().clone(); // Get the Arc<Mutex<StageRegistry>>
     {
         let mut plugin_registry_locked = plugin_registry_arc.lock().await;
         plugin_registry_locked.initialize_all(&mut app_for_init, &stage_registry_arc_for_init).await
@@ -101,7 +101,7 @@ async fn test_plugin_stage_registration() {
 
     // Directly call initialize_all on the plugin registry
     let mut plugin_registry_locked = plugin_manager.registry().lock().await;
-    let stage_registry_arc_for_init = stage_manager.registry().registry.clone(); // Get the Arc<Mutex<StageRegistry>>
+    let stage_registry_arc_for_init = stage_manager.registry().clone(); // Get the Arc<Mutex<StageRegistry>>
     let mut app_for_init = crate::kernel::bootstrap::Application::new().expect("Failed to create app for init");
 
     // Manually run preflight logic (simplified for this test)
@@ -147,7 +147,7 @@ async fn test_plugin_stage_execution() {
 
     // Manually initialize plugins to register their stages
     let mut app_for_init = crate::kernel::bootstrap::Application::new().expect("Failed to create app for init");
-    let stage_registry_arc_for_init = stage_manager.registry().registry.clone(); // Get the Arc<Mutex<StageRegistry>>
+    let stage_registry_arc_for_init = stage_manager.registry().clone(); // Get the Arc<Mutex<StageRegistry>>
     {
         let mut plugin_registry_locked = plugin_registry_arc.lock().await;
         plugin_registry_locked.initialize_all(&mut app_for_init, &stage_registry_arc_for_init).await
@@ -199,7 +199,7 @@ async fn test_plugin_system_stage_manager_integration() {
 
     // Manually initialize plugins to register their stages
     let mut app_for_init = crate::kernel::bootstrap::Application::new().expect("Failed to create app for init");
-    let stage_registry_arc_for_init = stage_manager.registry().registry.clone(); // Get the Arc<Mutex<StageRegistry>>
+    let stage_registry_arc_for_init = stage_manager.registry().clone(); // Get the Arc<Mutex<StageRegistry>>
     {
         let mut plugin_registry_locked = plugin_registry_arc.lock().await;
         plugin_registry_locked.initialize_all(&mut app_for_init, &stage_registry_arc_for_init).await

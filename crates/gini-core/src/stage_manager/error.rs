@@ -15,6 +15,12 @@ pub enum StageSystemError {
     #[error("Stage '{stage_id}' already exists in the registry")]
     StageAlreadyExists { stage_id: String },
 
+    #[error("Pipeline '{pipeline_name}' already exists in the registry")]
+    PipelineAlreadyExists { pipeline_name: String },
+
+    #[error("Pipeline '{pipeline_name}' definition: Stage '{stage_id}' not found in registry")]
+    StageNotFoundInPipelineDefinition { pipeline_name: String, stage_id: String },
+
     #[error("Pipeline validation failed: {reason}")]
     PipelineValidationFailed { reason: String },
 

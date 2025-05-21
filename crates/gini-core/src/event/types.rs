@@ -217,3 +217,101 @@ impl Event for StageEvent {
         self
     }
 }
+/// Trait for events that have a specific type identifier and description.
+/// This is a new trait defined here as per the requirements.
+pub trait EventType {
+    /// Returns a unique string identifier for this event type.
+    fn event_type_id(&self) -> &'static str;
+    /// Returns a brief description of what this event signifies.
+    fn description(&self) -> &'static str;
+}
+
+/// Event fired when a pipeline has completed execution.
+/// This event is intended for use by plugins like core-rpc for dynamic updates.
+#[derive(Debug, Clone)]
+pub struct PipelineExecutionCompletedEvent {
+    pub pipeline_name: String,
+    pub success: bool,
+    pub timestamp: std::time::SystemTime,
+}
+
+impl EventType for PipelineExecutionCompletedEvent {
+    fn event_type_id(&self) -> &'static str {
+        "gini.core.pipeline.execution_completed"
+    }
+
+    fn description(&self) -> &'static str {
+        "Fired when a stage pipeline has completed execution."
+    }
+}
+
+impl Event for PipelineExecutionCompletedEvent {
+    fn name(&self) -> &'static str {
+        // It's common for the Event::name() to align with an event_type_id if one exists.
+        "gini.core.pipeline.execution_completed"
+    }
+
+    fn priority(&self) -> EventPriority {
+        EventPriority::Normal // Default priority for informational events.
+    }
+
+    fn is_cancelable(&self) -> bool {
+        false // Completion events are typically not cancelable.
+    }
+
+    fn clone_event(&self) -> Box<dyn Event> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    // Note: The `Event` trait (from crate::event::Event) does not currently include `timestamp()`.
+    // The `timestamp` is available as a public field on `PipelineExecutionCompletedEvent`.
+}
+
+/// Event fired when a "ping" command is received from user input.
+#[derive(Debug, Clone)]
+pub struct PingCommandEvent {
+    pub source_id: Option<String>, // Optional: Carry the source_id from UserInput
+}
+
+impl EventType for PingCommandEvent {
+    fn event_type_id(&self) -> &'static str {
+        "gini.core.ui.ping_command"
+    }
+
+    fn description(&self) -> &'static str {
+        "Fired when a 'ping' command is received via user input."
+    }
+}
+
+impl Event for PingCommandEvent {
+    fn name(&self) -> &'static str {
+        "gini.core.ui.ping_command"
+    }
+
+    fn priority(&self) -> EventPriority {
+        EventPriority::Normal
+    }
+
+    fn is_cancelable(&self) -> bool {
+        false
+    }
+
+    fn clone_event(&self) -> Box<dyn Event> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}

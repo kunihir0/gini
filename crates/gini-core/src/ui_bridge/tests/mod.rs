@@ -3,13 +3,15 @@ mod tests {
     use std::time::SystemTime;
     use std::sync::{Arc, Mutex};
     use std::fmt::Debug;
+    use crate::event::{DefaultEventManager, EventManager}; // Added EventManager imports
 
     use crate::ui_bridge::{UnifiedUiManager, UiMessage, UserInput, UiUpdateType, MessageSeverity, UnifiedUiInterface, error::UiBridgeError};
 
     /// Test basic UnifiedUiManager creation and default settings
     #[test]
     fn test_unified_ui_manager_creation() {
-        let manager = UnifiedUiManager::new();
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager);
         
         // Verify a default interface exists
         let interfaces_guard = manager.interfaces.lock().unwrap();
@@ -22,7 +24,8 @@ mod tests {
     /// Test sending a single message
     #[test]
     fn test_broadcast_message() {
-        let manager = UnifiedUiManager::new();
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager);
         let message = UiMessage {
             update_type: UiUpdateType::Status("test message".to_string()),
             source: "test_source".to_string(),
@@ -36,7 +39,8 @@ mod tests {
     /// Test convenience methods for sending different message types
     #[test]
     fn test_message_helper_methods() {
-        let manager = UnifiedUiManager::new();
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager);
         
         // Test progress message
         let progress_result = manager.progress("test_source", 0.5);
@@ -86,7 +90,8 @@ mod tests {
     /// Test registering a custom interface and setting it as default
     #[test]
     fn test_register_custom_interface() {
-        let manager = UnifiedUiManager::new(); // manager is not mutable here
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager); // manager is not mutable here
         
         // Register the custom interface
         let register_result = manager.register_interface(Box::new(TestInterface::new()));
@@ -144,7 +149,8 @@ mod tests {
 
         let (mock_interface, handle_message_called, _last_message) = MockUiInterface::new();
 
-        let manager = UnifiedUiManager::new();
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager);
         manager.register_interface(Box::new(mock_interface)).unwrap();
         // No need to set default for broadcast
 
@@ -170,7 +176,8 @@ mod tests {
     /// Test UnifiedUiManager lifecycle methods
     #[test]
     fn test_lifecycle_methods() {
-        let manager = UnifiedUiManager::new(); // manager is not mutable here
+        let event_manager = Arc::new(DefaultEventManager::new()) as Arc<dyn EventManager>;
+        let manager = UnifiedUiManager::new(event_manager); // manager is not mutable here
         
         // Test initialization
         assert!(manager.initialize_all().is_ok(), "UnifiedUiManager initialization failed");

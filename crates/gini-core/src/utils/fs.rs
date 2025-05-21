@@ -3,34 +3,34 @@ use std::path::{Path, PathBuf};
 use std::io::{self, Write};
 
 /// Find files recursively in a directory that match a predicate
-pub fn find_files<P, F>(path: P, predicate: F) -> io::Result<Vec<PathBuf>>
+pub fn find_files<P, F>(path: P, predicate: &F) -> io::Result<Vec<PathBuf>>
 where
     P: AsRef<Path>,
-    F: Fn(&Path) -> bool,
+    F: Fn(&Path) -> bool + ?Sized,
 {
     let mut result = Vec::new();
-    
+
     if !path.as_ref().exists() {
         return Ok(result);
     }
-    
+
     if path.as_ref().is_file() {
         if predicate(path.as_ref()) {
             result.push(path.as_ref().to_path_buf());
         }
         return Ok(result);
     }
-    
+
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let entry_path = entry.path();
-        
+
         if entry_path.is_file() {
             if predicate(&entry_path) {
                 result.push(entry_path);
             }
         } else if entry_path.is_dir() {
-            let mut sub_results = find_files(&entry_path, &predicate)?;
+            let mut sub_results = find_files(&entry_path, predicate)?; // Pass predicate directly
             result.append(&mut sub_results);
         }
     }
@@ -40,10 +40,10 @@ where
 
 /// Find files with a specific extension
 pub fn find_files_with_extension<P: AsRef<Path>>(path: P, extension: &str) -> io::Result<Vec<PathBuf>> {
-    let extension = extension.to_lowercase();
-    find_files(path, move |p| {
+    let extension_lower = extension.to_lowercase(); // Renamed to avoid conflict with the captured variable
+    find_files(path, &move |p| { // Pass closure by reference
         match p.extension() {
-            Some(ext) => ext.to_string_lossy().to_lowercase() == extension,
+            Some(ext) => ext.to_string_lossy().to_lowercase() == extension_lower,
             None => false,
         }
     })

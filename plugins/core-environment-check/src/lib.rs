@@ -16,6 +16,7 @@ use gini_core::stage_manager::{
     context::StageContext,       // Import StageContext
     requirement::StageRequirement, // Import StageRequirement
     registry::StageRegistry,     // Import StageRegistry
+    pipeline::PipelineDefinition, // Import PipelineDefinition
     Stage,                       // Import Stage trait (defined in stage_manager/mod.rs)
 };
 use log::info;
@@ -261,7 +262,13 @@ impl Plugin for EnvironmentCheckPlugin {
     }
 
     fn dependencies(&self) -> Vec<PluginDependency> {
-        vec![]
+        vec![
+            PluginDependency {
+                plugin_name: "core-logging".to_string(),
+                version_range: Some(VersionRange::from_str("^0.1.0").expect("Failed to parse version range for core-logging dependency")),
+                required: true, // Assuming core-logging is a required dependency
+            }
+        ]
     }
 
     fn required_stages(&self) -> Vec<StageRequirement> {
@@ -293,9 +300,38 @@ impl Plugin for EnvironmentCheckPlugin {
         registry.register_stage(Box::new(CheckSwapStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         registry.register_stage(Box::new(CheckLvmStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
         registry.register_stage(Box::new(CheckNetworkVirtStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
-        registry.register_stage(Box::new(CheckSystemPackagesStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?; // Added missing stage
+        registry.register_stage(Box::new(CheckSystemPackagesStage)).map_err(|e| PluginSystemError::InternalError(e.to_string()))?;
+
+        // Define and register the startup pipeline
+        const STARTUP_PIPELINE_STAGES: &[&'static str] = &[
+            "env_check:gather_os_info",
+            "env_check:gather_cpu_info",
+            "env_check:gather_ram_info",
+            "env_check:gather_gpu_info",
+            "env_check:check_iommu",
+            "env_check:virtualization_kernel_params",
+            "env_check:check_swap",
+            "env_check:check_lvm",
+            "env_check:check_network_virt",
+            "env_check:check_system_packages",
+        ];
+
+        let startup_pipeline_def = PipelineDefinition {
+            name: "startup_environment_check",
+            stages: STARTUP_PIPELINE_STAGES,
+            description: Some("Core environment checks provided by the core-environment-check plugin."),
+        };
+
+        registry.register_pipeline(startup_pipeline_def)
+            .map_err(|e| PluginSystemError::InternalError(format!("Failed to register startup pipeline: {}", e)))?;
+
         Ok(())
     }
+
+    // startup_check_stages is removed as the plugin now registers its pipeline directly.
+    // fn startup_check_stages(&self) -> Vec<String> {
+    //     vec![]
+    // }
 
     fn shutdown(&self) -> Result<(), PluginSystemError> {
         info!("Shutting down Core Environment Check Plugin");

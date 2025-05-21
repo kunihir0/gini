@@ -6,13 +6,16 @@ use std::fmt; // Import fmt
 use crate::kernel::error::{Error as KernelError, Result as KernelResult}; // Renamed Error & Result
 use crate::stage_manager::{Stage, StageContext, StageResult};
 use crate::stage_manager::error::StageSystemError; // Import StageSystemError
+use crate::stage_manager::pipeline::PipelineDefinition; // Added for storing pipeline definitions
 
-/// Registry for managing stages
+/// Registry for managing stages and pipeline definitions
 // Removed Clone derive as Box<dyn Stage> is not Clone
 // Implement Debug manually
 pub struct StageRegistry {
     /// Registered stages by ID
     stages: HashMap<String, Box<dyn Stage>>,
+    /// Registered pipeline definitions by name
+    pipelines: HashMap<String, PipelineDefinition>, // Ensure no 'static here
 }
 
 // Manual Debug implementation
@@ -20,8 +23,10 @@ impl fmt::Debug for StageRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Format the map keys for a concise debug output
         let stage_ids: Vec<&String> = self.stages.keys().collect();
+        let pipeline_names: Vec<&String> = self.pipelines.keys().collect();
         f.debug_struct("StageRegistry")
          .field("stages", &stage_ids) // Show registered stage IDs
+         .field("pipelines", &pipeline_names) // Show registered pipeline names
          .finish()
     }
 }
@@ -32,6 +37,7 @@ impl StageRegistry {
     pub fn new() -> Self {
         Self {
             stages: HashMap::new(),
+            pipelines: HashMap::new(),
         }
     }
 
@@ -47,9 +53,34 @@ impl StageRegistry {
         Ok(())
     }
 
+    /// Register a pipeline definition
+    pub fn register_pipeline(&mut self, pipeline_def: PipelineDefinition) -> std::result::Result<(), StageSystemError> { // Ensure no 'static here
+        let name = pipeline_def.name.to_string();
+        if self.pipelines.contains_key(&name) {
+            return Err(StageSystemError::PipelineAlreadyExists { pipeline_name: name });
+        }
+        // Validate that all stages in the pipeline definition exist in the stage registry
+        for stage_id_ref in pipeline_def.stages {
+            let stage_id = stage_id_ref.to_string(); // Convert &&str to String if necessary, or adjust type
+            if !self.stages.contains_key(&stage_id) {
+                return Err(StageSystemError::StageNotFoundInPipelineDefinition {
+                    pipeline_name: name,
+                    stage_id,
+                });
+            }
+        }
+        self.pipelines.insert(name, pipeline_def);
+        Ok(())
+    }
+
     /// Check if a stage with the given ID exists
     pub fn has_stage(&self, id: &str) -> bool {
         self.stages.contains_key(id)
+    }
+
+    /// Get a reference to a pipeline definition by its name
+    pub fn get_pipeline_definition(&self, name: &str) -> Option<&PipelineDefinition> { // Ensure no 'static here
+        self.pipelines.get(name)
     }
 
     /// Remove a stage by ID
@@ -97,6 +128,38 @@ impl StageRegistry {
                 })
             }
         }
+    }
+
+    /// Unregisters all stages associated with a given plugin ID.
+    /// It assumes stages are named like "plugin_id::stage_name".
+    pub fn unregister_stages_for_plugin(&mut self, plugin_id: &str) -> std::result::Result<(), StageSystemError> {
+        let prefix = format!("{}::", plugin_id);
+        let mut stages_to_remove = Vec::new();
+
+        for stage_id_key in self.stages.keys() {
+            if stage_id_key.starts_with(&prefix) {
+                stages_to_remove.push(stage_id_key.clone());
+            }
+        }
+
+        if stages_to_remove.is_empty() {
+            println!("[StageRegistry] No stages found with prefix '{}' for plugin '{}' to unregister.", prefix, plugin_id);
+        } else {
+            println!("[StageRegistry] Unregistering stages for plugin '{}': {:?}", plugin_id, stages_to_remove);
+        }
+
+        for stage_id_to_remove in stages_to_remove {
+            self.stages.remove(&stage_id_to_remove);
+            // Also remove from any pipelines if they reference this stage by ID.
+            // This is more complex as pipelines store stage IDs as strings.
+            // For now, we'll focus on removing from the primary stages map.
+            // A more robust solution might involve checking/updating pipeline definitions.
+            // For now, we only remove from the main stages map.
+            // If a pipeline definition refers to a removed stage, it will fail validation/execution later.
+            // Consider if PipelineDefinition.stages should be Vec<String> if runtime modification is desired.
+            // Given &'static [&'static str], they are intended to be static.
+        }
+        Ok(())
     }
 }
 

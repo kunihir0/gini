@@ -16,6 +16,7 @@ clap = { version = "4", features = ["derive"] } # Command-line argument parsing
 core-environment-check = { path = "../../plugins/core-environment-check" }
 core-logging = { path = "../../plugins/core-logging" }
 core-rpc = { path = "../../plugins/core-rpc" } # Add core-rpc plugin
+cli-context-test-plugin = { path = "../../plugins/examples/cli-context-test" } # Add our new example plugin
 log = "0.4" # Standard logging facade
 
 # Add any other dependencies ONLY needed by main.rs itself (e.g., command-line arg parsing like clap)

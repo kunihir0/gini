@@ -17,12 +17,15 @@ use gini_core::stage_manager::{
 };
 use log::{error, info, warn, debug};
 use std::sync::Arc;
+// use std::pin::Pin; // No longer needed after using BoxFuture
+// use std::future::Future; // No longer needed after using BoxFuture
 // use std::any::Any; // Not needed
 use tokio::sync::Mutex as TokioMutex; // Single import
 use thiserror::Error;
 use tokio::runtime::Handle;
 use chrono::{Utc, DateTime}; // Added DateTime
-use gini_core::event::{Event, AsyncEventHandler, EventResult}; // Ensure EventError is not imported if not used
+use gini_core::event::{Event, AsyncEventHandler, EventResult, EventManager, SystemEvent, DefaultEventManager}; // Added DefaultEventManager
+use gini_core::event::dispatcher::BoxFuture;
 use serde::{Serialize, Deserialize}; // For event serialization if needed
 
 // use discord_presence::client::Client as DiscordClient; // No longer needed here
@@ -186,6 +189,8 @@ impl AsyncEventHandler for StageUpdateEventHandler {
 
 // --- End Stage Update Event Handler ---
 
+// --- PipelineComplete Event Handler (Removed, logic integrated into closure) ---
+
 
 // --- End New Event Definitions ---
 
@@ -304,16 +309,25 @@ impl Plugin for CoreRpcPlugin {
         let storage_manager_arc = app.storage_manager();
         let settings_for_task = Arc::clone(&self.settings);
         let rpc_wrapper_handle_clone = Arc::clone(&self.rpc_wrapper_handle);
-        
-        // Event handler registration is deferred.
-        // let plugin_manager_for_async = app.plugin_manager(); // This Arc could be passed to the async task.
+
+        // Assuming Application has `fn dependencies_arc(&self) -> Arc<TokioMutex<gini_core::kernel::component::DependencyRegistry>>`
+        // This method needs to be added to `Application` if it doesn't exist.
+        let app_dependencies_clone = app.dependencies_arc();
 
         info!("Core RPC Plugin: Queuing async setup for RPC client and initial presence.");
 
         tokio_handle.spawn(async move {
-            let rpc_wrapper_handle = rpc_wrapper_handle_clone; 
+            let rpc_wrapper_handle = rpc_wrapper_handle_clone;
+            let app_deps = app_dependencies_clone; // Move the cloned Arc in
             
             info!("Core RPC Plugin: Async task started.");
+            
+            // Fetch EventManager inside the async block using the cloned app_deps
+            let event_manager_option: Option<Arc<DefaultEventManager>> = {
+                let deps_registry_guard = app_deps.lock().await; // This is tokio::sync::Mutex
+                // Assuming DependencyRegistry has `get_concrete<T: KernelComponent + 'static>(&self) -> Option<Arc<T>>`
+                deps_registry_guard.get_concrete::<DefaultEventManager>()
+            };
 
             // 1. Load Settings
             let final_settings = match load_settings(storage_manager_arc).await {
@@ -324,7 +338,7 @@ impl Plugin for CoreRpcPlugin {
                 }
                 Err(e) => {
                     error!("Failed to load RPC settings: {}", e);
-                    return; 
+                    return;
                 }
             }; // Correctly closes match load_settings
 
@@ -337,7 +351,7 @@ impl Plugin for CoreRpcPlugin {
                         
                         if let Err(e) = wrapper.start_client_loop() {
                             error!("Failed to start DiscordRpcWrapper: {}", e);
-                            return; 
+                            return;
                         }
                         
                         let client_ready_signal_for_initial_update = Arc::clone(&wrapper.client_ready_signal);
@@ -345,12 +359,88 @@ impl Plugin for CoreRpcPlugin {
                         // Store the wrapper
                         let mut rpc_wrapper_guard = rpc_wrapper_handle.lock().await;
                         *rpc_wrapper_guard = Some(wrapper);
-                        drop(rpc_wrapper_guard);
+                        // drop(rpc_wrapper_guard); // Keep guard until after event handler registration
                         info!("DiscordRpcWrapper started and stored.");
 
-                        // 3. Register Event Handler (Deferred)
-                        // TODO: Implement event handler registration here.
-                        warn!("Core RPC Plugin: Event handler registration for dynamic updates is deferred.");
+                        // 3. Register Event Handler
+                        if final_settings.enable_dynamic_updates {
+                            if let Some(event_manager) = event_manager_option.as_ref() {
+                                info!("Core RPC Plugin: Registering event handler for dynamic updates.");
+                                // Logic from PipelineCompleteEventHandler is now directly in the closure.
+                                // No need for the PipelineCompleteEventHandler struct or Arc<dyn AsyncEventHandler>.
+                                let rpc_wrapper_for_closure = Arc::clone(&rpc_wrapper_handle); // Capture rpc_wrapper_handle from the outer async block
+
+                                let adapted_handler: Box<dyn for<'a> Fn(&'a dyn Event) -> BoxFuture<'a> + Send + Sync>
+                                    = Box::new(move |event_ref: &dyn Event| {
+                                        let rpc_wrapper_captured = Arc::clone(&rpc_wrapper_for_closure); // Clone for this specific invocation's future
+
+                                        Box::pin(async move {
+                                            if let Some(concrete_event) = event_ref.as_any().downcast_ref::<SystemEvent>() {
+                                                if let SystemEvent::PipelineComplete { pipeline_id, success } = concrete_event {
+                                                    let pipeline_id_owned = pipeline_id.clone();
+                                                    let success_owned = *success;
+
+                                                    info!("[CoreRpcPlugin/PipelineHandler] Received PipelineCompleteEvent: ID='{}', Success='{}'",
+                                                        pipeline_id_owned, success_owned);
+
+                                                    let details = Some("Idle".to_string());
+                                                    let state = Some(format!("Pipeline '{}' {}", pipeline_id_owned, if success_owned { "finished." } else { "failed." }));
+                                                    let timestamp = Some(Utc::now());
+
+                                                    debug!("[CoreRpcPlugin/PipelineHandler] Formatted presence: Details='{:?}', State='{:?}', Timestamp='{:?}'",
+                                                           details, state, timestamp);
+                                                    
+                                                    let rpc_wrapper_guard = rpc_wrapper_captured.lock().await;
+                                                    if let Some(wrapper_instance) = rpc_wrapper_guard.as_ref() {
+                                                        let raw_client_state_arc = Arc::clone(&wrapper_instance.raw_client_state);
+                                                        let current_presence_data_arc = Arc::clone(&wrapper_instance.current_presence_data);
+                                                        let client_ready_signal = Arc::clone(&wrapper_instance.client_ready_signal);
+                                                        
+                                                        drop(rpc_wrapper_guard); // Release lock before await
+
+                                                        client_ready_signal.notified().await;
+
+                                                        if let Err(e) = DiscordRpcWrapper::perform_update_activity_static(
+                                                            raw_client_state_arc,
+                                                            current_presence_data_arc,
+                                                            details,
+                                                            state,
+                                                            timestamp,
+                                                            None, None, None, None, None, None, None, None,
+                                                        ).await {
+                                                            warn!("[CoreRpcPlugin/PipelineHandler] Failed to update Discord presence for pipeline event: {}", e);
+                                                        } else {
+                                                            info!("[CoreRpcPlugin/PipelineHandler] Discord presence updated for pipeline event: ID='{}'", pipeline_id_owned);
+                                                        }
+                                                    } else {
+                                                        warn!("[CoreRpcPlugin/PipelineHandler] DiscordRpcWrapper not available, cannot update presence for pipeline event ID='{}'.", pipeline_id_owned);
+                                                    }
+                                                    EventResult::Continue
+                                                } else {
+                                                    debug!("[CoreRpcPlugin/PipelineHandler] Received SystemEvent, but not PipelineComplete: {:?}", concrete_event.name());
+                                                    EventResult::Continue
+                                                }
+                                            } else {
+                                                 error!("[CoreRpcPlugin/PipelineHandler] Failed to downcast event to SystemEvent. Event name: '{}'", event_ref.name());
+                                                 EventResult::Continue
+                                            }
+                                        })
+                                    });
+                               
+                                let event_name = SystemEvent::PipelineComplete { pipeline_id: String::new(), success: false }.name();
+                                
+                                // register_handler is async, so await it.
+                                let _event_id = event_manager.register_handler(event_name, adapted_handler).await;
+                                info!("Core RPC Plugin: Successfully registered handler for PipelineCompleteEvent ({}).", event_name);
+                                // Note: register_handler typically doesn't return Result for subscription errors in the same way
+                                // a hypothetical subscribe_async might. It returns an EventId. Errors might panic or be logged by dispatcher.
+                            } else {
+                                warn!("Core RPC Plugin: EventManager (obtained in async task) not available, cannot register event handler for dynamic updates.");
+                            }
+                        } else {
+                            info!("Core RPC Plugin: Dynamic updates are disabled in settings. Skipping event handler registration.");
+                        }
+                        drop(rpc_wrapper_guard); // Release lock after event handler registration attempt
 
                         // 4. Initial Presence Update
                         if final_settings.default_details.is_some() || final_settings.default_state.is_some() {

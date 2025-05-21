@@ -145,7 +145,7 @@ async fn test_register_all_plugins_api_compatibility_detailed() -> KernelResult<
     let mut app = Application::new().unwrap();
     let init_result = {
         let mut registry = plugin_manager.registry().lock().await;
-        let stage_registry_arc_clone = stage_manager.registry().registry.clone(); // stage_manager.registry() is SharedStageRegistry, then .registry is Arc<Mutex<StageRegistry>>
+        let stage_registry_arc_clone = stage_manager.registry().clone(); // stage_manager.registry() now returns Arc<Mutex<StageRegistry>>
         registry.initialize_all(&mut app, &stage_registry_arc_clone).await
     };
     assert!(init_result.is_ok(), "initialize_all should succeed. Error: {:?}", init_result.err());

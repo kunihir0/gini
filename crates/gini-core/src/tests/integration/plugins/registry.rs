@@ -11,6 +11,7 @@ use crate::plugin_system::error::PluginSystemError; // Import PluginSystemError
 use crate::plugin_system::traits::{Plugin, PluginPriority}; // Removed PluginError as TraitsPluginError
 use crate::plugin_system::version::VersionRange;
 use crate::stage_manager::registry::StageRegistry; // Added
+use tokio::sync::Mutex; // Added for Arc<Mutex<StageRegistry>>
 use crate::stage_manager::StageContext; // Removed unused Stage
 use crate::stage_manager::requirement::StageRequirement;
 
@@ -38,9 +39,10 @@ async fn test_plugin_enabling_disabling() {
     }
 
     // Disable Plugin2
+    let stage_registry_arc = Arc::new(Mutex::new(StageRegistry::new()));
     {
         let mut registry = plugin_manager.registry().lock().await;
-        registry.disable_plugin("EnableDisablePlugin2").expect("Failed to disable Plugin2");
+        registry.disable_plugin("EnableDisablePlugin2", &stage_registry_arc).await.expect("Failed to disable Plugin2");
     }
 
     // Verify Plugin2 is disabled
@@ -82,9 +84,9 @@ async fn test_plugin_enabling_disabling() {
     // Attempt to disable a non-existent plugin
     {
         let mut registry = plugin_manager.registry().lock().await;
-        let result = registry.disable_plugin("NonExistentPlugin");
-        // According to registry.rs implementation, disabling non-existent is a no-op Ok(())
-        assert!(result.is_ok(), "Disabling a non-existent plugin should be Ok(())");
+        let result = registry.disable_plugin("NonExistentPlugin", &stage_registry_arc).await;
+        // Now expects an error if plugin not found
+        assert!(result.is_err(), "Disabling a non-existent plugin should return an error");
     }
 
     // Attempt to enable a non-existent plugin

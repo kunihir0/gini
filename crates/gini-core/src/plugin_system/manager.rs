@@ -11,6 +11,7 @@ use libloading::{Library, Symbol};
 use std::panic;
 use std::ffi::{CStr, c_void};
 use std::os::raw::c_char;
+use log; // Added for logging
 
 use crate::kernel::bootstrap::Application;
 use crate::stage_manager::context::StageContext;
@@ -567,10 +568,14 @@ pub struct DefaultPluginManager {
     registry: Arc<Mutex<PluginRegistry>>,
     config_manager: Arc<ConfigManager>,
     plugin_loader: PluginLoader, // Added PluginLoader
+    stage_registry_arc: Arc<Mutex<StageRegistry>>, // Added StageRegistry Arc
 }
 
 impl DefaultPluginManager {
-    pub fn new(config_manager: Arc<ConfigManager>) -> KernelResult<Self> {
+    pub fn new(
+        config_manager: Arc<ConfigManager>,
+        stage_registry_arc: Arc<Mutex<StageRegistry>>,
+    ) -> KernelResult<Self> {
         let api_version = ApiVersion::from_str(constants::API_VERSION)
             .map_err(|e| Error::KernelLifecycleError {
                 phase: KernelLifecyclePhase::Bootstrap,
@@ -584,6 +589,7 @@ impl DefaultPluginManager {
             registry: Arc::new(Mutex::new(PluginRegistry::new(api_version))),
             config_manager,
             plugin_loader: PluginLoader::new(), // Initialize PluginLoader
+            stage_registry_arc, // Store StageRegistry Arc
         })
     }
 
@@ -698,7 +704,7 @@ impl DefaultPluginManager {
         println!("Persisted state: Plugin '{}' marked as disabled.", name);
 
         let mut registry = self.registry.lock().await;
-        registry.disable_plugin(name).map_err(Error::from)?;
+        registry.disable_plugin(name, &self.stage_registry_arc).await.map_err(Error::from)?;
         Ok(())
     }
 }
@@ -789,9 +795,27 @@ impl KernelComponent for DefaultPluginManager {
         let mut registry_locked = self.registry.lock().await; // Lock registry once
 
         for manifest in &all_manifests {
-            // TODO: Add logic here to check if this manifest should be skipped due to conflicts.
-            // For now, we attempt to load all scanned manifests.
-            // This would involve checking `conflict_manager.get_plugins_to_disable()` or similar.
+            // Check for conflicts with already registered and enabled plugins
+            let mut conflict_found_and_enabled = false;
+            if !manifest.conflicts_with.is_empty() { // Optimization: only iterate if there are potential conflicts
+                for conflicting_plugin_name in &manifest.conflicts_with {
+                    // We have registry_locked: MutexGuard<'_, PluginRegistry>
+                    if registry_locked.is_registered(conflicting_plugin_name) && registry_locked.is_enabled(conflicting_plugin_name) {
+                        log::warn!(
+                            "Skipping manifest for plugin '{}' (from file: {:?}) due to declared conflict with already registered and enabled plugin '{}'",
+                            manifest.id,
+                            manifest.plugin_base_dir.join(&manifest.entry_point),
+                            conflicting_plugin_name
+                        );
+                        conflict_found_and_enabled = true;
+                        break; // Found a conflict, no need to check further for this manifest
+                    }
+                }
+            }
+
+            if conflict_found_and_enabled {
+                continue; // Skip to the next manifest
+            }
 
             // Check if plugin is already registered (e.g. static plugins)
             if registry_locked.is_registered(&manifest.id) {
@@ -834,7 +858,7 @@ impl KernelComponent for DefaultPluginManager {
                     println!("Applying persisted disabled state for plugins: {:?}", disabled_list);
                     let mut registry = self.registry.lock().await;
                     for plugin_name in disabled_list {
-                        if let Err(e) = registry.disable_plugin(&plugin_name) {
+                        if let Err(e) = registry.disable_plugin(&plugin_name, &self.stage_registry_arc).await {
                             eprintln!("Failed to apply persisted disable for {}: {}", plugin_name, e);
                         }
                     }
@@ -1046,6 +1070,7 @@ impl Clone for DefaultPluginManager {
             registry: Arc::clone(&self.registry),
             config_manager: Arc::clone(&self.config_manager),
             plugin_loader: self.plugin_loader.clone(), // Clone PluginLoader
+            stage_registry_arc: Arc::clone(&self.stage_registry_arc), // Clone StageRegistry Arc
         }
     }
 }

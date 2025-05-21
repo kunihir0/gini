@@ -4,7 +4,6 @@ use gini_core::kernel::bootstrap::Application;
 // use gini_core::kernel::error::Error; // Import Error
 // use gini_core::storage::DefaultStorageManager; // Import DefaultStorageManager
 use gini_core::stage_manager::{StageManager, StageContext, StageResult}; // Remove unused StagePipeline
-use gini_core::stage_manager::core_stages::STARTUP_ENV_CHECK_PIPELINE; // Added import
 use clap::{Parser, Subcommand}; // Use clap for argument parsing
 use std::sync::Arc; // Use Arc for shared ownership of the connector
 use log::{info, error}; // Added logging imports
@@ -13,7 +12,14 @@ use log::{info, error}; // Added logging imports
 use core_environment_check::EnvironmentCheckPlugin; // Corrected name
 use core_logging::LoggingPlugin; // Corrected name
 use core_rpc::CoreRpcPlugin; // Add CoreRpcPlugin import
+use cli_context_test_plugin::CliContextTestPlugin; // Add our example plugin
 // --- End Core Plugin Imports ---
+
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .ok_or_else(|| format!("invalid KEY=value: no '=' found in '{}'", s))
+}
 
 /// Gini: A modular application framework
 #[derive(Parser, Debug)]
@@ -38,6 +44,9 @@ enum Commands {
     RunStage {
         /// The ID of the stage to run
         stage_id: String,
+        /// Context variables to set for the stage (e.g., key=value)
+        #[arg(long, value_parser = parse_key_val)]
+        context_vars: Vec<(String, String)>,
     },
 }
 
@@ -118,6 +127,15 @@ async fn main() {
             return;
         }
         println!("  - Registered: core-rpc");
+
+        // Instantiate and register cli-context-test-plugin
+        let cli_context_plugin = Arc::new(CliContextTestPlugin::new());
+        if let Err(e) = registry.register_plugin(cli_context_plugin) {
+            eprintln!("Warning: Failed to register cli-context-test-plugin: {}", e);
+            // Non-fatal for an example plugin
+        } else {
+            println!("  - Registered: cli-context-test-plugin");
+        }
     } // MutexGuard dropped here
     println!("Static core plugins registered.");
     // --- End Static Plugin Registration ---
@@ -130,7 +148,7 @@ async fn main() {
         let mut registry = registry_arc.lock().await; // Lock plugin registry
         // Get the StageManager to retrieve its StageRegistry Arc
         let stage_manager = app.stage_manager(); // Assuming this returns Arc<impl StageManager>
-        let stage_registry_arc = stage_manager.registry().registry(); // Assuming registry() -> SharedStageRegistry -> registry() -> Arc<Mutex<StageRegistry>>
+        let stage_registry_arc = stage_manager.registry(); // This now directly returns Arc<Mutex<StageRegistry>>
 
         // initialize_all requires mutable app and the StageRegistry Arc
         if let Err(e) = registry.initialize_all(&mut app, &stage_registry_arc).await {
@@ -144,19 +162,21 @@ async fn main() {
     // --- Run Startup Pipeline ---
     info!("Running startup environment check pipeline...");
     let stage_manager = app.stage_manager();
-    let stage_ids: Vec<String> = STARTUP_ENV_CHECK_PIPELINE.stages.iter().map(|s| s.to_string()).collect();
-    match stage_manager.create_pipeline(
-        STARTUP_ENV_CHECK_PIPELINE.name,
-        STARTUP_ENV_CHECK_PIPELINE.description.unwrap_or("Startup Check"), // Provide default if None
-        stage_ids
-    ).await {
-        Ok(mut startup_pipeline) => {
+    let startup_pipeline_name = "startup_environment_check"; // Well-known name
+
+    // Attempt to get the pipeline by its well-known name.
+    // It's expected that a core plugin (like core-environment-check) has registered it.
+    match stage_manager.get_pipeline_by_name(startup_pipeline_name).await {
+        Ok(Some(mut startup_pipeline)) => {
+            info!("Found registered startup pipeline: '{}'. Description: '{}'. Stages: {:?}", 
+                startup_pipeline.name(), startup_pipeline.description(), startup_pipeline.stages());
+            
             // Get config_dir from StorageManager component
             let storage_manager_opt = app.get_component::<gini_core::storage::DefaultStorageManager>().await;
             let storage_manager = match storage_manager_opt {
                 Some(sm) => sm,
                 None => {
-                    eprintln!("Fatal: StorageManager component not found during startup pipeline execution.");
+                    error!("Fatal: StorageManager component not found during startup pipeline execution.");
                     return; // Exit if storage manager is missing
                 }
             };
@@ -166,8 +186,11 @@ async fn main() {
                 Err(e) => error!("Startup environment check pipeline failed during execution: {:?}", e),
             }
         }
+        Ok(None) => {
+            info!("No pipeline named '{}' was registered by any plugin. Skipping startup environment checks.", startup_pipeline_name);
+        }
         Err(e) => {
-            error!("Failed to create startup environment check pipeline: {:?}", e);
+            error!("Error trying to retrieve startup pipeline '{}': {:?}", startup_pipeline_name, e);
             // Decide if this is fatal. For now, log and continue.
         }
     }
@@ -227,7 +250,7 @@ async fn main() {
                 }
             }
         }
-        Some(Commands::RunStage { stage_id }) => {
+        Some(Commands::RunStage { stage_id, context_vars }) => {
             println!("Attempting to run stage '{}'...", stage_id);
             let stage_manager = app.stage_manager(); // Get StageManager Arc
 
@@ -244,7 +267,6 @@ async fn main() {
             };
 
             // Create a default context for execution in live mode
-            // TODO: Allow context customization via CLI args later?
             // Get config_dir from StorageManager component
             let storage_manager_opt = app.get_component::<gini_core::storage::DefaultStorageManager>().await;
              let storage_manager = match storage_manager_opt {
@@ -256,6 +278,14 @@ async fn main() {
             };
             let config_dir = storage_manager.config_dir().to_path_buf();
             let mut context = StageContext::new_live(config_dir); // Use new_live
+
+            // Apply context variables from CLI args
+            for (key, value) in context_vars {
+                // Log before moving the value
+                info!("Setting context variable from CLI: {}={}", &key, &value);
+                // Assuming StageContext::set_data(String, String) exists and is suitable as per instructions.
+                context.set_data(&key, value);
+            }
 
             // Execute the pipeline
             // Note: execute_pipeline is async, so we need .await

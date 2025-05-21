@@ -25,7 +25,7 @@ async-trait = "0.1"
 libloading = "0.8"
 tokio-stream = "0.1"
 # Or use workspace dependency: tokio-stream = { workspace = true }
-semver = "1.0.26"
+semver = { version = "1.0.26", features = ["serde"] }
 # Or use workspace dependency: semver = { workspace = true }
 thiserror = "2.0.12" # Assuming this is used by core error types
 tempfile = "3.10"
@@ -43,5 +43,6 @@ toml = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] } # Add tokio for async tests
 tempfile = "3.10"
 futures = "0.3" # Added for block_on in tests
+rand = "0.8" # Added for test utilities
 # Or use workspace dependency: tempfile = { workspace = true }
 # serde_json moved to main dependencies

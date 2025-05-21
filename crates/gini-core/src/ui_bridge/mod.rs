@@ -40,6 +40,7 @@ pub mod unified_interface;
 // pub use manager::UIManager; // Removed UIManager export
 pub use unified_interface::UnifiedUiInterface; // Export UnifiedUiInterface
 use crate::ui_bridge::error::UiBridgeError; // Import UiBridgeError
+use crate::event::{EventManager, types::PingCommandEvent}; // Added EventManager and PingCommandEvent
 use log; // Import log crate
 use crate::kernel::component::KernelComponent;
 use crate::kernel::error as KernelErrorPkg; // Alias to avoid conflict with local error module
@@ -205,12 +206,15 @@ pub struct UnifiedUiManager {
     interfaces: Arc<Mutex<HashMap<String, Arc<Mutex<Box<dyn UnifiedUiInterface>>>>>>,
     default_interface: Arc<Mutex<Option<String>>>,
     message_buffer: Arc<Mutex<Vec<UiMessage>>>,
-    // TODO: Add a channel or callback mechanism for UserInput if preferred over direct method call.
+    event_manager: Arc<dyn EventManager>, // Added EventManager
+    // Note: UserInput is currently submitted via a direct method call to UnifiedUiManager.
+    // Alternative patterns like channels or callbacks could be considered for future enhancements
+    // if more complex input routing or decoupling is required.
 }
 
 impl UnifiedUiManager {
     /// Create a new UI manager. Initially, it contains a default console UI.
-    pub fn new() -> Self {
+    pub fn new(event_manager: Arc<dyn EventManager>) -> Self {
         let mut interfaces_map = HashMap::new();
         let console_interface = Arc::new(Mutex::new(Box::new(ConsoleUiProvider::new()) as Box<dyn UnifiedUiInterface>));
         let console_name = console_interface.lock().unwrap().name().to_string(); // Lock to get name
@@ -220,6 +224,7 @@ impl UnifiedUiManager {
             interfaces: Arc::new(Mutex::new(interfaces_map)),
             default_interface: Arc::new(Mutex::new(Some(console_name))),
             message_buffer: Arc::new(Mutex::new(Vec::new())),
+            event_manager,
         }
     }
     
@@ -291,14 +296,50 @@ impl UnifiedUiManager {
 
     /// Submits user input received from a specific UI interface.
     /// The manager is responsible for routing this input to the core application logic.
-    pub fn submit_user_input(&self, input: UserInput, source_interface_name: &str) -> Result<(), UiBridgeError> {
-        // TODO: Implement actual input handling logic.
-        // This might involve sending it to an event bus, a dedicated input handler,
-        // or a callback registered by the core application.
-        log::info!("User input received from '{}': {:?}", source_interface_name, input);
-        // For now, we just log it. Depending on the design, this might return an error
-        // if the input cannot be processed (e.g., no active listener).
-        Ok(())
+    pub async fn submit_user_input(&self, input: UserInput, source_interface_name: &str) -> Result<(), UiBridgeError> {
+        log::debug!("Processing user input from '{}': {:?}", source_interface_name, input);
+
+        match input {
+            UserInput::Text(text_content) => {
+                if text_content.trim().to_lowercase() == "ping" {
+                    log::info!(
+                        "Received 'ping' command from UI interface: '{}'. Attempting to emit PingCommandEvent.",
+                        source_interface_name
+                    );
+                    let event = PingCommandEvent {
+                        source_id: Some(source_interface_name.to_string()),
+                    };
+                    
+                    let _: () = self.event_manager.queue_event(Box::new(event)).await; // Explicitly type annotate
+                    // Temporarily removed problematic log line for diagnostics
+                    Ok(())
+                } else {
+                    log::info!(
+                        "Unhandled text input from '{}': {}",
+                        source_interface_name,
+                        text_content
+                    );
+                    Ok(())
+                }
+            }
+            UserInput::Command(command, args) => {
+                log::info!(
+                    "Unhandled command input from '{}': {} with args {:?}",
+                    source_interface_name,
+                    command,
+                    args
+                );
+                Ok(())
+            }
+            UserInput::Confirmation(value) => {
+                log::info!(
+                    "Unhandled confirmation input from '{}': {}",
+                    source_interface_name,
+                    value
+                );
+                Ok(())
+            }
+        }
     }
     
     /// Initialize all registered UI interfaces.
@@ -429,11 +470,17 @@ impl UnifiedUiManager {
     }
 }
 
-impl Default for UnifiedUiManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Default implementation removed as UnifiedUiManager now requires an EventManager.
+// #[async_trait]
+// impl Default for UnifiedUiManager {
+//     fn default() -> Self {
+//         // This would require a way to get a default EventManager,
+//         // which might not be feasible or desirable.
+//         // Consider if Default is truly needed or if explicit construction
+//         // with dependencies is always preferred.
+//         panic!("UnifiedUiManager cannot be default-initialized without an EventManager.");
+//     }
+// }
 
 #[async_trait]
 impl KernelComponent for UnifiedUiManager {

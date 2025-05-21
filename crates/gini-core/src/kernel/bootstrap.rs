@@ -9,7 +9,7 @@ use crate::kernel::constants;
 use crate::kernel::component::{KernelComponent, DependencyRegistry};
 
 // Import component traits and default implementations
-use crate::event::DefaultEventManager; // Remove braces
+use crate::event::{DefaultEventManager, EventManager}; // Remove braces
 use crate::stage_manager::manager::DefaultStageManager; // Remove braces
 use crate::plugin_system::DefaultPluginManager; // Remove braces
 use crate::storage::DefaultStorageManager; // Remove braces
@@ -58,17 +58,22 @@ impl Application {
         // Get the ConfigManager from the StorageManager to pass to PluginManager
         // Use the renamed public accessor method to get the ConfigManager Arc
         let config_manager_for_plugin = storage_manager.get_config_manager().clone();
-        let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager_for_plugin)?);
-        registry.register_instance(plugin_manager.clone()); // Register Arc<DefaultPluginManager<LocalStorageProvider>>, clone Arc
-        // Use the non-generic type for TypeId
-        init_order.push(TypeId::of::<DefaultPluginManager>()); // Remove generic
-
-        let stage_manager = Arc::new(DefaultStageManager::new());
+ 
+        // Pass the EventManager to the DefaultStageManager
+        // Ensure event_manager (Arc<DefaultEventManager>) is compatible with Arc<dyn EventManager>
+        let stage_manager = Arc::new(DefaultStageManager::new(event_manager.clone() as Arc<dyn EventManager>));
         registry.register_instance(stage_manager.clone()); // Register Arc<DefaultStageManager>, clone Arc
         init_order.push(TypeId::of::<DefaultStageManager>()); // Store concrete TypeId
 
+        // Get the StageRegistry Arc from the StageManager to pass to PluginManager
+        let stage_registry_arc_for_plugin = stage_manager.registry(); // Assuming DefaultStageManager has a .registry() method returning Arc<Mutex<StageRegistry>>
+        let plugin_manager = Arc::new(DefaultPluginManager::new(config_manager_for_plugin, stage_registry_arc_for_plugin)?);
+        registry.register_instance(plugin_manager.clone()); // Register Arc<DefaultPluginManager>, clone Arc
+        init_order.push(TypeId::of::<DefaultPluginManager>()); // Store concrete TypeId
+ 
         // Instantiate UnifiedUiManager
-        let ui_manager_owned = UnifiedUiManager::new();
+        // Pass the EventManager to the UnifiedUiManager
+        let ui_manager_owned = UnifiedUiManager::new(event_manager.clone() as Arc<dyn EventManager>);
         // Register an Arc of a clone of the owned instance.
         // The Application struct will hold the original owned instance.
         registry.register_instance(Arc::new(ui_manager_owned.clone()));
@@ -214,6 +219,13 @@ impl Application {
     /// Returns whether the application has been initialized.
     pub fn is_initialized(&self) -> bool {
         self.initialized
+    }
+
+    /// Returns a clone of the Arc-wrapped Mutex for the dependency registry.
+    /// This allows other parts of the system, especially spawned async tasks,
+    /// to safely access the dependency registry.
+    pub fn dependencies_arc(&self) -> Arc<Mutex<DependencyRegistry>> {
+        Arc::clone(&self.dependencies)
     }
     
     /// Get the storage manager instance (synchronous convenience accessor)

@@ -255,16 +255,17 @@ fn create_mock_app() -> Application {
         let mut registry = create_test_registry();
         let plugin_id = "plugin_enable_disable";
         registry.register_plugin(Arc::new(MockRegistryPlugin::default(plugin_id))).unwrap();
+        let stage_registry_arc = create_mock_stage_registry_arc();
 
         assert!(registry.is_enabled(plugin_id), "Should be enabled initially");
 
         // Disable
-        let disable_res = registry.disable_plugin(plugin_id);
+        let disable_res = registry.disable_plugin(plugin_id, &stage_registry_arc).await;
         assert!(disable_res.is_ok());
         assert!(!registry.is_enabled(plugin_id), "Should be disabled");
 
         // Disable again (no-op)
-        let disable_res2 = registry.disable_plugin(plugin_id);
+        let disable_res2 = registry.disable_plugin(plugin_id, &stage_registry_arc).await;
          assert!(disable_res2.is_ok()); // Should still be ok
          assert!(!registry.is_enabled(plugin_id), "Should remain disabled");
 
@@ -279,8 +280,9 @@ fn create_mock_app() -> Application {
         assert!(enable_non_existent.is_err());
 
         // Disable non-existent (no-op)
-        let disable_non_existent = registry.disable_plugin("non_existent");
-        assert!(disable_non_existent.is_ok());
+        // For disable_plugin, it now returns an error if plugin not found.
+        let disable_non_existent_res = registry.disable_plugin("non_existent", &stage_registry_arc).await;
+        assert!(disable_non_existent_res.is_err()); // Expect error for not found
     }
 
     #[tokio::test] // Use tokio::test
@@ -289,8 +291,9 @@ fn create_mock_app() -> Application {
         registry.register_plugin(Arc::new(MockRegistryPlugin::default("plugin1"))).unwrap();
         registry.register_plugin(Arc::new(MockRegistryPlugin::default("plugin2"))).unwrap();
         registry.register_plugin(Arc::new(MockRegistryPlugin::default("plugin3"))).unwrap();
+        let stage_registry_arc = create_mock_stage_registry_arc();
 
-        registry.disable_plugin("plugin2").unwrap();
+        registry.disable_plugin("plugin2", &stage_registry_arc).await.unwrap();
 
         let enabled_plugins = registry.get_enabled_plugins_arc();
         assert_eq!(enabled_plugins.len(), 2);
@@ -335,9 +338,9 @@ fn create_mock_app() -> Application {
          let plugin = Arc::new(MockRegistryPlugin::default(plugin_id));
          let init_flag = plugin.init_called.clone();
          registry.register_plugin(plugin).unwrap();
-
-         registry.disable_plugin(plugin_id).unwrap(); // Disable it
          let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         registry.disable_plugin(plugin_id, &stage_registry_arc).await.unwrap(); // Disable it
  
          // Pass the stage_registry_arc
          let result = registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await;
@@ -359,9 +362,9 @@ fn create_mock_app() -> Application {
          registry.register_plugin(plugin1).unwrap();
          registry.register_plugin(plugin2).unwrap();
          registry.register_plugin(plugin3).unwrap();
-
-         registry.disable_plugin("plugin2").unwrap(); // Disable plugin2
          let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         registry.disable_plugin("plugin2", &stage_registry_arc).await.unwrap(); // Disable plugin2
  
          // Pass the stage_registry_arc
          let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
@@ -517,12 +520,14 @@ fn create_mock_app() -> Application {
          assert!(registry.is_enabled(plugin_id));
 
          // Try to disable
-         let result = registry.disable_plugin(plugin_id);
-         assert!(result.is_err(), "Should not be able to disable an initialized plugin");
-         assert!(registry.is_enabled(plugin_id), "Plugin should remain enabled"); // State shouldn't change
-         assert!(registry.initialized.contains(plugin_id), "Plugin should remain initialized"); // State shouldn't change
+         let result = registry.disable_plugin(plugin_id, &stage_registry_arc).await;
+         // With the new logic, disabling an initialized plugin attempts to shut it down.
+         // If shutdown is successful, disable_plugin returns Ok(()) and the plugin is no longer initialized or enabled.
+         assert!(result.is_ok(), "Disabling an initialized plugin should now attempt shutdown and succeed if shutdown works. Error: {:?}", result.err());
+         assert!(!registry.is_enabled(plugin_id), "Plugin should be disabled after successful shutdown");
+         assert!(!registry.initialized.contains(plugin_id), "Plugin should not be initialized after successful shutdown");
      }
-
+ 
      #[tokio::test] // Use tokio::test
      async fn test_check_dependencies_enabled_only() { // Add async
          let mut registry = create_test_registry();
@@ -548,10 +553,11 @@ fn create_mock_app() -> Application {
          // Initially, both are enabled, should pass
          assert!(registry.check_dependencies().is_ok());
 
+         let stage_registry_arc = create_mock_stage_registry_arc();
          // Disable the dependency
-         registry.disable_plugin(dep_id).unwrap();
+         registry.disable_plugin(dep_id, &stage_registry_arc).await.unwrap();
          assert!(!registry.is_enabled(dep_id));
-
+ 
          // Now check_dependencies should fail because main_plugin is enabled but its required dependency is disabled
          let result = registry.check_dependencies();
          assert!(result.is_err());
@@ -562,8 +568,8 @@ fn create_mock_app() -> Application {
          }
 
          // Disable the main plugin as well
-         registry.disable_plugin(main_id).unwrap();
-
+         registry.disable_plugin(main_id, &stage_registry_arc).await.unwrap();
+ 
          // Now check_dependencies should pass again, because the main plugin is no longer enabled
          assert!(registry.check_dependencies().is_ok());
      }
@@ -718,9 +724,9 @@ fn create_mock_app() -> Application {
 
          registry.register_plugin(plugin_a).unwrap();
          registry.register_plugin(plugin_b).unwrap();
-
-         registry.disable_plugin("B").unwrap(); // Disable B
          let stage_registry_arc = create_mock_stage_registry_arc(); // Create mock stage registry
+ 
+         registry.disable_plugin("B", &stage_registry_arc).await.unwrap(); // Disable B
  
          // Pass the stage_registry_arc
          let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
@@ -860,5 +866,213 @@ fn create_mock_app() -> Application {
         assert!(p_main_a.init_called.load(Ordering::SeqCst));
         assert!(p_main_b.init_called.load(Ordering::SeqCst));
         assert!(p_main_c.init_called.load(Ordering::SeqCst));
+    }
+
+    // --- Tests for Transitive Dependency Version Validation ---
+    #[tokio::test]
+    async fn test_transitive_dependency_versions_all_compatible() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+
+        // PluginA requires PluginB version ">=1.0.0, <2.0.0"
+        // PluginB version is "1.5.0" (compatible)
+        let plugin_b = Arc::new(MockRegistryPlugin::new(
+            "PluginB", "1.5.0", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(150), None, None
+        ));
+        let plugin_a = Arc::new(MockRegistryPlugin::new(
+            "PluginA", "1.0.0",
+            vec![PluginDependency::required("PluginB", VersionRange::from_str(">=1.0.0, <2.0.0").unwrap())],
+            vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(151), None, None
+        ));
+
+        registry.register_plugin(plugin_b.clone()).unwrap();
+        registry.register_plugin(plugin_a.clone()).unwrap();
+
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
+        assert!(result.is_ok(), "Initialization should succeed with compatible transitive dependencies. Error: {:?}", result.err());
+        assert!(plugin_a.init_called.load(Ordering::SeqCst));
+        assert!(plugin_b.init_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_transitive_dependency_version_incompatible() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+
+        // PluginA requires PluginB version ">=1.0.0, <2.0.0"
+        // PluginB version is "2.1.0" (incompatible)
+        let plugin_b = Arc::new(MockRegistryPlugin::new(
+            "PluginB", "2.1.0", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(150), None, None
+        ));
+        let plugin_a = Arc::new(MockRegistryPlugin::new(
+            "PluginA", "1.0.0",
+            vec![PluginDependency::required("PluginB", VersionRange::from_str(">=1.0.0, <2.0.0").unwrap())],
+            vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(151), None, None
+        ));
+
+        registry.register_plugin(plugin_b.clone()).unwrap();
+        registry.register_plugin(plugin_a.clone()).unwrap();
+
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
+        assert!(result.is_err(), "Initialization should fail due to incompatible transitive dependency version.");
+        
+        if let Err(Error::PluginSystem(PluginSystemError::TransitiveDependencyErrors { errors })) = result {
+            assert_eq!(errors.len(), 1);
+            assert!(errors[0].contains("Plugin 'PluginA' (version 1.0.0) requires dependency 'PluginB' version '>=1.0.0, <2.0.0', but actual version of 'PluginB' is '2.1.0'."));
+        } else {
+            panic!("Expected TransitiveDependencyErrors, got {:?}", result);
+        }
+
+        assert!(!plugin_a.init_called.load(Ordering::SeqCst), "PluginA should not be initialized");
+        assert!(!plugin_b.init_called.load(Ordering::SeqCst), "PluginB should not be initialized because PluginA's pre-flight check failed before B's turn (or A's init failed)");
+    }
+
+    #[tokio::test]
+    async fn test_transitive_dependency_version_incompatible_multiple_errors() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+
+        // PluginB v0.9.0
+        // PluginC v3.0.0
+        // PluginA requires PluginB ">=1.0.0" (fails) and PluginC "<3.0.0" (fails)
+        let plugin_b = Arc::new(MockRegistryPlugin::new("PluginB", "0.9.0", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(140), None, None));
+        let plugin_c = Arc::new(MockRegistryPlugin::new("PluginC", "3.0.0", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(141), None, None));
+        let plugin_a = Arc::new(MockRegistryPlugin::new(
+            "PluginA", "1.0.0",
+            vec![
+                PluginDependency::required("PluginB", VersionRange::from_str(">=1.0.0").unwrap()),
+                PluginDependency::required("PluginC", VersionRange::from_str("<3.0.0").unwrap()),
+            ],
+            vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(151), None, None
+        ));
+
+        registry.register_plugin(plugin_b.clone()).unwrap();
+        registry.register_plugin(plugin_c.clone()).unwrap();
+        registry.register_plugin(plugin_a.clone()).unwrap();
+
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
+        assert!(result.is_err());
+        
+        if let Err(Error::PluginSystem(PluginSystemError::TransitiveDependencyErrors { errors })) = result {
+            assert_eq!(errors.len(), 2);
+            // Order of errors might vary depending on iteration order of dependencies within PluginA
+            let error_b_found = errors.iter().any(|e| e.contains("Plugin 'PluginA' (version 1.0.0) requires dependency 'PluginB' version '>=1.0.0', but actual version of 'PluginB' is '0.9.0'."));
+            let error_c_found = errors.iter().any(|e| e.contains("Plugin 'PluginA' (version 1.0.0) requires dependency 'PluginC' version '<3.0.0', but actual version of 'PluginC' is '3.0.0'."));
+            assert!(error_b_found, "Error for PluginB mismatch not found");
+            assert!(error_c_found, "Error for PluginC mismatch not found");
+        } else {
+            panic!("Expected TransitiveDependencyErrors, got {:?}", result);
+        }
+        assert!(!plugin_a.init_called.load(Ordering::SeqCst));
+        assert!(!plugin_b.init_called.load(Ordering::SeqCst));
+        assert!(!plugin_c.init_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_transitive_dependency_version_dependency_not_enabled() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+
+        // PluginA requires PluginB ">=1.0.0"
+        // PluginB v1.5.0 is registered but *not enabled*
+        let plugin_b = Arc::new(MockRegistryPlugin::new("PluginB", "1.5.0", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(150), None, None));
+        let plugin_a = Arc::new(MockRegistryPlugin::new(
+            "PluginA", "1.0.0",
+            vec![PluginDependency::required("PluginB", VersionRange::from_str(">=1.0.0").unwrap())],
+            vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(151), None, None
+        ));
+
+        registry.register_plugin(plugin_b.clone()).unwrap();
+        registry.register_plugin(plugin_a.clone()).unwrap();
+        let stage_registry_arc_for_disable = create_mock_stage_registry_arc();
+        registry.disable_plugin("PluginB", &stage_registry_arc_for_disable).await.unwrap(); // Disable PluginB
+
+        // The transitive check should *not* fail for PluginB because it's not enabled.
+        // The failure should occur later during PluginA's individual initialization attempt
+        // due to a missing *required* dependency.
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
+        
+        assert!(result.is_err(), "Initialization should fail because PluginA's required dependency PluginB is not enabled.");
+        if let Err(Error::PluginSystem(PluginSystemError::DependencyResolution(dep_err))) = result {
+            assert!(matches!(dep_err, crate::plugin_system::dependency::DependencyError::MissingPlugin(id) if id == "PluginB"));
+        } else {
+            panic!("Expected DependencyResolution(MissingPlugin) for PluginB, got {:?}", result);
+        }
+
+        assert!(!plugin_a.init_called.load(Ordering::SeqCst));
+        assert!(!plugin_b.init_called.load(Ordering::SeqCst));
+    }
+
+     #[tokio::test]
+    async fn test_transitive_dependency_version_unparseable_actual_version() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+
+        // PluginA requires PluginB ">=1.0.0"
+        // PluginB has an unparseable version "not-a-version"
+        let plugin_b = Arc::new(MockRegistryPlugin::new(
+            "PluginB", "not-a-version", vec![], vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(150), None, None
+        ));
+        let plugin_a = Arc::new(MockRegistryPlugin::new(
+            "PluginA", "1.0.0",
+            vec![PluginDependency::required("PluginB", VersionRange::from_str(">=1.0.0").unwrap())],
+            vec![VersionRange::from_str(">=0.1.0").unwrap()], PluginPriority::ThirdParty(151), None, None
+        ));
+
+        registry.register_plugin(plugin_b.clone()).unwrap();
+        registry.register_plugin(plugin_a.clone()).unwrap();
+
+        let result = registry.initialize_all(&mut app, &stage_registry_arc).await;
+        assert!(result.is_err(), "Initialization should fail due to unparseable version of PluginB.");
+        
+        if let Err(Error::PluginSystem(PluginSystemError::TransitiveDependencyErrors { errors })) = result {
+            assert_eq!(errors.len(), 1);
+            assert!(errors[0].contains("Plugin 'PluginA' depends on 'PluginB', but its version 'not-a-version' could not be parsed"));
+        } else {
+            panic!("Expected TransitiveDependencyErrors for unparseable version, got {:?}", result);
+        }
+
+        assert!(!plugin_a.init_called.load(Ordering::SeqCst));
+        assert!(!plugin_b.init_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_disable_initialized_plugin_shuts_down_successfully() {
+        let mut registry = create_test_registry();
+        let mut app = create_mock_app();
+        let stage_registry_arc = create_mock_stage_registry_arc();
+        let plugin_id = "shutdown_test_plugin";
+
+        let mock_plugin = Arc::new(MockRegistryPlugin::default(plugin_id));
+        let init_called_flag = mock_plugin.init_called.clone();
+        let shutdown_called_flag = mock_plugin.shutdown_called.clone();
+
+        registry.register_plugin(mock_plugin.clone()).unwrap();
+
+        // Initialize the plugin
+        let init_result = registry.initialize_plugin(plugin_id, &mut app, &stage_registry_arc).await;
+        assert!(init_result.is_ok(), "Plugin initialization failed: {:?}", init_result.err());
+        assert!(init_called_flag.load(Ordering::SeqCst), "Plugin init() was not called.");
+        assert!(registry.initialized.contains(plugin_id), "Plugin should be in initialized set.");
+        assert!(registry.is_enabled(plugin_id), "Plugin should be enabled after initialization.");
+
+        // Disable the initialized plugin
+        let disable_result = registry.disable_plugin(plugin_id, &stage_registry_arc).await;
+        assert!(disable_result.is_ok(), "disable_plugin failed: {:?}", disable_result.err());
+
+        // Assertions
+        assert!(shutdown_called_flag.load(Ordering::SeqCst), "Plugin shutdown() was not called.");
+        assert!(!registry.initialized.contains(plugin_id), "Plugin should NOT be in initialized set after disable.");
+        assert!(!registry.is_enabled(plugin_id), "Plugin should NOT be enabled after disable.");
+
+        // Verify stages would be unregistered (conceptual check, actual stage unregistration is harder to assert here)
+        // For a real test, one might check stage_registry_arc.lock().await.has_stage("shutdown_test_plugin::some_stage_id")
+        // if the mock plugin registered a known stage. Our MockRegistryPlugin's register_stages is a no-op for specific IDs.
+        // The core logic is that shutdown_plugin_instance was called, which *would* unregister stages.
     }
 }
